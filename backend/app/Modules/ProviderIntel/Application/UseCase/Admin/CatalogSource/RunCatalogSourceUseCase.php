@@ -33,15 +33,19 @@ final class RunCatalogSourceUseCase
      * mode : OCR制御（auto | force_ocr）
      */
     public function handle(
-        int $sourceId,
-        bool $force = false,
-        ?string $forceReason = null,
-        string $mode = 'auto',
-    ): array {
-        // ✅ allow-list（今のv4.2はこの2つで十分）
-        if (!in_array($mode, ['auto', 'force_ocr'], true)) {
-            $mode = 'auto';
-        }
+    int $sourceId,
+    bool $force = false,
+    ?string $forceReason = null,
+    string $mode = 'auto',   // ★追加
+): array
+{
+    // mode normalize（不正値はautoに倒す）
+    if (!in_array($mode, ['auto', 'force_ocr'], true)) {
+        $mode = 'auto';
+    }
+
+    $engine = 'tesseract';   // v4.2 固定（将来 engine router へ）
+    $lang   = 'jpn';         // v4.2 固定（必要なら jpn+eng）
 
         $source = $this->sources->find($sourceId);
         if (!$source) {
@@ -81,31 +85,39 @@ final class RunCatalogSourceUseCase
         $extractMeta = [];
 
         if ($sourceType === 'pdf') {
-            // ✅ forceとは独立して mode を渡す（force=再抽出、mode=OCR）
-            $ex = $this->pdfExtractor->extractWithFallbackFromPdfBytes(
-                pdfBytes: (string)$r['body'],
-                sourceUrl: (string)$url,
-                lang: 'jpn',
-                engine: 'tesseract',
-                mode: $mode,
-            );
-            $text = (string)($ex['text'] ?? '');
-            $extractMeta = is_array($ex['meta'] ?? null) ? $ex['meta'] : [];
-        } else {
-            $text = $this->htmlExtractor->extract((string)$r['body']);
-        }
+    $ex = $this->pdfExtractor->extractWithFallbackFromPdfBytes(
+        pdfBytes: (string)$r['body'],
+        sourceUrl: (string)$url,
+        lang: $lang,
+        engine: $engine,
+        mode: $mode,
+    );
+    $text = $ex['text'];
+    $extractMeta = $ex['meta'] ?? [];
+} else {
+    $text = $this->htmlExtractor->extract((string)$r['body']);
+    $extractMeta = [];
+}
 
         // extracted_document（content_hashはテキストのsha256）
         $afterDocId = $this->docs->save([
-            'project_id' => $source->projectId(),
-            'domain' => 'providerintel',
-            'source_type' => $sourceType,
-            'source_url' => $source->sourceUrl(),
-            'source_url_hash' => $source->sourceUrlHash(),
-            'content_text' => $text,
-            'content_hash' => hash('sha256', $text),
-            'extracted_at' => now(),
-        ]);
+    'project_id' => $source->projectId(),
+    'domain' => 'providerintel',
+    'source_type' => $sourceType,
+    'source_url' => $source->sourceUrl(),
+    'source_url_hash' => $source->sourceUrlHash(),
+
+    // v4.2.2 key
+    'raw_hash' => $newHash,
+    'engine' => $sourceType === 'pdf' ? $engine : '',
+    'mode' => $sourceType === 'pdf' ? $mode : '',
+    'lang' => $sourceType === 'pdf' ? $lang : '',
+    'pipeline_version' => 'v4.2',
+
+    'content_text' => $text,
+    'content_hash' => hash('sha256', $text),
+    'extracted_at' => now(),
+]);
 
         // before doc（同URL hashで最新、ただし自分除外）
         $before = $this->docs->findLatestBySourceUrlHashExcludingId(

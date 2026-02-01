@@ -1,7 +1,9 @@
-# アプリケーション名： sanctum ステートフル　Auth 　学習プロジェクト<br>
+# アプリケーション名： Stateful　からAWS+AuthO認証　DDD　マルチテナント　AI 決済マルチゲートウェイ<br>
 
+リポジトリ名：<br>
+research-stateful-auth-archaeology<br>
 ブランチ名：<br>
-- main　　　　　　　　　　　　　　　- Laravel11　単体<br>
+- main<br>
 
 それぞれのブランチのREADMEを参照してセットアップ<br>
 
@@ -55,6 +57,13 @@ laravel環境構築
 　（mysql接続後）CREATE DATABASE coachtech1_test;　を実行 (実行後exitコマンドでターミナルまで戻る)<br>
 （ターミナルで　docker-compose exec php bash を実行した後のPHPコンテナーで）php artisan test　を実行してテストをしてください。<br>
 <br>
+
+-  ダミーのユーザーデーターと出品商品データーのシーダーファイルで作りましたので、PHPコンテナーで上記の通り　php artisan db:seed　を実行してください。<br>
+   ダミーのユーザー情報です。'　'は削除してください。<br>
+   １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'Testtest1'　出品数：'２品'　ロール：Shop Owner（Shop Ownerはそれぞれのショップのダッシュボードにログイン後移動します。）<br>
+   ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
+   ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
+   ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br>
 
 # 次のステップ提案<br>
 
@@ -129,8 +138,8 @@ WEBサイトにも良く反映されて景気の波にも負けないような�
 <br>
 
 # URL<br>
-  - フリマアプリトップページ： https://localhost:3000/
-  - ユーザー登録： https://localhost:3000/register
-  - phpMyAdmin:http://localhost:8080/
+  - フリマアプリトップページ： http://localhost/
+  - ユーザー登録： http://localhost/register
+  - phpMyAdmin:http://localhost:8080/index.php
   - meilhog： http://localhost:8025/
 

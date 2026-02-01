@@ -141,7 +141,7 @@ const [loginAt] = useState<string | null>(() => {
           className="p-4 border rounded hover:bg-gray-50"
         >
           注文・配送管理
-          <p className="text-xs text-gray-500 mt-1">※手動→半自動→自動配送管理予定計画</p>
+          <p className="text-xs text-gray-500 mt-1">※手動→半自動（構築中）→自動配送管理予定計画</p>
         </Link>
 
         <Link
