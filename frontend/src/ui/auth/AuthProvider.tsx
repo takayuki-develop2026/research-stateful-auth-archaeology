@@ -2,15 +2,18 @@
 
 import React from "react";
 import dynamic from "next/dynamic";
+
 export { useAuth } from "@/ui/auth/core/AuthContextCore";
+
 const SanctumProvider = dynamic(() => import("./modes/SanctumProvider"), {
   ssr: false,
 });
+
 const FirebaseJwtProvider = dynamic(
   () => import("./modes/FirebaseJwtProvider"),
-  { ssr: false }
+  { ssr: false },
 );
-// 将来:
+
 const IdaasProvider = dynamic(() => import("./modes/IdaasProvider"), {
   ssr: false,
 });

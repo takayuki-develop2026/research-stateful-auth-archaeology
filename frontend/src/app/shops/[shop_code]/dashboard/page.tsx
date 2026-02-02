@@ -1,39 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/ui/auth/AuthProvider";
 
-type ShopOutput = {
-  id: number;
-  shop_code: string;
-  name: string;
-  status: string;
-};
+function subscribeLastLoginAt(onStoreChange: () => void) {
+  const onChanged = () => onStoreChange();
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === "last_login_at") onStoreChange();
+  };
+  const onFocus = () => onStoreChange();
+  const onVisibility = () => onStoreChange();
 
-type ShopsMeResponse =
-  | { shop: ShopOutput }
-  | { shops: ShopOutput[] }
-  | ShopOutput
-  | ShopOutput[];
+  window.addEventListener("occ:last_login_at_changed", onChanged);
+  window.addEventListener("storage", onStorage);
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibility);
 
-// function getCookieValue(name: string): string | null {
-//   if (typeof document === "undefined") return null;
-//   const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-//   return m ? m[2] : null;
-// }
-// function getXsrfToken(): string | null {
-//   const raw = getCookieValue("XSRF-TOKEN");
-//   if (!raw) return null;
-//   try {
-//     return decodeURIComponent(raw);
-//   } catch {
-//     return raw;
-//   }
-// }
+  return () => {
+    window.removeEventListener("occ:last_login_at_changed", onChanged);
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+}
 
+function getLastLoginAtSnapshot(): string | null {
+  try {
+    return localStorage.getItem("last_login_at");
+  } catch {
+    return null;
+  }
+}
 
+// SSR用（Client Componentでも要求されることがあるので同じでOK）
+function getLastLoginAtServerSnapshot(): string | null {
+  return null;
+}
 
 export default function ShopDashboardPage() {
   const params = useParams();
@@ -48,46 +52,40 @@ export default function ShopDashboardPage() {
     apiClient,
   } = useAuth() as any;
 
-  // 追加：表示用
   const [shopName, setShopName] = useState<string | null>(null);
-const [loginAt] = useState<string | null>(() => {
-  try {
-    return localStorage.getItem("last_login_at");
-  } catch {
-    return null;
-  }
-});
 
-  // shop の自分情報（/api/shops/me）から shop_name を取得
+  // ✅ これが「リアルタイム表示の本体」
+  const loginAt = useSyncExternalStore(
+    subscribeLastLoginAt,
+    getLastLoginAtSnapshot,
+    getLastLoginAtServerSnapshot,
+  );
+
+  // shop 名取得（ここはそのまま）
   useEffect(() => {
     if (!authReady || isAuthLoading) return;
     if (!isAuthenticated) return;
     if (!shop_code) return;
 
-    (apiClient.get("/shops/me") as Promise<ShopsMeResponse>)
+    (apiClient.get("/shops/me") as Promise<any>)
       .then((res) => {
-        let shops: ShopOutput[] = [];
-
-        if (Array.isArray(res)) {
-          shops = res as any;
-        } else if ((res as any)?.shops && Array.isArray((res as any).shops)) {
-          shops = (res as any).shops;
-        } else if ((res as any)?.shop) {
-          shops = [(res as any).shop];
-        } else if ((res as any)?.shop_code) {
-          shops = [res as any];
-        }
-
-        const hit = shops.find((s) => s.shop_code === shop_code);
+        const shops = Array.isArray(res)
+          ? res
+          : Array.isArray(res?.shops)
+            ? res.shops
+            : res?.shop
+              ? [res.shop]
+              : res?.shop_code
+                ? [res]
+                : [];
+        const hit = shops.find((s: any) => s.shop_code === shop_code);
         setShopName(hit?.name ?? null);
       })
       .catch(() => setShopName(null));
   }, [authReady, isAuthLoading, isAuthenticated, shop_code, apiClient]);
 
-  if (!authReady || isAuthLoading) {
+  if (!authReady || isAuthLoading)
     return <div className="p-6">読み込み中...</div>;
-  }
-
   if (!isAuthenticated) {
     router.replace("/login");
     return null;
@@ -103,9 +101,8 @@ const [loginAt] = useState<string | null>(() => {
         ["owner", "manager", "staff"].includes(r.role),
     ) ?? false;
 
-  if (!isShopStaff) {
+  if (!isShopStaff)
     return <div className="p-6">アクセス権限がありません。</div>;
-  }
 
   return (
     <div className="p-6 space-y-4">
@@ -141,7 +138,9 @@ const [loginAt] = useState<string | null>(() => {
           className="p-4 border rounded hover:bg-gray-50"
         >
           注文・配送管理
-          <p className="text-xs text-gray-500 mt-1">※手動→半自動（構築中）→自動配送管理予定計画</p>
+          <p className="text-xs text-gray-500 mt-1">
+            ※手動→半自動（構築中）→自動配送管理(予定計画)
+          </p>
         </Link>
 
         <Link
@@ -207,7 +206,9 @@ const [loginAt] = useState<string | null>(() => {
               className="text-blue-600 underline"
             >
               ▶ 管理レビュー一覧
-              <p className="text-xs text-gray-500">※Stripe以外のPSP切り替え実装予定計画</p>
+              <p className="text-xs text-gray-500">
+                ※Stripe以外のPSP切り替え実装予定計画
+              </p>
             </Link>
           </div>
         </div>

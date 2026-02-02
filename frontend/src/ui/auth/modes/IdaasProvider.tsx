@@ -6,6 +6,7 @@ import type { AuthContext } from "@/ui/auth/contracts";
 import type { AuthUser } from "@/domain/auth/AuthUser";
 import { AuthCtx } from "@/ui/auth/core/AuthContextCore";
 import { TokenStorage } from "@/infrastructure/auth/TokenStorage";
+import { AuthContextCoreProvider } from "@/ui/auth/core/AuthContextCore";
 
 type ApiClient = {
   get<T>(url: string): Promise<T>;
@@ -563,5 +564,7 @@ export default function IdaasProvider({
     [isLoading, authReady, user, apiClient, refresh],
   );
 
-  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
+  return (
+    <AuthContextCoreProvider value={value}>{children}</AuthContextCoreProvider>
+  );
 }

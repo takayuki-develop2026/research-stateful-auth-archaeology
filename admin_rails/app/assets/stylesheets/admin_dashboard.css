@@ -1,0 +1,137 @@
+.dash { padding: 28px; max-width: 1100px; margin: 0 auto; }
+.dash__header { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:18px; }
+.dash__title { font-size: 34px; font-weight: 800; margin: 0; }
+.dash__subtitle { margin: 6px 0 0; color:#555; }
+.dash__badges { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+
+.badge { font-size:12px; padding:6px 10px; border-radius:999px; border:1px solid #e5e5e5; background:#fafafa; color:#333; }
+.badge--muted { background:#f6f6f6; }
+
+.dash__grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+.card { border:1px solid #e8e8e8; border-radius: 14px; background:#fff; padding: 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.04); }
+.card--right { background: linear-gradient(0deg, #ffffff, #fbfdff); }
+.card__top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+.card__title { font-size:18px; font-weight:800; margin:0; }
+.card__desc { margin: 4px 0 0; color:#666; font-size:13px; }
+
+.pill { font-size:12px; padding:6px 10px; border-radius:999px; border:1px solid #e5e5e5; }
+.pill--yellow { background:#fff8db; border-color:#f2e1a2; }
+.pill--sky { background:#e9f7ff; border-color:#bfe9ff; }
+.pill--blue { background:#eef2ff; border-color:#cfd7ff; }
+
+.card__actions { display:flex; flex-wrap:wrap; gap:8px; margin-top: 12px; }
+.btn { display:inline-block; padding:10px 12px; border-radius: 10px; font-size:13px; text-decoration:none; border:1px solid #e5e5e5; }
+.btn--primary { background:#111; color:#fff; border-color:#111; }
+.btn--ghost { background:#fff; color:#111; }
+.btn--dangerGhost { background:#fff; color:#b42318; border-color:#f3c2bd; }
+
+.card__meta { margin-top: 12px; padding-top: 12px; border-top:1px solid #f0f0f0; display:grid; grid-template-columns: 1fr; gap:6px; }
+.kv { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:#444; }
+.kv__k { color:#777; }
+.kv__v { font-weight:600; }
+
+.dot { display:inline-block; width:8px; height:8px; border-radius:999px; margin-right:6px; vertical-align:middle; }
+.dot--ok { background:#22c55e; }
+.dot--ng { background:#ef4444; }
+
+.dash__footer { margin-top: 14px; color:#777; font-size:12px; }
+.hint { padding: 10px 12px; border-radius: 12px; background:#fafafa; border:1px solid #efefef; }
+
+@media (max-width: 860px) {
+  .dash__grid { grid-template-columns: 1fr; }
+  .dash__header { flex-direction:column; align-items:flex-start; }
+}
+
+/* ===== Card hover (enabled only) ===== */
+.card {
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  position: relative;
+}
+
+.card.is-clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(16, 24, 40, 0.12);
+  border-color: rgba(59, 130, 246, 0.45); /* blue-ish */
+}
+
+.card.is-clickable:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+}
+
+/* ===== Buttons hover ===== */
+.btn {
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(16, 24, 40, 0.10);
+}
+
+/* 例: primary hover を“良い色”へ */
+.btn--primary:hover {
+  filter: brightness(0.97);
+}
+
+/* ghost hover */
+.btn--ghost:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.30);
+}
+
+/* danger ghost hover */
+.btn--dangerGhost:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.30);
+}
+
+/* ===== Disabled state (global) ===== */
+.card--disabled {
+  opacity: 0.78;
+}
+
+.btn.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none; /* クリック禁止 */
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* card disabled hover: "動かない" */
+.card--disabled:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: inherit;
+}
+
+/* ===== Coming soon stamp ===== */
+.card__stamp {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  color: rgba(15, 23, 42, 0.72);
+}
+
+/* Optional: disabled card shows subtle diagonal pattern */
+.card--disabled::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.06),
+    rgba(148, 163, 184, 0.06) 10px,
+    rgba(255, 255, 255, 0.00) 10px,
+    rgba(255, 255, 255, 0.00) 20px
+  );
+  border-radius: inherit;
+}

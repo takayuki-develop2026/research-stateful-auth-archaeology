@@ -43,12 +43,7 @@ export default function LoginPage() {
       // Sanctum / firebase_jwt
       await login({ email, password });
 
-      try {
-        localStorage.setItem("last_login_at", new Date().toISOString());
-      } catch {
-        // ignore
-      }
-
+      // AuthProvider 側で user 確定を揃える（互換alias）
       if (typeof refresh === "function") {
         await refresh();
       }
@@ -61,12 +56,10 @@ export default function LoginPage() {
       }
 
       const shopRoles = Array.isArray(me?.shop_roles) ? me.shop_roles : [];
-      if (shopRoles.length > 0) {
-        const primary = shopRoles[0];
-        if (primary?.shop_code) {
-          router.replace(`/shops/${primary.shop_code}/dashboard`);
-          return;
-        }
+      const primary = shopRoles[0];
+      if (primary?.shop_code) {
+        router.replace(`/shops/${primary.shop_code}/dashboard`);
+        return;
       }
 
       router.replace("/");
@@ -146,14 +139,6 @@ export default function LoginPage() {
           <p className="text-xs text-gray-600">
             SSOログインはメール/パスワード入力ではなく、Auth0へリダイレクトします。
           </p>
-
-          {isDev && (
-            <p className="text-xs text-gray-500">
-              Sanctum / Firebase JWT に戻す場合は{" "}
-              <span className="font-mono">NEXT_PUBLIC_AUTH_MODE</span>{" "}
-              を変更して再起動してください。
-            </p>
-          )}
         </form>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -188,14 +173,6 @@ export default function LoginPage() {
           >
             {isSubmitting ? "ログイン中..." : "ログインする"}
           </button>
-
-          {isDev && (
-            <div className="text-xs text-gray-500">
-              ※ SSO（Auth0 PKCE）を使う場合は{" "}
-              <span className="font-mono">NEXT_PUBLIC_AUTH_MODE=idaas</span>{" "}
-              に変更して再起動してください。
-            </div>
-          )}
         </form>
       )}
 

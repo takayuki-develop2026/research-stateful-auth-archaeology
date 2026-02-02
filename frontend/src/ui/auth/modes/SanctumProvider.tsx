@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { AuthContext } from "@/ui/auth/contracts";
 import type { AuthUser } from "@/domain/auth/AuthUser";
-import { AuthCtx } from "@/ui/auth/core/AuthContextCore";
+import { AuthContextCoreProvider } from "@/ui/auth/core/AuthContextCore";
 import { SanctumAuthAdapter } from "@/ui/auth/sanctum/SanctumAuthAdapter";
 
 export default function SanctumProvider({
@@ -21,10 +21,10 @@ export default function SanctumProvider({
 
   useEffect(() => {
     let mounted = true;
+
     (async () => {
-      setIsLoading(true);
       try {
-        const u = await adapter.init();
+        const u = await adapter.init(); // あなたの adapter 仕様に合わせる
         if (mounted) setUser(u);
       } finally {
         if (mounted) {
@@ -33,15 +33,16 @@ export default function SanctumProvider({
         }
       }
     })();
+
     return () => {
       mounted = false;
     };
   }, [adapter]);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const u = await adapter.init();
     setUser(u);
-  };
+  }, [adapter]);
 
   const value: AuthContext = useMemo(
     () => ({
@@ -64,8 +65,10 @@ export default function SanctumProvider({
 
       refresh,
     }),
-    [adapter, isLoading, authReady, user, router]
+    [adapter, isLoading, authReady, user, router, refresh],
   );
 
-  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
+  return (
+    <AuthContextCoreProvider value={value}>{children}</AuthContextCoreProvider>
+  );
 }

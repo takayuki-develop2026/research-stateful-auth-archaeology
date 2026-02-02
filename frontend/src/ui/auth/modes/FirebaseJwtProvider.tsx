@@ -1,10 +1,16 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { AuthContext } from "@/ui/auth/contracts";
 import type { AuthUser } from "@/domain/auth/AuthUser";
-import { AuthCtx } from "@/ui/auth/core/AuthContextCore";
+import { AuthContextCoreProvider } from "@/ui/auth/core/AuthContextCore";
 
 import { AuthService } from "@/application/auth/AuthService";
 import { FirebaseAuthClient } from "@/infrastructure/auth/FirebaseAuthClient";
@@ -25,22 +31,26 @@ export default function FirebaseJwtProvider({
   const [user, setUser] = useState<AuthUser | null>(null);
 
   const authServiceRef = useRef<AuthService | null>(null);
-  const laravelApiRef = useRef<LaravelAuthApi | null>(null);
 
-  // contracts準拠のApiClient（fetch + Bearer）
   const apiClient = useMemo(() => createFirebaseJwtApiClient(), []);
+
+  const refresh = useCallback(async () => {
+    try {
+      const u = await apiClient.get<AuthUser>("/me");
+      setUser(u);
+    } catch {
+      setUser(null);
+    }
+  }, [apiClient]);
 
   useEffect(() => {
     const firebase = new FirebaseAuthClient();
 
-    // 旧LaravelAuthApiはaxios想定っぽいので、ここは「移行期の最小動作」として残す
     const api = new LaravelAuthApi(null);
-    const client = createHttpClient(null); // refreshService未使用フェーズは null
+    const client = createHttpClient(null);
     api.setClient(client);
 
     const auth = new AuthService(firebase, api);
-
-    laravelApiRef.current = api;
     authServiceRef.current = auth;
 
     const { accessToken } = TokenStorage.load();
@@ -52,8 +62,7 @@ export default function FirebaseJwtProvider({
 
     (async () => {
       try {
-        const u = await apiClient.get<AuthUser>("/me");
-        setUser(u);
+        await refresh();
       } catch {
         TokenStorage.clear();
         setUser(null);
@@ -62,16 +71,7 @@ export default function FirebaseJwtProvider({
         setAuthReady(true);
       }
     })();
-  }, [apiClient]);
-
-  const refresh = async () => {
-    try {
-      const u = await apiClient.get<AuthUser>("/me");
-      setUser(u);
-    } catch {
-      setUser(null);
-    }
-  };
+  }, [apiClient, refresh]);
 
   const value: AuthContext = useMemo(
     () => ({
@@ -104,8 +104,10 @@ export default function FirebaseJwtProvider({
 
       refresh,
     }),
-    [isLoading, authReady, user, apiClient, router],
+    [isLoading, authReady, user, apiClient, router, refresh],
   );
 
-  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
+  return (
+    <AuthContextCoreProvider value={value}>{children}</AuthContextCoreProvider>
+  );
 }

@@ -14,7 +14,7 @@ export interface AuthClient {
   register(
     name: string,
     email: string,
-    password: string
+    password: string,
   ): Promise<RegisterResult>;
   logout(): Promise<void>;
   me(): Promise<AuthUser | null>;

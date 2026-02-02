@@ -125,7 +125,7 @@ function PurchaseConfirmPage() {
         const res = await apiClient.get<WalletPaymentMethodsResponse>(
           "/wallet/payment-methods",
         );
-
+        console.log("[🔥wallet/payment-methods]", res); // ★追加
         if (cancelled) return;
 
         const list = res?.payment_methods ?? [];
@@ -316,6 +316,7 @@ function PurchaseConfirmPage() {
         router.replace(`/thanks/buy/konbini?order_id=${orderId}`);
       }
     } catch (e: any) {
+      console.error("[🔥wallet/payment-methods] failed", e); // ★追加
       console.error(e);
       alert(
         e?.response?.data?.message ?? e?.message ?? "購入処理に失敗しました",
