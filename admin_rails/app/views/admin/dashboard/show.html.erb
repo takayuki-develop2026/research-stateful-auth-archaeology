@@ -1,7 +1,7 @@
 <%# app/views/admin/dashboard/show.html.erb %>
 
 <% occore_web = ENV["OCCORE_WEB_BASE_URL"] || "http://localhost" %>
-<%= link_to "Sign in", "#{occore_web}/ログインへ戻る", class: "badge badge--link" %>
+<%= link_to "ログインへ戻る", "#{occore_web}/login", class: "badge badge--link" %>
 
 <%# 今の有効範囲：TrustLedger for OCC だけ true %>
 <% enabled = {

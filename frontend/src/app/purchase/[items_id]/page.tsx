@@ -40,19 +40,14 @@ export default function PurchaseConfirmPageWrapper() {
   );
 }
 
-type CreateOrderResponse = {
-  order_id: number;
-};
-
-type StartPaymentResponse = {
-  client_secret: string;
-};
+type CreateOrderResponse = { order_id: number };
+type StartPaymentResponse = { client_secret: string };
 
 type OneClickResponse = {
   payment_id: number;
   status: string;
   provider_payment_id: string;
-  client_secret: string;
+  client_secret: string | null;
   requires_action: boolean;
 };
 
@@ -70,6 +65,11 @@ type WalletPaymentMethodsResponse = {
     is_default: boolean;
     one_click_eligible: boolean;
   }>;
+};
+
+type CreateSetupIntentResponse = {
+  setup_intent_id: string;
+  client_secret: string;
 };
 
 /* ================= Page ================= */
@@ -92,6 +92,7 @@ function PurchaseConfirmPage() {
     isLoading: isItemLoading,
     isError: isItemError,
   } = useItemDetailSWR(itemId);
+
   const {
     address,
     isLoading: isAddressLoading,
@@ -107,11 +108,51 @@ function PurchaseConfirmPage() {
   const [oneClickEnabled, setOneClickEnabled] = useState(false);
   const [defaultPmLabel, setDefaultPmLabel] = useState<string | null>(null);
 
-  // 支払い方法が card の時だけ Wallet を確認
+  // --- Save-card state ---
+  const [saveCardLoading, setSaveCardLoading] = useState(false);
+
+  /**
+   * UI制御の重要方針
+   * - oneClickAvailable: 「保存カードが存在し、かつ one-click 可能」かどうか（サーバ判定）
+   * - oneClickEnabled  : 「今回の購入で保存カードを使うかどうか」（ユーザー選択）
+   *
+   * ✅ 2回目以降の要件：
+   * - 保存カードがあっても oneClickEnabled をOFFにしたら CardElement を出して別カードで買える
+   *   => カード入力欄の表示条件は「payment=card && (!oneClickAvailable || !oneClickEnabled)」
+   */
+
+  const applyWalletState = (
+    res: WalletPaymentMethodsResponse | null | undefined,
+  ) => {
+    const list = res?.payment_methods ?? [];
+    const def = list.find((x) => x.is_default);
+
+    const ok =
+      res?.exists === true &&
+      !!def &&
+      def.source === "card" &&
+      def.one_click_eligible === true;
+
+    setOneClickAvailable(ok);
+
+    if (ok && def) {
+      setDefaultPmLabel(
+        `${String(def.brand ?? "").toUpperCase()} **** ${def.last4} (exp ${def.exp_month}/${def.exp_year})`,
+      );
+      // 保存カードがある場合の既定：ON（あなたの方針）
+      setOneClickEnabled(true);
+    } else {
+      setDefaultPmLabel(null);
+      setOneClickEnabled(false);
+    }
+  };
+
+  // card 選択時だけ wallet を確認
   useEffect(() => {
     let cancelled = false;
 
     const run = async () => {
+      // 先にリセット（体感の安定）
       setOneClickAvailable(false);
       setDefaultPmLabel(null);
       setOneClickEnabled(false);
@@ -125,33 +166,16 @@ function PurchaseConfirmPage() {
         const res = await apiClient.get<WalletPaymentMethodsResponse>(
           "/wallet/payment-methods",
         );
-        console.log("[🔥wallet/payment-methods]", res); // ★追加
+        console.log("[🔥wallet/payment-methods]", res);
         if (cancelled) return;
 
-        const list = res?.payment_methods ?? [];
-        const def = list.find((x) => x.is_default);
-
-        const ok =
-          res?.exists === true &&
-          !!def &&
-          def.source === "card" &&
-          def.one_click_eligible === true;
-
-        setOneClickAvailable(ok);
-
-        if (ok && def) {
-          setDefaultPmLabel(
-            `${def.brand.toUpperCase()} **** ${def.last4} (exp ${def.exp_month}/${def.exp_year})`,
-          );
-          // デフォルトでONにしたいなら true にする。安全寄りなら false のまま。
-          setOneClickEnabled(true);
-        } else {
-          setOneClickEnabled(false);
-        }
-      } catch {
+        applyWalletState(res);
+      } catch (e) {
         if (cancelled) return;
+        console.error("[🔥wallet/payment-methods] failed", e);
         setOneClickAvailable(false);
         setOneClickEnabled(false);
+        setDefaultPmLabel(null);
       } finally {
         if (!cancelled) setWalletLoading(false);
       }
@@ -162,6 +186,85 @@ function PurchaseConfirmPage() {
       cancelled = true;
     };
   }, [payment, apiClient, isAuthenticated]);
+
+  // ✅ 保存カード（SetupIntent → confirmCardSetup）
+  const saveCardForOneClick = async () => {
+    console.log("[🔥saveCardForOneClick] clicked");
+
+    if (!apiClient) {
+      alert("APIクライアントが準備できていません。");
+      return;
+    }
+    if (!isAuthenticated) {
+      alert("ログインが必要です。");
+      return;
+    }
+    if (!stripe || !elements) {
+      alert("決済の準備が整っていません。");
+      return;
+    }
+
+    const card = elements.getElement(CardElement);
+    if (!card) {
+      alert("カード入力欄が見つかりません。");
+      return;
+    }
+
+    try {
+      setSaveCardLoading(true);
+
+      // ① SetupIntent 作成（Laravel）
+      const si = await apiClient.post<CreateSetupIntentResponse>(
+        "/wallet/setup-intent",
+        {},
+      );
+
+      console.log("[🔥setup-intent]", si);
+
+      if (!si?.client_secret) {
+        alert("client_secret が取得できませんでした。");
+        return;
+      }
+
+      // ② Stripe confirmCardSetup
+      const result = await stripe.confirmCardSetup(si.client_secret, {
+        payment_method: { card },
+      });
+
+      if (result.error) {
+        alert(result.error.message ?? "カード保存に失敗しました。");
+        return;
+      }
+
+      const status = result.setupIntent?.status;
+      console.log("[🔥confirmCardSetup] status", status);
+
+      if (status !== "succeeded") {
+        alert("カード保存が完了しませんでした（status != succeeded）");
+        return;
+      }
+
+      // ③ webhook反映待ち → wallet再取得
+      await new Promise((r) => setTimeout(r, 1200));
+
+      setWalletLoading(true);
+      const wallet = await apiClient.get<WalletPaymentMethodsResponse>(
+        "/wallet/payment-methods",
+      );
+      console.log("[🔥wallet/payment-methods after save]", wallet);
+      applyWalletState(wallet);
+
+      alert("カードを保存しました。One-clickが利用可能になります。");
+    } catch (e: any) {
+      console.error("[🔥saveCardForOneClick] failed", e);
+      alert(
+        e?.response?.data?.message ?? e?.message ?? "カード保存に失敗しました",
+      );
+    } finally {
+      setWalletLoading(false);
+      setSaveCardLoading(false);
+    }
+  };
 
   /* ================= Guard ================= */
   if (isAuthLoading || isItemLoading || isAddressLoading) {
@@ -184,16 +287,17 @@ function PurchaseConfirmPage() {
 
   const resolvedItem = item;
 
+  // ✅ カード入力が必要かどうか（保存カードが無い OR One-clickを使わない）
+  const needsCardInput =
+    payment === "card" && (!oneClickAvailable || !oneClickEnabled);
+
   const canPurchase =
     isAuthenticated &&
     resolvedItem.remain > 0 &&
     payment !== "" &&
     !!address?.id &&
-    !processing &&
-    // card の場合：one-click OFF なら CardElement を要求（submit内でも最終チェック）
-    (payment !== "card" || oneClickEnabled || true);
+    !processing;
 
-  // Order が paid になるのを待つ（Webhookタイミング差吸収）
   const waitUntilPaid = async (orderId: number, timeoutMs = 15000) => {
     if (!apiClient) return false;
 
@@ -243,19 +347,22 @@ function PurchaseConfirmPage() {
       await apiClient.post(`/orders/${orderId}/confirm`);
 
       // ④ Payment
+      // ---- One-click (保存カード) ----
       if (payment === "card" && oneClickEnabled && oneClickAvailable) {
-        // ---- One-click ----
         const oc = await apiClient.post<OneClickResponse>(
           "/wallet/one-click-checkout",
-          {
-            order_id: orderId,
-          },
+          { order_id: orderId },
         );
 
         // 3DSなどが必要ならここで実行
         if (oc.requires_action) {
           if (!stripe) {
             alert("決済の準備が整っていません。");
+            setProcessing(false);
+            return;
+          }
+          if (!oc.client_secret) {
+            alert("client_secret が取得できませんでした。");
             setProcessing(false);
             return;
           }
@@ -267,20 +374,15 @@ function PurchaseConfirmPage() {
           }
         }
 
-        // webhook遅延に備えて paid を待つ
         await waitUntilPaid(orderId);
-
         router.replace(`/thanks/buy/stripe-card?order_id=${orderId}`);
         return;
       }
 
-      // ---- 通常（今まで通り）----
+      // ---- 通常（別カード入力 / 保存カードなし / One-click OFF）----
       const paymentRes = await apiClient.post<StartPaymentResponse>(
         "/payments/start",
-        {
-          order_id: orderId,
-          method: payment,
-        },
+        { order_id: orderId, method: payment },
       );
 
       if (payment === "card") {
@@ -316,7 +418,6 @@ function PurchaseConfirmPage() {
         router.replace(`/thanks/buy/konbini?order_id=${orderId}`);
       }
     } catch (e: any) {
-      console.error("[🔥wallet/payment-methods] failed", e); // ★追加
       console.error(e);
       alert(
         e?.response?.data?.message ?? e?.message ?? "購入処理に失敗しました",
@@ -358,13 +459,13 @@ function PurchaseConfirmPage() {
                 <option value="card">クレジットカード支払い</option>
               </select>
 
-              {/* One-click toggle (card only) */}
               {payment === "card" && (
                 <div className={styles.oneClickBox}>
                   <div className={styles.oneClickRow}>
                     <div className={styles.oneClickTitle}>
                       One-click（保存カード）
                     </div>
+
                     {walletLoading ? (
                       <span className={styles.oneClickHint}>確認中...</span>
                     ) : oneClickAvailable ? (
@@ -373,7 +474,7 @@ function PurchaseConfirmPage() {
                           type="checkbox"
                           checked={oneClickEnabled}
                           onChange={(e) => setOneClickEnabled(e.target.checked)}
-                          disabled={processing}
+                          disabled={processing || saveCardLoading}
                         />
                         <span>使用する</span>
                       </label>
@@ -398,18 +499,75 @@ function PurchaseConfirmPage() {
               )}
             </div>
 
-            {/* 通常カード入力：oneClickEnabled がOFFのときだけ */}
-            {payment === "card" && !oneClickEnabled && (
+            {/* ✅ カード入力欄：保存カードが無い or One-click OFF のとき必ず出す */}
+            {needsCardInput && (
               <div className={styles.item_buy_content_section}>
                 <h4>カード情報</h4>
                 <div className={styles.stripeCardWrapper}>
                   <CardElement
                     options={{
                       hidePostalCode: true,
+                      // Stripe Linkモーダル抑止（環境によって効かない場合あり）
+                      disableLink: true,
                       style: { base: { fontSize: "16px" } },
                     }}
                   />
                 </div>
+
+                {/* ✅ 保存カードが無い場合のみ、保存UIを出す（見た目は控えめの小ボタン） */}
+                {payment === "card" && !oneClickAvailable && (
+                  <div className={styles.oneClickBox} style={{ marginTop: 12 }}>
+                    <div className={styles.oneClickRow}>
+                      <div className={styles.oneClickTitle}>保存カード</div>
+                      <span className={styles.oneClickHint}>
+                        One-click用にカードを保存できます
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: 10,
+                        display: "flex",
+                        justifyContent: "flex-start",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={saveCardForOneClick}
+                        disabled={
+                          processing || saveCardLoading || walletLoading
+                        }
+                        // ✅ 小さく、上品に（既存CSSを壊さない最小）
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: "1px solid #e5e7eb",
+                          background: "#fff",
+                          fontSize: 13,
+                          lineHeight: "18px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {saveCardLoading ? "保存中..." : "このカードを保存"}
+                      </button>
+
+                      <span
+                        className={styles.oneClickHint}
+                        style={{ marginLeft: 10, alignSelf: "center" }}
+                      >
+                        （One-click用）
+                      </span>
+                    </div>
+
+                    <div
+                      className={styles.oneClickNote}
+                      style={{ marginTop: 8 }}
+                    >
+                      ※ 保存後、自動で「保存カードあり」になれば One-click
+                      を使用できます。
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -436,7 +594,7 @@ function PurchaseConfirmPage() {
               <p>
                 支払い方法:{" "}
                 {payment === "card"
-                  ? oneClickEnabled
+                  ? oneClickEnabled && oneClickAvailable
                     ? "カード（One-click）"
                     : "カード（入力）"
                   : payment || "未選択"}
@@ -444,7 +602,7 @@ function PurchaseConfirmPage() {
               <button disabled={!canPurchase} onClick={submitPurchase}>
                 {processing
                   ? "処理中..."
-                  : oneClickEnabled && payment === "card"
+                  : oneClickEnabled && oneClickAvailable && payment === "card"
                     ? "ワンクリックで購入"
                     : "購入する"}
               </button>
