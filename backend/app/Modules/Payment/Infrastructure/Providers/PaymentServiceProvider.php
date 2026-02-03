@@ -58,6 +58,11 @@ use App\Modules\Payment\Domain\Account\Repository\AdminPayoutQueryRepository;
 use App\Modules\Payment\Infrastructure\Persistence\Repository\Account\EloquentAdminHoldQueryRepository;
 use App\Modules\Payment\Infrastructure\Persistence\Repository\Account\EloquentAdminPayoutQueryRepository;
 
+use App\Modules\Payment\Domain\Port\PaymentGatewayPort;
+use App\Modules\Payment\Infrastructure\Gateway\StripePaymentGateway;
+use App\Modules\Payment\Infrastructure\Gateway\AdyenPaymentGateway;
+use App\Modules\Payment\Domain\Enum\PaymentProvider;
+
 final class PaymentServiceProvider extends ServiceProvider
 {
     public function register(): void
@@ -99,5 +104,14 @@ final class PaymentServiceProvider extends ServiceProvider
 
         $this->app->bind(AdminHoldQueryRepository::class, EloquentAdminHoldQueryRepository::class);
         $this->app->bind(AdminPayoutQueryRepository::class, EloquentAdminPayoutQueryRepository::class);
+
+        $this->app->bind(PaymentGatewayPort::class, function ($app) {
+    $p = (string) env('PAYMENT_PROVIDER', PaymentProvider::STRIPE->value);
+
+    return match ($p) {
+        PaymentProvider::ADYEN->value => $app->make(AdyenPaymentGateway::class),
+        default => $app->make(StripePaymentGateway::class),
+    };
+});
     }
 }

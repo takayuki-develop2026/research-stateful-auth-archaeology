@@ -43,4 +43,13 @@ return [
         'project_id' => env('FIREBASE_PROJECT_ID'),
         'credentials' => env('FIREBASE_CREDENTIALS'),
     ],
+
+    'adyen' => [
+        'environment' => env('ADYEN_ENV', 'test'),
+        'client_key' => env('ADYEN_CLIENT_KEY'),
+        'api_key' => env('ADYEN_API_KEY'),
+        'merchant_account' => env('ADYEN_MERCHANT_ACCOUNT'),
+        'checkout_base_url' => env('ADYEN_CHECKOUT_BASE_URL', 'https://checkout-test.adyen.com'),
+        'return_url' => env('ADYEN_RETURN_URL', 'http://localhost/thanks/buy/adyen'),
+],
 ];

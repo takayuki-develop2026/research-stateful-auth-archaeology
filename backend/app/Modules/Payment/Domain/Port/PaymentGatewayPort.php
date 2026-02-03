@@ -13,18 +13,27 @@ interface PaymentGatewayPort
         array $context
     ): array;
 
-    /**
-     * ✅ v1-4: OneClick（保存カードで決済）
-     *
-     * Return keys:
-     * - provider_payment_id (string)
-     * - client_secret (string|null)
-     * - requires_action (bool)
-     * - status (string|null)
-     */
     public function createOneClickIntent(
         string $providerCustomerId,
         string $providerPaymentMethodId,
+        int $amount,
+        string $currency,
+        array $context
+    ): array;
+
+    /**
+     * ✅ Adyen: Checkout Sessions (Drop-in)
+     *
+     * Return keys:
+     * - provider_payment_id (string)   // session_id を入れる（Payment側で保持）
+     * - session_id (string)
+     * - session_data (string)
+     * - client_key (string)
+     * - environment ('test'|'live')
+     * - status (string|null)
+     */
+    public function createSession(
+        PaymentMethod $method,
         int $amount,
         string $currency,
         array $context

@@ -134,4 +134,13 @@ final class StripePaymentGateway implements PaymentGatewayPort
     ];
 }
 
+public function createSession(
+    PaymentMethod $method,
+    int $amount,
+    string $currency,
+    array $context
+): array {
+    throw new \LogicException('Stripe does not support createSession(); use createIntent().');
+}
+
 }

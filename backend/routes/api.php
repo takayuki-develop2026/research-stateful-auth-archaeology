@@ -651,3 +651,7 @@ Route::middleware(['admin.fixed_or_key'])
     ->group(function () {
         Route::get('diffs/{id}', GetDocumentDiffController::class)->whereNumber('id');
     });
+
+
+
+    Route::post('/webhooks/adyen', \App\Modules\Payment\Presentation\Http\Controllers\AdyenWebhookController::class);

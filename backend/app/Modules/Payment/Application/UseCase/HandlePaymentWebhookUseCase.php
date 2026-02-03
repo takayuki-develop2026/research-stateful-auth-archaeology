@@ -19,6 +19,7 @@ use App\Modules\Payment\Domain\Ledger\PostingType;
 use App\Modules\Payment\Application\UseCase\Ledger\PostFeeFromStripeChargeUseCase;
 use App\Modules\Payment\Domain\Ledger\Port\PostLedgerPort;
 use App\Modules\Payment\Domain\Ledger\Port\PostLedgerCommand;
+use App\Modules\Order\Application\UseCase\MarkOrderPaidUseCase;
 
 final class HandlePaymentWebhookUseCase
 {
@@ -30,6 +31,7 @@ final class HandlePaymentWebhookUseCase
         private StripeEventMapper $mapper,
         private PostLedgerPort $port,
         private PostFeeFromStripeChargeUseCase $postFee,
+        private MarkOrderPaidUseCase $markOrderPaid,
     ) {
     }
 
@@ -167,19 +169,14 @@ if ($payment && (str_starts_with($input->eventType, 'charge.'))) {
                         return;
                     }
 
-                    // ✅ Order を paid に進める（時刻は Stripe occurredAt を正）
-                    $paidOrder = $order->markPaid($domainEvent->occurredAt);
-                    $this->orders->save($paidOrder);
+                    // ✅ Order を paid に進める（occurredAt を正）
+$orderPaidEvent = $this->markOrderPaid->handle(
+    orderId: $order->id(),
+    paidAt: $domainEvent->occurredAt,
+);
 
-                    // ✅ OrderPaid event（afterCommitでdispatch）
-                    $orderPaidEvent = new OrderPaid(
-                        orderId: $paidOrder->id(),
-                        shopId: $paidOrder->shopId(),
-                    );
-
-                    // ✅ Ledger は “Payment不在” では原則記録しない（v2以降の整合性のため）
-                    //    → 後で Payment/PI と紐づけ可能になった時に補正する方が安全
-                    return;
+// Ledger は “Payment不在” では原則記録しない（現状方針のまま）
+return;
                 }
 
                 // -----------------------------------------
@@ -315,14 +312,11 @@ return;
                     $this->payments->save($payment);
 
                     // ✅ Order paid（occurredAt を正）
-                    $paidOrder = $order->markPaid($domainEvent->occurredAt);
-                    $this->orders->save($paidOrder);
-
-                    // ✅ OrderPaid event
-                    $orderPaidEvent = new OrderPaid(
-                        orderId: $paidOrder->id(),
-                        shopId: $paidOrder->shopId(),
-                    );
+// 冪等で paid 済みなら null が返る
+$orderPaidEvent = $this->markOrderPaid->handle(
+    orderId: $order->id(),
+    paidAt: $domainEvent->occurredAt,
+);
 
 $this->ledgers->recordSale(
     shopId: $payment->shopId(),

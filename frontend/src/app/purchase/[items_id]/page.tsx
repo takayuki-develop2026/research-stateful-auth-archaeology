@@ -41,8 +41,19 @@ export default function PurchaseConfirmPageWrapper() {
 }
 
 type CreateOrderResponse = { order_id: number };
-type StartPaymentResponse = { client_secret: string };
 
+// ✅ discriminated union（narrowing できる）
+type StartPaymentResponse =
+  | { provider: "stripe"; client_secret: string }
+  | {
+      provider: "adyen";
+      session_id: string;
+      session_data: string;
+      client_key: string;
+      environment: "test" | "live";
+    };
+
+// ✅ missing エラー対策：型を復活
 type OneClickResponse = {
   payment_id: number;
   status: string;
@@ -70,6 +81,15 @@ type WalletPaymentMethodsResponse = {
 type CreateSetupIntentResponse = {
   setup_intent_id: string;
   client_secret: string;
+};
+
+// ✅ Adyen Drop-in 表示用 state（最小）
+type AdyenSessionState = {
+  orderId: number;
+  sessionId: string;
+  sessionData: string;
+  clientKey: string;
+  environment: "test" | "live";
 };
 
 /* ================= Page ================= */
@@ -111,15 +131,10 @@ function PurchaseConfirmPage() {
   // --- Save-card state ---
   const [saveCardLoading, setSaveCardLoading] = useState(false);
 
-  /**
-   * UI制御の重要方針
-   * - oneClickAvailable: 「保存カードが存在し、かつ one-click 可能」かどうか（サーバ判定）
-   * - oneClickEnabled  : 「今回の購入で保存カードを使うかどうか」（ユーザー選択）
-   *
-   * ✅ 2回目以降の要件：
-   * - 保存カードがあっても oneClickEnabled をOFFにしたら CardElement を出して別カードで買える
-   *   => カード入力欄の表示条件は「payment=card && (!oneClickAvailable || !oneClickEnabled)」
-   */
+  // --- Adyen state（start が adyen を返したらここに入る） ---
+  const [adyenSession, setAdyenSession] = useState<AdyenSessionState | null>(
+    null,
+  );
 
   const applyWalletState = (
     res: WalletPaymentMethodsResponse | null | undefined,
@@ -139,7 +154,6 @@ function PurchaseConfirmPage() {
       setDefaultPmLabel(
         `${String(def.brand ?? "").toUpperCase()} **** ${def.last4} (exp ${def.exp_month}/${def.exp_year})`,
       );
-      // 保存カードがある場合の既定：ON（あなたの方針）
       setOneClickEnabled(true);
     } else {
       setDefaultPmLabel(null);
@@ -152,7 +166,6 @@ function PurchaseConfirmPage() {
     let cancelled = false;
 
     const run = async () => {
-      // 先にリセット（体感の安定）
       setOneClickAvailable(false);
       setDefaultPmLabel(null);
       setOneClickEnabled(false);
@@ -166,7 +179,6 @@ function PurchaseConfirmPage() {
         const res = await apiClient.get<WalletPaymentMethodsResponse>(
           "/wallet/payment-methods",
         );
-        console.log("[🔥wallet/payment-methods]", res);
         if (cancelled) return;
 
         applyWalletState(res);
@@ -189,8 +201,6 @@ function PurchaseConfirmPage() {
 
   // ✅ 保存カード（SetupIntent → confirmCardSetup）
   const saveCardForOneClick = async () => {
-    console.log("[🔥saveCardForOneClick] clicked");
-
     if (!apiClient) {
       alert("APIクライアントが準備できていません。");
       return;
@@ -213,20 +223,16 @@ function PurchaseConfirmPage() {
     try {
       setSaveCardLoading(true);
 
-      // ① SetupIntent 作成（Laravel）
       const si = await apiClient.post<CreateSetupIntentResponse>(
         "/wallet/setup-intent",
         {},
       );
-
-      console.log("[🔥setup-intent]", si);
 
       if (!si?.client_secret) {
         alert("client_secret が取得できませんでした。");
         return;
       }
 
-      // ② Stripe confirmCardSetup
       const result = await stripe.confirmCardSetup(si.client_secret, {
         payment_method: { card },
       });
@@ -237,21 +243,17 @@ function PurchaseConfirmPage() {
       }
 
       const status = result.setupIntent?.status;
-      console.log("[🔥confirmCardSetup] status", status);
-
       if (status !== "succeeded") {
         alert("カード保存が完了しませんでした（status != succeeded）");
         return;
       }
 
-      // ③ webhook反映待ち → wallet再取得
       await new Promise((r) => setTimeout(r, 1200));
 
       setWalletLoading(true);
       const wallet = await apiClient.get<WalletPaymentMethodsResponse>(
         "/wallet/payment-methods",
       );
-      console.log("[🔥wallet/payment-methods after save]", wallet);
       applyWalletState(wallet);
 
       alert("カードを保存しました。One-clickが利用可能になります。");
@@ -287,16 +289,25 @@ function PurchaseConfirmPage() {
 
   const resolvedItem = item;
 
+  // ✅ Adyen中（Drop-in起動中）はカード入力UIを出さない（後でDrop-inを表示する）
+  const isAdyenFlow = adyenSession !== null;
+
+  // ✅ OneClick は最短では Stripe 限定（Adyen時は無効化）
+  const oneClickUiEnabled = !isAdyenFlow;
+
   // ✅ カード入力が必要かどうか（保存カードが無い OR One-clickを使わない）
   const needsCardInput =
-    payment === "card" && (!oneClickAvailable || !oneClickEnabled);
+    payment === "card" &&
+    !isAdyenFlow &&
+    (!oneClickAvailable || !oneClickEnabled);
 
   const canPurchase =
     isAuthenticated &&
     resolvedItem.remain > 0 &&
     payment !== "" &&
     !!address?.id &&
-    !processing;
+    !processing &&
+    !isAdyenFlow; // Adyen中は二重送信防止
 
   const waitUntilPaid = async (orderId: number, timeoutMs = 15000) => {
     if (!apiClient) return false;
@@ -348,13 +359,19 @@ function PurchaseConfirmPage() {
 
       // ④ Payment
       // ---- One-click (保存カード) ----
-      if (payment === "card" && oneClickEnabled && oneClickAvailable) {
+      // ✅ 最短：OneClickはStripe限定（Adyen start が返る可能性があるので provider 判定できるまで触らない）
+      if (
+        payment === "card" &&
+        oneClickUiEnabled &&
+        oneClickEnabled &&
+        oneClickAvailable
+      ) {
         const oc = await apiClient.post<OneClickResponse>(
           "/wallet/one-click-checkout",
           { order_id: orderId },
         );
 
-        // 3DSなどが必要ならここで実行
+        // 3DSなどが必要ならここで実行（Stripe）
         if (oc.requires_action) {
           if (!stripe) {
             alert("決済の準備が整っていません。");
@@ -385,7 +402,14 @@ function PurchaseConfirmPage() {
         { order_id: orderId, method: payment },
       );
 
-      if (payment === "card") {
+      // card 以外（konbini）: 既存のまま
+      if (payment !== "card") {
+        router.replace(`/thanks/buy/konbini?order_id=${orderId}`);
+        return;
+      }
+
+      // ✅ providerで分岐（narrowing）
+      if (paymentRes.provider === "stripe") {
         if (!stripe || !elements) {
           alert("決済の準備が整っていません。");
           setProcessing(false);
@@ -414,9 +438,22 @@ function PurchaseConfirmPage() {
 
         await waitUntilPaid(orderId);
         router.replace(`/thanks/buy/stripe-card?order_id=${orderId}`);
-      } else {
-        router.replace(`/thanks/buy/konbini?order_id=${orderId}`);
+        return;
       }
+
+      // ✅ Adyen（Sessions + Drop-in）
+      // ここでは state をセットして “Drop-in表示モード” に切替だけ行う
+      setAdyenSession({
+        orderId,
+        sessionId: paymentRes.session_id,
+        sessionData: paymentRes.session_data,
+        clientKey: paymentRes.client_key,
+        environment: paymentRes.environment,
+      });
+
+      // processing は Drop-in 側で解除/完了する想定
+      // いったんここでは解除しない（ボタン二重押し防止のため）
+      return;
     } catch (e: any) {
       console.error(e);
       alert(
@@ -453,20 +490,53 @@ function PurchaseConfirmPage() {
               <select
                 value={payment}
                 onChange={(e) => setPayment(e.target.value as PaymentMethod)}
+                disabled={processing || isAdyenFlow}
               >
                 <option value="">選択してください</option>
                 <option value="konbini">コンビニ支払い</option>
                 <option value="card">クレジットカード支払い</option>
               </select>
 
-              {payment === "card" && (
+              {/* ✅ Adyen flow中は Drop-in をここに出す（次の段階で実装） */}
+              {adyenSession && (
+                <div
+                  className={styles.item_buy_content_section}
+                  style={{ marginTop: 12 }}
+                >
+                  <h4>カード決済（Adyen）</h4>
+                  <div className={styles.oneClickHint}>
+                    Adyen決済を開始しました（Drop-in表示は次の実装で追加します）
+                  </div>
+                  <div className={styles.oneClickHint}>
+                    session_id: {adyenSession.sessionId}
+                  </div>
+
+                  {/* 取消ボタン（最低限） */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdyenSession(null);
+                      setProcessing(false);
+                    }}
+                    style={{ marginTop: 10 }}
+                  >
+                    戻る
+                  </button>
+                </div>
+              )}
+
+              {payment === "card" && !adyenSession && (
                 <div className={styles.oneClickBox}>
                   <div className={styles.oneClickRow}>
                     <div className={styles.oneClickTitle}>
                       One-click（保存カード）
                     </div>
 
-                    {walletLoading ? (
+                    {!oneClickUiEnabled ? (
+                      <span className={styles.oneClickHint}>
+                        Adyen決済中は利用できません
+                      </span>
+                    ) : walletLoading ? (
                       <span className={styles.oneClickHint}>確認中...</span>
                     ) : oneClickAvailable ? (
                       <label className={styles.oneClickSwitch}>
@@ -499,26 +569,26 @@ function PurchaseConfirmPage() {
               )}
             </div>
 
-            {/* ✅ カード入力欄：保存カードが無い or One-click OFF のとき必ず出す */}
+            {/* ✅ Stripeカード入力欄：Adyen中は出さない */}
             {needsCardInput && (
               <div className={styles.item_buy_content_section}>
-                <h4>カード情報</h4>
+                <h4>カード情報（Stripe）</h4>
                 <div className={styles.stripeCardWrapper}>
                   <CardElement
                     options={{
                       hidePostalCode: true,
-                      // Stripe Linkモーダル抑止（環境によって効かない場合あり）
                       disableLink: true,
                       style: { base: { fontSize: "16px" } },
                     }}
                   />
                 </div>
 
-                {/* ✅ 保存カードが無い場合のみ、保存UIを出す（見た目は控えめの小ボタン） */}
                 {payment === "card" && !oneClickAvailable && (
                   <div className={styles.oneClickBox} style={{ marginTop: 12 }}>
                     <div className={styles.oneClickRow}>
-                      <div className={styles.oneClickTitle}>保存カードとして登録するしますか？</div>
+                      <div className={styles.oneClickTitle}>
+                        保存カードとして登録するしますか？
+                      </div>
                       <span className={styles.oneClickHint}>
                         One-click用にカードを保存できます
                       </span>
@@ -537,7 +607,6 @@ function PurchaseConfirmPage() {
                         disabled={
                           processing || saveCardLoading || walletLoading
                         }
-                        // ✅ 小さく、上品に（既存CSSを壊さない最小）
                         style={{
                           padding: "6px 10px",
                           borderRadius: 8,
@@ -594,11 +663,14 @@ function PurchaseConfirmPage() {
               <p>
                 支払い方法:{" "}
                 {payment === "card"
-                  ? oneClickEnabled && oneClickAvailable
+                  ? oneClickEnabled && oneClickAvailable && !adyenSession
                     ? "カード（One-click）"
-                    : "カード（入力）"
+                    : adyenSession
+                      ? "カード（Adyen）"
+                      : "カード（入力）"
                   : payment || "未選択"}
               </p>
+
               <button disabled={!canPurchase} onClick={submitPurchase}>
                 {processing
                   ? "処理中..."

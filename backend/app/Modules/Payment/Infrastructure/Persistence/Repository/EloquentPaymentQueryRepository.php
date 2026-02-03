@@ -88,9 +88,10 @@ final class EloquentPaymentQueryRepository implements PaymentQueryRepository
             ]);
     }
 
-    public function findWebhookEventByEventId(string $eventId): ?array
+    public function findWebhookEvent(string $provider, string $eventId): ?array
 {
     $event = \DB::table('payment_webhook_events')
+        ->where('provider', $provider)
         ->where('event_id', $eventId)
         ->first();
 
@@ -99,6 +100,7 @@ final class EloquentPaymentQueryRepository implements PaymentQueryRepository
     }
 
     $processed = \DB::table('processed_webhook_events')
+        ->where('provider', $provider)
         ->where('event_id', $eventId)
         ->orderByDesc('id')
         ->first();
