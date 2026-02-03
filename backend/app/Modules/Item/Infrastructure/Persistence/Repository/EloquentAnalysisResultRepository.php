@@ -13,28 +13,25 @@ final class EloquentAnalysisResultRepository implements AnalysisResultRepository
      * ✅ v3固定：requestId 主語で保存
      */
     public function saveByRequestId(int $requestId, array $payload): void
-    {
-        // 防衛：payloadの矛盾を許さない
-        if (isset($payload['analysis_request_id']) && (int)$payload['analysis_request_id'] !== $requestId) {
-            throw new InvalidArgumentException('analysis_request_id mismatch');
-        }
+{
+    if (isset($payload['analysis_request_id']) && (int)$payload['analysis_request_id'] !== $requestId) {
+        throw new InvalidArgumentException('analysis_request_id mismatch');
+    }
 
-        $itemId = isset($payload['item_id']) && is_numeric($payload['item_id'])
-            ? (int)$payload['item_id']
-            : null;
+    $itemId = isset($payload['item_id']) && is_numeric($payload['item_id'])
+        ? (int)$payload['item_id']
+        : null;
 
-        DB::table('analysis_results')->updateOrInsert(
-    ['analysis_request_id' => $requestId],
-    [
+    $data = [
         'item_id'            => $itemId,
 
         'brand_name'         => $payload['brand_name'] ?? null,
         'condition_name'     => $payload['condition_name'] ?? null,
         'color_name'         => $payload['color_name'] ?? null,
 
-        // ✅ 追加
-        'classified_tokens'  => $this->toJsonOrNull($payload['classified_tokens'] ?? null),
+        'item_draft_id'  => $payload['item_draft_id'] ?? null,
 
+        'classified_tokens'  => $this->toJsonOrNull($payload['classified_tokens'] ?? null),
         'confidence_map'     => $this->toJsonOrNull($payload['confidence_map'] ?? null),
         'overall_confidence' => is_numeric($payload['overall_confidence'] ?? null)
             ? (float)$payload['overall_confidence']
@@ -42,13 +39,27 @@ final class EloquentAnalysisResultRepository implements AnalysisResultRepository
 
         'evidence'           => $this->toJsonOrNull($payload['evidence'] ?? null),
         'source'             => $payload['source'] ?? null,
-
         'status'             => $payload['status'] ?? 'active',
+
         'updated_at'         => now(),
-        'created_at'         => now(),
-    ]
-);
+    ];
+
+    $exists = DB::table('analysis_results')
+        ->where('analysis_request_id', $requestId)
+        ->exists();
+
+    if ($exists) {
+        DB::table('analysis_results')
+            ->where('analysis_request_id', $requestId)
+            ->update($data);
+        return;
     }
+
+    DB::table('analysis_results')->insert(array_merge($data, [
+        'analysis_request_id' => $requestId,
+        'created_at'          => now(),
+    ]));
+}
 
     /**
      * （任意）過去互換が必要なら残す。不要なら削除でOK。

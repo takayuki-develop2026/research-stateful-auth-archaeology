@@ -56,15 +56,39 @@ final class AnalyzeItemForReviewJob implements ShouldQueue
                     ->value('brand');
             }
 
-            // ④ AtlasKernel への解析依頼（context付き）
-            $analysis = $atlasKernel->requestAnalysis(
-                $itemId,
-                $rawText,
-                $tenantId,
-                [
-                    'brand_text' => $brandText, // ★ここが効く
-                ]
-            );
+// ★ brand_text は「空なら送らない」(null/""/"   " は送信しない)
+$ctx = [];
+
+$brandTextRaw = is_string($brandText) ? preg_replace('/\s+/u', '', trim($brandText)) : '';
+if ($brandTextRaw !== '') {
+
+    // ありがちな「混在ワード」を含むなら brand_text にしない
+    $dirtyWords = ['新品', 'しんぴん', '美品', '中古', '赤', 'あか', '青', 'あお', '黒', '白'];
+    $looksDirty = false;
+
+    foreach ($dirtyWords as $w) {
+        if (mb_strpos($brandTextRaw, $w) !== false) {
+            $looksDirty = true;
+            break;
+        }
+    }
+
+    // 長すぎる brand はだいたい説明文（暫定）
+    if (mb_strlen($brandTextRaw) > 10) {
+        $looksDirty = true;
+    }
+
+    if (!$looksDirty) {
+        $ctx['brand_text'] = $brandTextRaw;
+    }
+}
+\Log::info('[AK] requestAnalysis payload', [
+  'analysis_request_id' => $request->id(),
+  'item_id' => $itemId,
+  'raw_text' => $rawText,
+  'ctx' => $ctx,
+]);
+$analysis = $atlasKernel->requestAnalysis($itemId, $rawText, $tenantId, $ctx);
 
             // ⑤ UX fallback 用 Item（安全参照）
             $item = Item::find($itemId);
@@ -77,6 +101,8 @@ final class AnalyzeItemForReviewJob implements ShouldQueue
                 'brand_name'          => data_get($analysis, 'brand.name') ?? $item?->brand,
                 'condition_name'      => data_get($analysis, 'condition.name'),
                 'color_name'          => data_get($analysis, 'color.name'),
+
+                'item_draft_id' => $draftId,
 
                 'classified_tokens'   => [
                     'brand'     => data_get($analysis, 'tokens.brand', []),
@@ -91,7 +117,7 @@ final class AnalyzeItemForReviewJob implements ShouldQueue
                 ],
 
                 'overall_confidence'  => $analysis['overall_confidence'] ?? 0.0,
-                'source'              => 'ai_provisional',
+                'source' => $analysis['source'] ?? 'ai_provisional',
                 'status'              => 'active',
             ];
 

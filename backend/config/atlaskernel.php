@@ -10,7 +10,15 @@ return [
     // ログに出すか
     'log_payload' => true,
 
-    'endpoint' => env('ATLAS_KERNEL_ENDPOINT', 'http://python_atlaskernel:8000/analyze'),
+    'mode' => env('ATLAS_MODE', 'local'),
+
+    'project_id' => env('ATLAS_PROJECT_ID', 'occore'),
+
+    // docker 内は service 名で
+    'endpoint_entity' => env('ATLASKERNEL_ENDPOINT_ENTITY', 'http://python_atlaskernel:8000/v1/analyze/entity'),
+
+    // 旧互換（残してOK）
+    'endpoint' => env('ATLASKERNEL_ENDPOINT', 'http://python_atlaskernel:8000/v1/analyze'),
 
     'assets_path' => env(
         'ATLAS_KERNEL_ASSETS_PATH',

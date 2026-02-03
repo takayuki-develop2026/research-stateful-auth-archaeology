@@ -282,7 +282,7 @@ export default function ItemSellPage() {
         {/* brand / condition / color */}
         <div className={styles.formGroup}>
           <label>
-            ブランド・状態・色（まとめて入力可能でどのような複雑なデーターでも処理できる開発をしています。）
+            ブランド・状態・色、順不同でも機能する。（まとめて入力可能でどのような複雑なデーターでも処理できる開発をしています。）
           </label>
           <input
             type="text"

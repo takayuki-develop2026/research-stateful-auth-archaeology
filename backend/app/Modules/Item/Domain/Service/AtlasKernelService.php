@@ -11,29 +11,59 @@ final class AtlasKernelService
         private HttpAtlasKernelClient $http,
     ) {}
 
+    /**
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
     public function requestAnalysis(
-    int $itemId,
-    string $rawText,
-    ?int $tenantId = null,
-    array $context = []   // ✅ 追加
-): array {
-    $mode = env('ATLAS_MODE', 'local');
+        int $itemId,
+        string $rawText,
+        ?int $tenantId = null,
+        array $context = []
+    ): array {
+        // ✅ config cache 前提
+        $mode = (string) config('atlaskernel.mode', 'local');
 
-    if ($mode === 'http') {
-        return $this->http->analyze($itemId, $rawText, $tenantId, $context);
-    }
+        // ログ用（設定名はあなたのconfigに合わせて調整してOK）
+        $endpointEntity = (string) (config('atlaskernel.endpoint_entity') ?? '');
 
-    if ($mode === 'hybrid') {
-        try {
-            return $this->http->analyze($itemId, $rawText, $tenantId, $context);
-        } catch (\Throwable $e) {
-            logger()->warning('[AtlasKernel] http failed, fallback to local', [
-                'error' => $e->getMessage(),
-            ]);
-            return $this->local->analyze($itemId, $rawText, $tenantId);
+        if ($mode === 'http') {
+            $res = $this->http->analyze($itemId, $rawText, $tenantId, $context);
+            // ✅ “HTTPを使った” が一目で分かる
+            $res['source'] = $res['source'] ?? 'ai_provisional';
+            return $res;
         }
-    }
 
-    return $this->local->analyze($itemId, $rawText, $tenantId);
-}
+        if ($mode === 'hybrid') {
+            try {
+                $res = $this->http->analyze($itemId, $rawText, $tenantId, $context);
+                $res['source'] = $res['source'] ?? 'ai_provisional';
+                return $res;
+            } catch (\Throwable $e) {
+                logger()->warning('[AtlasKernel] http failed, fallback to local', [
+                    'mode' => $mode,
+                    'endpoint_entity' => $endpointEntity,
+                    'item_id' => $itemId,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $res = method_exists($this->local, 'analyzeWithContext')
+                    ? $this->local->analyzeWithContext($itemId, $rawText, $tenantId, $context)
+                    : $this->local->analyze($itemId, $rawText, $tenantId);
+
+                // ✅ “fallbackした” が一目で分かる
+                $res['source'] = $res['source'] ?? 'local_fallback';
+                return $res;
+            }
+        }
+
+        // local
+        $res = method_exists($this->local, 'analyzeWithContext')
+            ? $this->local->analyzeWithContext($itemId, $rawText, $tenantId, $context)
+            : $this->local->analyze($itemId, $rawText, $tenantId);
+
+        // ✅ local直叩きも識別できる
+        $res['source'] = $res['source'] ?? 'local';
+        return $res;
+    }
 }

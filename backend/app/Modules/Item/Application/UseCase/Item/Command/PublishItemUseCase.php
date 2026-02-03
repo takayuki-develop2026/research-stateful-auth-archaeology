@@ -115,11 +115,12 @@ if (
 
         // 🔑 rawText（純粋データのみ）
         $rawText = trim(implode(' ', array_filter([
-            $draft->name()->value(),
-            $draft->explain(),
-            $draft->brand()?->value(),
-            $draft->condition(),
-        ])));
+    (string) $draft->name()?->value(),
+    (string) ($draft->explain() ?? ''),
+    (string) ($draft->brand()?->value() ?? ''),
+    (string) ($draft->condition() ?? ''),   // ← 必ず string 化
+    (string) ($draft->color() ?? ''),       // ← color があるなら
+])));
 
         // Draft publish
         $draft->markPublished();

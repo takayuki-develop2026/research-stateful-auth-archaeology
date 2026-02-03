@@ -213,4 +213,9 @@ public function colorRaw(): ?string
 {
     return null;
 }
+
+public function color(): ?string
+{
+    return null;
+}
 }
