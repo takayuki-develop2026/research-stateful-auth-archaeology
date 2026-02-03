@@ -518,7 +518,7 @@ function PurchaseConfirmPage() {
                 {payment === "card" && !oneClickAvailable && (
                   <div className={styles.oneClickBox} style={{ marginTop: 12 }}>
                     <div className={styles.oneClickRow}>
-                      <div className={styles.oneClickTitle}>保存カード</div>
+                      <div className={styles.oneClickTitle}>保存カードとして登録するしますか？</div>
                       <span className={styles.oneClickHint}>
                         One-click用にカードを保存できます
                       </span>

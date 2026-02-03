@@ -52,7 +52,7 @@ final class HttpAtlasKernelClient
             }
         }
 
-        // ------------------------------------------------------
+// ------------------------------------------------------
 // ✅ payload（Python側の期待に合わせる）
 // ------------------------------------------------------
 $payload = [
@@ -66,10 +66,6 @@ $payload = [
     ], $context),
 ];
 
-// ✅ brand_text を「勝手に」補完しない（重要）
-// - brand_text は human hint 専用
-// - 送られない場合は Python 側で raw_text から推定する
-
 logger()->info('[🔥AtlasKernelHTTP] request', [
     'endpoint'     => $endpoint,
     'item_id'      => $itemId,
@@ -78,21 +74,6 @@ logger()->info('[🔥AtlasKernelHTTP] request', [
     'brand_text'   => $payload['context']['brand_text'] ?? null, // あれば出す
 ]);
 
-        // brand_text が無い/空なら rawText fallback（最後の手段）
-        if (
-            !array_key_exists('brand_text', $payload['context']) ||
-            $payload['context']['brand_text'] === null ||
-            trim((string) $payload['context']['brand_text']) === ''
-        ) {
-            $payload['context']['brand_text'] = $rawText;
-        }
-
-        logger()->info('[🔥AtlasKernelHTTP] request', [
-            'endpoint'   => $endpoint,
-            'item_id'    => $itemId,
-            'raw_text'   => $payload['raw_text'],
-            'brand_text' => $payload['context']['brand_text'] ?? null,
-        ]);
 
         $res = Http::timeout($timeout)
             ->acceptJson()

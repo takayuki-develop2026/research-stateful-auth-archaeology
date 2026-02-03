@@ -127,6 +127,8 @@ services:
       DB_PASS: laravel_pass
       DATABASE_URL: mysql+mysqlconnector://laravel_user:laravel_pass@mysql:3306/laravel_db
       ATLAS_BRANDS_HINT_PATH: /app/src/atlaskernel/assets/brands_v1.txt
+      ATLAS_CONDITIONS_HINT_PATH : /app/src/atlaskernel/assets/conditions_v1.txt
+      ATLAS_COLORS_HINT_PATH: /app/src/atlaskernel/assets/colors_v1.txt
     command: >
       uvicorn atlaskernel.server:app
       --host 0.0.0.0

@@ -175,14 +175,11 @@ def _tokenize(raw_text: str) -> List[str]:
     return [t for t in toks if keep(t)]
 
 
-# =========================================================
-# ✅ hint tokens（スペース無し結合を救う）
-# =========================================================
-CONDITION_HINTS = ["新品", "しんぴん", "未使用", "美品", "中古", "ジャンク"]
-COLOR_HINTS = ["赤", "あか", "青", "あお", "黒", "くろ", "白", "しろ", "銀", "グレー", "緑", "黄"]
-
-
 def _hint_tokens(raw_text: str, hints: List[str]) -> List[str]:
+    """
+    raw_text（全空白除去）に対して、辞書語彙が部分一致するものを拾う。
+    ※ hints はファイルからロードした語彙（brands/conditions/colors）
+    """
     s = _strip_all_spaces(raw_text) or ""
     out: List[str] = []
     for h in hints:
@@ -192,15 +189,14 @@ def _hint_tokens(raw_text: str, hints: List[str]) -> List[str]:
 
 
 # =========================================================
-# ✅ BRAND_HINTS を brands_v1.txt からロード（初回のみキャッシュ）
+# ✅ Dictionary files load（初回のみキャッシュ）
 # =========================================================
 _BRAND_HINT_CACHE: Optional[List[str]] = None
+_CONDITION_HINT_CACHE: Optional[List[str]] = None
+_COLOR_HINT_CACHE: Optional[List[str]] = None
 
 
-def _load_brand_hints_from_file() -> List[str]:
-    # docker 側でマウントするパスに合わせる
-    # 例: /app/assets/brands_v1.txt を推奨（ATLAS_BRANDS_HINT_PATH で上書き可）
-    path = os.getenv("ATLAS_BRANDS_HINT_PATH", "/app/src/atlaskernel/assets/brands_v1.txt")
+def _load_lines(path: str) -> List[str]:
     try:
         hints: List[str] = []
         with open(path, "r", encoding="utf-8") as f:
@@ -209,18 +205,35 @@ def _load_brand_hints_from_file() -> List[str]:
                 if not s or s.startswith("#"):
                     continue
                 hints.append(s)
-        _d(f"[AK] brands hint loaded path={path} count={len(hints)}")
+        _d(f"[AK] dict loaded path={path} count={len(hints)}")
         return hints
     except Exception as e:
-        _d(f"[AK] brands hint load failed path={path} err={e}")
+        _d(f"[AK] dict load failed path={path} err={e}")
         return []
 
 
 def _get_brand_hints() -> List[str]:
     global _BRAND_HINT_CACHE
     if _BRAND_HINT_CACHE is None:
-        _BRAND_HINT_CACHE = _load_brand_hints_from_file()
+        path = os.getenv("ATLAS_BRANDS_HINT_PATH", "/app/src/atlaskernel/assets/brands_v1.txt")
+        _BRAND_HINT_CACHE = _load_lines(path)
     return _BRAND_HINT_CACHE
+
+
+def _get_condition_hints() -> List[str]:
+    global _CONDITION_HINT_CACHE
+    if _CONDITION_HINT_CACHE is None:
+        path = os.getenv("ATLAS_CONDITIONS_HINT_PATH", "/app/src/atlaskernel/assets/conditions_v1.txt")
+        _CONDITION_HINT_CACHE = _load_lines(path)
+    return _CONDITION_HINT_CACHE
+
+
+def _get_color_hints() -> List[str]:
+    global _COLOR_HINT_CACHE
+    if _COLOR_HINT_CACHE is None:
+        path = os.getenv("ATLAS_COLORS_HINT_PATH", "/app/src/atlaskernel/assets/colors_v1.txt")
+        _COLOR_HINT_CACHE = _load_lines(path)
+    return _COLOR_HINT_CACHE
 
 
 # =========================================================
@@ -289,7 +302,7 @@ def _run_and_pick_best(
     if best_r is not None:
         return (best_r, False, best_tok, tried)
 
-    # fallback: fulltext
+    # fallback: fulltext（最後の手段）
     try:
         r = analyze_fn(
             AnalysisRequest(
@@ -323,8 +336,7 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
     ✅ fulltext fallback は最後
     ✅ min_conf 未満は None
     ✅ human hints は force 採用（ただし brand_text はガード付き）
-    ✅ スペース無し結合は hint tokens で救う
-    ✅ BRAND_HINTS は brands_v1.txt からロード（初回キャッシュ）
+    ✅ スペース無し結合は “辞書ファイル” の語彙で救う（brands/conditions/colors）
     """
     engine_name = os.getenv("ATLAS_POLICY_ENGINE", "v1")
     policy = PolicyEngineV2() if engine_name == "v2" else PolicyEngine()
@@ -345,21 +357,18 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
     # ---- token build ----
     raw_tokens = _tokenize(raw_text)
 
-    # condition/color hint（既存）
-    condition_tokens = list(dict.fromkeys(_hint_tokens(raw_text, CONDITION_HINTS) + raw_tokens))
-    color_tokens = list(dict.fromkeys(_hint_tokens(raw_text, COLOR_HINTS) + raw_tokens))
+    # ✅ 辞書ファイルから hint を生成（固定リストは禁止）
+    brand_hint_tokens = _hint_tokens(raw_text, _get_brand_hints())
+    condition_hint_tokens = _hint_tokens(raw_text, _get_condition_hints())
+    color_hint_tokens = _hint_tokens(raw_text, _get_color_hints())
 
-    # ✅ brand hint（brands_v1.txt）
-    brand_hints = _get_brand_hints()
-    brand_hint_tokens = _hint_tokens(raw_text, brand_hints)
-
-    # # （任意）ひらがな「あっぷる」→ カタカナ「アップル」救済（辞書がカタカナのみの場合）
-    # if "あっぷる" in brand_hint_tokens and "アップル" not in brand_hint_tokens:
-    #     brand_hint_tokens.append("アップル")
-
+    # ✅ best-of の候補 token を構築
+    # - brand/condition/color それぞれに “自分の辞書由来hint + raw_tokens” を与える
     brand_tokens = list(dict.fromkeys(brand_hint_tokens + raw_tokens))
+    condition_tokens = list(dict.fromkeys(condition_hint_tokens + raw_tokens))
+    color_tokens = list(dict.fromkeys(color_hint_tokens + raw_tokens))
 
-    # brand_text は混ぜる（force はガード付きのまま）
+    # brand_text は token に混ぜる（ただし condition/color には混ぜない）
     if brand_text and brand_text != raw_text:
         bt = _strip_all_spaces(brand_text)
         if bt:
@@ -485,7 +494,7 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
         tokens_out["condition"] = [t for t in (tokens_out.get("condition") or []) if t != "__fulltext__"]
         tokens_out["condition"] = list(dict.fromkeys([ct_force] + (tokens_out.get("condition") or [])))
 
-    # color force（必要なら。colorカラム無しでも ctx に入ってこなければ無視）
+    # color force
     cl_force = None
     if color_text:
         cl_force = _strip_all_spaces(color_text)

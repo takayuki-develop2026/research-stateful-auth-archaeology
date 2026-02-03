@@ -11,10 +11,8 @@ research-stateful-auth-archaeology<br>
 Dockerビルド
 <br>
 <br>
-　1\. 　git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki2025/simulation1_upgrade.git  の実行
-<br>
-　2\. （ターミナルコマンド）cd simulation1　の実行。
-                        
+　1\. 　git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki2025/research-stateful-auth-archaeology.git  の実行
+
 <br>
  　3\.   　ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
 　　　（ターミナルコマンド）cd backend (実行後) mkdir storage/app/public/item_images　の実行<br>
