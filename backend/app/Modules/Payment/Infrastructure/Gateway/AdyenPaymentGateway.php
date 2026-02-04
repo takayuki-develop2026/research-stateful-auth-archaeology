@@ -24,12 +24,13 @@ final class AdyenPaymentGateway implements PaymentGatewayPort
             throw new \InvalidArgumentException('Adyen MVP supports card only');
         }
 
-        $apiKey = (string) config('services.adyen.api_key');
+        $apiKey          = (string) config('services.adyen.api_key');
         $merchantAccount = (string) config('services.adyen.merchant_account');
-        $environment = (string) config('services.adyen.environment', 'test'); // test|live
-        $baseUrl = (string) config('services.adyen.checkout_base_url'); // 例: https://checkout-test.adyen.com
+        $environment     = (string) config('services.adyen.environment', 'test'); // test|live
+        $baseUrl         = (string) config('services.adyen.checkout_base_url');   // https://checkout-test.adyen.com
+        $returnUrl       = (string) config('services.adyen.return_url');         // http://localhost/thanks/buy/adyen
 
-        // ✅ 重要：webhookで照合できるよう merchantReference に payment_id を埋める
+        // Context
         $paymentId = (int) ($context['payment_id'] ?? 0);
         $orderId   = (int) ($context['order_id'] ?? 0);
 
@@ -37,43 +38,63 @@ final class AdyenPaymentGateway implements PaymentGatewayPort
             throw new \RuntimeException('payment_id/order_id missing in context');
         }
 
-        $merchantReference = "pay_{$paymentId}_ord_{$orderId}";
-
-        $returnUrl = (string) config('services.adyen.return_url'); // 例: http://localhost/thanks/buy/adyen?order_id=...
+        // ✅ 最重要：webhook の merchantReference から order_id を取れるようにする
+        // -> 文字列として "2" のように入れる
+        $merchantReference = (string) $orderId;
 
         $payload = [
             'merchantAccount' => $merchantAccount,
             'amount' => [
-                'value' => $amount,
+                'value'    => $amount,
                 'currency' => strtoupper($currency),
             ],
-            'reference' => $merchantReference,
-            'returnUrl' => $returnUrl,
-            'countryCode' => 'JP',
-            'shopperLocale' => 'ja-JP',
+            'reference'    => $merchantReference,
+            'returnUrl'    => $returnUrl,
+            'countryCode'  => 'JP',
+            'shopperLocale'=> 'ja-JP',
 
-            // Drop-in前提。paymentMethodsResponse は不要（sessionで取得できる）
+            // Drop-in Sessions 前提
         ];
 
-        $res = Http::withHeaders([
-                'X-API-Key' => $apiKey,
-                'Content-Type' => 'application/json',
-            ])
-            ->post(rtrim($baseUrl, '/') . '/v70/sessions', $payload);
+        $url = rtrim($baseUrl, '/') . '/v70/sessions';
 
-        if (!$res->ok()) {
+        $res = Http::withHeaders([
+                'X-API-Key'     => $apiKey,
+                'Content-Type'  => 'application/json',
+            ])
+            ->post($url, $payload);
+
+        // ✅ 201 Created も成功なので successful() を使う
+        if (!$res->successful()) {
             throw new \RuntimeException('Adyen sessions failed: ' . $res->status() . ' ' . $res->body());
         }
 
         $json = $res->json();
+        if (!is_array($json)) {
+            throw new \RuntimeException('Adyen sessions invalid json: ' . $res->body());
+        }
+
+        // Adyen Sessions response:
+        // - id          => sessionId
+        // - sessionData => sessionData
+        $sessionId   = $json['id'] ?? null;
+        $sessionData = $json['sessionData'] ?? null;
+
+        if (!is_string($sessionId) || $sessionId === '' || !is_string($sessionData) || $sessionData === '') {
+            throw new \RuntimeException('Adyen sessions missing id/sessionData: ' . json_encode($json));
+        }
 
         return [
-            'provider_payment_id' => (string)($json['id'] ?? ''), // session_id
-            'session_id' => (string)($json['id'] ?? ''),
-            'session_data' => (string)($json['sessionData'] ?? ''),
-            'client_key' => (string) config('services.adyen.client_key'),
-            'environment' => $environment === 'live' ? 'live' : 'test',
-            'status' => null,
+            // provider_payment_id はこの段階では “sessionId” を一旦入れておく（後でpspReferenceで上書き）
+            'provider_payment_id' => $sessionId,
+
+            'session_id'   => $sessionId,
+            'session_data' => $sessionData,
+
+            // フロントは NEXT_PUBLIC_ADYEN_CLIENT_KEY を使う想定でも返してOK（互換用）
+            'client_key'   => (string) config('services.adyen.client_key', ''),
+            'environment'  => ($environment === 'live') ? 'live' : 'test',
+            'status'       => null,
         ];
     }
 }

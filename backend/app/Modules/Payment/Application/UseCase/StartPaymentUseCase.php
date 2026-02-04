@@ -34,9 +34,17 @@ final class StartPaymentUseCase
 
             $method = PaymentMethod::from($input->method);
 
-            // ✅ provider固定を外す（envで切替）
+            // provider: envで切替
             $provider = PaymentProvider::from((string) env('PAYMENT_PROVIDER', PaymentProvider::STRIPE->value));
 
+            \Log::info('[🔥StartPayment] provider check', [
+                'env_PAYMENT_PROVIDER' => env('PAYMENT_PROVIDER'),
+                'provider_value' => $provider->value,
+                'gateway_class' => get_class($this->gateway),
+                'route' => request()->path(),
+            ]);
+
+            // Payment 先に作る（id確定）
             $payment = Payment::initiate(
                 orderId: $order->id(),
                 shopId: $order->shopId(),
@@ -51,14 +59,15 @@ final class StartPaymentUseCase
 
             $ctx = [
                 'order_id'   => $order->id(),
-                'payment_id' => $payment->id(), // ★最重要
+                'payment_id' => $payment->id(),
                 'user_id'    => $order->userId(),
                 'shop_id'    => $order->shopId(),
                 'payer_name' => '購入者-' . $order->userId(),
             ];
 
-            // ✅ provider別に gateway 呼び分け
+            // Stripe
             if ($provider === PaymentProvider::STRIPE) {
+
                 $res = $this->gateway->createIntent(
                     method: $method,
                     amount: $order->totalAmount(),
@@ -101,7 +110,7 @@ final class StartPaymentUseCase
                 );
             }
 
-            // ✅ Adyen: Sessions + Drop-in
+            // Adyen Sessions + Drop-in
             $res = $this->gateway->createSession(
                 method: $method,
                 amount: $order->totalAmount(),
@@ -109,12 +118,16 @@ final class StartPaymentUseCase
                 context: $ctx
             );
 
-            if (empty($res['provider_payment_id']) || empty($res['session_id']) || empty($res['session_data'])) {
+            // ✅ session_id / session_data が必須（provider_payment_idは必須にしない）
+            if (empty($res['session_id']) || empty($res['session_data'])) {
                 throw new \RuntimeException('Adyen session fields missing from gateway response');
             }
 
-            $payment = $payment->withProviderPayment($res['provider_payment_id']);
-            $payment = $this->payments->save($payment);
+            // provider_payment_id があるなら保存（この実装では session_id を入れて返している）
+            if (!empty($res['provider_payment_id'])) {
+                $payment = $payment->withProviderPayment($res['provider_payment_id']);
+                $payment = $this->payments->save($payment);
+            }
 
             return new StartPaymentOutput(
                 provider: $provider->value,
@@ -124,10 +137,10 @@ final class StartPaymentUseCase
 
                 clientSecret: null,
 
-                sessionId: $res['session_id'],
-                sessionData: $res['session_data'],
-                clientKey: $res['client_key'] ?? null,
-                environment: $res['environment'] ?? 'test',
+                sessionId: (string)$res['session_id'],
+                sessionData: (string)$res['session_data'],
+                clientKey: !empty($res['client_key']) ? (string)$res['client_key'] : null,
+                environment: !empty($res['environment']) ? (string)$res['environment'] : 'test',
 
                 instructions: null,
             );

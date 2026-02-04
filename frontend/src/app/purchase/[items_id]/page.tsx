@@ -1,6 +1,10 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+// import AdyenCheckout from "@adyen/adyen-web";
+// import { AdyenCheckout, Dropin } from "@adyen/adyen-web";
+import "@adyen/adyen-web/styles/adyen.css";
+
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/ui/auth/AuthProvider";
@@ -40,20 +44,45 @@ export default function PurchaseConfirmPageWrapper() {
   );
 }
 
+const loadAdyenSdk = async (): Promise<{
+  AdyenCheckout: (config: any) => Promise<any>;
+  Dropin: any;
+  Card: any;
+}> => {
+  const mod: any = await import("@adyen/adyen-web");
+
+  const fn = mod?.AdyenCheckout ?? mod?.createCheckout ?? mod?.default ?? mod;
+
+  if (typeof fn !== "function") {
+    console.error("[Adyen] module shape:", mod);
+    throw new Error("AdyenCheckout function not found");
+  }
+
+  const Dropin = mod?.Dropin ?? mod?.default?.Dropin;
+  if (!Dropin) throw new Error("Dropin not found");
+
+  // ★追加：Card
+  const Card = mod?.Card ?? mod?.default?.Card;
+  if (!Card) {
+    console.error("[Adyen] module shape:", mod);
+    throw new Error("Card component not found");
+  }
+
+  return { AdyenCheckout: fn, Dropin, Card };
+};
+
 type CreateOrderResponse = { order_id: number };
 
-// ✅ discriminated union（narrowing できる）
 type StartPaymentResponse =
   | { provider: "stripe"; client_secret: string }
   | {
       provider: "adyen";
       session_id: string;
       session_data: string;
-      client_key: string;
+      client_key?: string; // backend互換（使わない）
       environment: "test" | "live";
     };
 
-// ✅ missing エラー対策：型を復活
 type OneClickResponse = {
   payment_id: number;
   status: string;
@@ -83,7 +112,7 @@ type CreateSetupIntentResponse = {
   client_secret: string;
 };
 
-// ✅ Adyen Drop-in 表示用 state（最小）
+// ✅ Adyen Drop-in 表示用 state
 type AdyenSessionState = {
   orderId: number;
   sessionId: string;
@@ -92,7 +121,6 @@ type AdyenSessionState = {
   environment: "test" | "live";
 };
 
-/* ================= Page ================= */
 function PurchaseConfirmPage() {
   const router = useRouter();
   const params = useParams();
@@ -131,10 +159,31 @@ function PurchaseConfirmPage() {
   // --- Save-card state ---
   const [saveCardLoading, setSaveCardLoading] = useState(false);
 
-  // --- Adyen state（start が adyen を返したらここに入る） ---
+  // --- Adyen state ---
   const [adyenSession, setAdyenSession] = useState<AdyenSessionState | null>(
     null,
   );
+  const adyenContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // ✅ StrictMode二重useEffect対策：同一sessionIdでは初期化しない
+  const initializedSessionIdRef = useRef<string | null>(null);
+
+  // env: clientKey（フロント用）
+  const ADYEN_CLIENT_KEY = (
+    process.env.NEXT_PUBLIC_ADYEN_CLIENT_KEY ?? ""
+  ).trim();
+
+  const safeStringifyError = (e: any) => {
+    try {
+      if (!e) return "null";
+      if (typeof e === "string") return e;
+      if (e instanceof Error)
+        return `${e.name}: ${e.message}\n${e.stack ?? ""}`;
+      return JSON.stringify(e, Object.getOwnPropertyNames(e), 2);
+    } catch {
+      return String(e);
+    }
+  };
 
   const applyWalletState = (
     res: WalletPaymentMethodsResponse | null | undefined,
@@ -180,7 +229,6 @@ function PurchaseConfirmPage() {
           "/wallet/payment-methods",
         );
         if (cancelled) return;
-
         applyWalletState(res);
       } catch (e) {
         if (cancelled) return;
@@ -198,6 +246,174 @@ function PurchaseConfirmPage() {
       cancelled = true;
     };
   }, [payment, apiClient, isAuthenticated]);
+
+  const waitUntilPaid = async (orderId: number, timeoutMs = 15000) => {
+    if (!apiClient) return false;
+
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      try {
+        const detail = await apiClient.get<any>(`/me/orders/${orderId}`);
+        if (detail?.order_status === "paid") return true;
+      } catch {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    return false;
+  };
+
+  // ✅ Adyen Drop-in mount（@adyen/adyen-web）
+  useEffect(() => {
+    if (!adyenSession) return;
+    if (!adyenContainerRef.current) return;
+// ✅ StrictMode二重useEffect対策：同一sessionIdでは初期化しない
+if (initializedSessionIdRef.current === adyenSession.sessionId) return;
+initializedSessionIdRef.current = adyenSession.sessionId;
+    let cancelled = false;
+    let dropin: any = null;
+
+    (async () => {
+      try {
+        const el = adyenContainerRef.current!;
+        el.innerHTML = "";
+
+        // ✅ 見えない事故（高さ0/親のoverflow）を潰す保険
+        el.style.minHeight = "420px";
+
+        console.log("[AdyenDropin] init start", {
+          orderId: adyenSession.orderId,
+          env: adyenSession.environment,
+          sessionId: adyenSession.sessionId,
+          sessionDataLen: adyenSession.sessionData.length,
+          clientKeyLen: adyenSession.clientKey.length,
+        });
+
+        const { AdyenCheckout, Dropin, Card } = await loadAdyenSdk();
+
+        const checkout = await AdyenCheckout({
+          environment: adyenSession.environment,
+          clientKey: adyenSession.clientKey,
+          session: {
+            id: adyenSession.sessionId,
+            sessionData: adyenSession.sessionData,
+          },
+          locale: "ja-JP",
+          countryCode: "JP",
+          amount: { currency: "JPY", value: resolvedItem.price }, // ★必須寄り（minor units）
+
+          onPaymentCompleted: async (result: any) => {
+            console.log("[Adyen] onPaymentCompleted", result);
+            if (cancelled) return;
+
+            const ok = await waitUntilPaid(adyenSession.orderId, 20000);
+            console.log("[Adyen] waitUntilPaid", { ok });
+
+            router.replace(
+              `/thanks/buy/adyen?order_id=${adyenSession.orderId}&paid=${ok ? 1 : 0}`,
+            );
+          },
+
+          onError: (err: any) => {
+            console.error("[Adyen] onError", err);
+            if (cancelled) return;
+
+            alert(
+              "Adyen決済でエラーが発生しました。\n\n" + safeStringifyError(err),
+            );
+            setProcessing(false);
+            setAdyenSession(null);
+          },
+        });
+
+        // ★重要：scheme(カード)を描画するCardコンポーネントを登録
+        dropin = new Dropin(checkout, {
+          showPayButton: true,
+          openFirstPaymentMethod: true,
+          paymentMethodComponents: [Card], // ← これがないと scheme が出ない
+
+          // ここは card でOK（Adyenの設定名）
+          paymentMethodsConfiguration: {
+            card: {
+              hasHolderName: true,
+              holderNameRequired: true,
+              hideCVC: false,
+            },
+          },
+        });
+
+        dropin.mount(el);
+
+        console.log(
+          "[Adyen] typeof checkout.create",
+          typeof (checkout as any).create,
+        );
+        console.log(
+          "[Adyen] checkout.paymentMethodsResponse",
+          checkout?.paymentMethodsResponse,
+        );
+        console.log(
+          "[Adyen] paymentMethods types",
+          checkout?.paymentMethodsResponse?.paymentMethods?.map(
+            (pm: any) => pm.type,
+          ) ?? [],
+        );
+
+        if (cancelled) return;
+
+        // ✅ セッションフローは「Dropinクラスで作る」のが安定（checkout.create 依存しない）
+        dropin = new Dropin(checkout, {
+          showPayButton: true,
+          openFirstPaymentMethod: true, // あると安定
+          paymentMethodsConfiguration: {
+            card: {
+              hasHolderName: true,
+              holderNameRequired: true,
+              hideCVC: false,
+            },
+          },
+        });
+        dropin.mount(el);
+
+        const dump = (label: string) => {
+          const iframes = el.querySelectorAll("iframe");
+          const rect = el.getBoundingClientRect();
+          const cs = window.getComputedStyle(el);
+          console.log(`[AdyenDump] ${label}`, {
+            iframeCount: iframes.length,
+            rect: { w: rect.width, h: rect.height },
+            style: {
+              display: cs.display,
+              visibility: cs.visibility,
+              opacity: cs.opacity,
+              overflow: cs.overflow,
+              minHeight: cs.minHeight,
+            },
+            htmlLen: el.innerHTML.length,
+          });
+        };
+
+        dump("after-mount:0ms");
+        setTimeout(() => dump("after-mount:300ms"), 300);
+        setTimeout(() => dump("after-mount:1500ms"), 1500);
+
+        console.log("[AdyenDropin] mounted OK");
+        setProcessing(false);
+      } catch (e) {
+        console.error("[AdyenDropin] init failed", e);
+        alert("Adyen決済の初期化に失敗しました。\n\n" + safeStringifyError(e));
+        setProcessing(false);
+        setAdyenSession(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try {
+        dropin?.unmount?.();
+      } catch {}
+    };
+  }, [adyenSession, router]);
 
   // ✅ 保存カード（SetupIntent → confirmCardSetup）
   const saveCardForOneClick = async () => {
@@ -227,7 +443,6 @@ function PurchaseConfirmPage() {
         "/wallet/setup-intent",
         {},
       );
-
       if (!si?.client_secret) {
         alert("client_secret が取得できませんでした。");
         return;
@@ -236,7 +451,6 @@ function PurchaseConfirmPage() {
       const result = await stripe.confirmCardSetup(si.client_secret, {
         payment_method: { card },
       });
-
       if (result.error) {
         alert(result.error.message ?? "カード保存に失敗しました。");
         return;
@@ -289,13 +503,9 @@ function PurchaseConfirmPage() {
 
   const resolvedItem = item;
 
-  // ✅ Adyen中（Drop-in起動中）はカード入力UIを出さない（後でDrop-inを表示する）
   const isAdyenFlow = adyenSession !== null;
-
-  // ✅ OneClick は最短では Stripe 限定（Adyen時は無効化）
   const oneClickUiEnabled = !isAdyenFlow;
 
-  // ✅ カード入力が必要かどうか（保存カードが無い OR One-clickを使わない）
   const needsCardInput =
     payment === "card" &&
     !isAdyenFlow &&
@@ -307,23 +517,7 @@ function PurchaseConfirmPage() {
     payment !== "" &&
     !!address?.id &&
     !processing &&
-    !isAdyenFlow; // Adyen中は二重送信防止
-
-  const waitUntilPaid = async (orderId: number, timeoutMs = 15000) => {
-    if (!apiClient) return false;
-
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      try {
-        const detail = await apiClient.get<any>(`/me/orders/${orderId}`);
-        if (detail?.order_status === "paid") return true;
-      } catch {
-        // ignore
-      }
-      await new Promise((r) => setTimeout(r, 700));
-    }
-    return false;
-  };
+    !isAdyenFlow;
 
   /* ================= submit ================= */
   const submitPurchase = async () => {
@@ -358,8 +552,7 @@ function PurchaseConfirmPage() {
       await apiClient.post(`/orders/${orderId}/confirm`);
 
       // ④ Payment
-      // ---- One-click (保存カード) ----
-      // ✅ 最短：OneClickはStripe限定（Adyen start が返る可能性があるので provider 判定できるまで触らない）
+      // ---- One-click (Stripe) ----
       if (
         payment === "card" &&
         oneClickUiEnabled &&
@@ -371,7 +564,6 @@ function PurchaseConfirmPage() {
           { order_id: orderId },
         );
 
-        // 3DSなどが必要ならここで実行（Stripe）
         if (oc.requires_action) {
           if (!stripe) {
             alert("決済の準備が整っていません。");
@@ -396,19 +588,27 @@ function PurchaseConfirmPage() {
         return;
       }
 
-      // ---- 通常（別カード入力 / 保存カードなし / One-click OFF）----
+      // ---- 通常 ----
       const paymentRes = await apiClient.post<StartPaymentResponse>(
         "/payments/start",
-        { order_id: orderId, method: payment },
+        {
+          order_id: orderId,
+          method: payment,
+        },
       );
 
-      // card 以外（konbini）: 既存のまま
+      console.log("[🔥/payments/start]", paymentRes);
+      console.log(
+        "[🔥ADYEN_CLIENT_KEY env]",
+        process.env.NEXT_PUBLIC_ADYEN_CLIENT_KEY,
+      );
+
       if (payment !== "card") {
         router.replace(`/thanks/buy/konbini?order_id=${orderId}`);
         return;
       }
 
-      // ✅ providerで分岐（narrowing）
+      // Stripe
       if (paymentRes.provider === "stripe") {
         if (!stripe || !elements) {
           alert("決済の準備が整っていません。");
@@ -441,18 +641,32 @@ function PurchaseConfirmPage() {
         return;
       }
 
-      // ✅ Adyen（Sessions + Drop-in）
-      // ここでは state をセットして “Drop-in表示モード” に切替だけ行う
+      // Adyen
+      if (!ADYEN_CLIENT_KEY) {
+        alert("Adyen clientKey が未設定です（NEXT_PUBLIC_ADYEN_CLIENT_KEY）。");
+        setProcessing(false);
+        return;
+      }
+
+      console.log("[Adyen branch] start", {
+        envKey: ADYEN_CLIENT_KEY,
+        session_id: paymentRes.session_id,
+        environment: paymentRes.environment,
+        session_data_len: paymentRes.session_data.length,
+      });
+
       setAdyenSession({
         orderId,
         sessionId: paymentRes.session_id,
         sessionData: paymentRes.session_data,
-        clientKey: paymentRes.client_key,
+        clientKey: ADYEN_CLIENT_KEY,
         environment: paymentRes.environment,
       });
 
-      // processing は Drop-in 側で解除/完了する想定
-      // いったんここでは解除しない（ボタン二重押し防止のため）
+      // ✅ ここで必ず落とす（「処理中に見える」を根絶）
+      setProcessing(false);
+
+      console.log("[Adyen branch] setAdyenSession called");
       return;
     } catch (e: any) {
       console.error(e);
@@ -497,21 +711,33 @@ function PurchaseConfirmPage() {
                 <option value="card">クレジットカード支払い</option>
               </select>
 
-              {/* ✅ Adyen flow中は Drop-in をここに出す（次の段階で実装） */}
+              {/* ✅ DEBUG panel（原因確定したら消してOK） */}
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#fffbe6",
+                }}
+              >
+                <div>debug:isAdyenFlow = {String(isAdyenFlow)}</div>
+                <div>debug:processing = {String(processing)}</div>
+                <div>
+                  debug:ADYEN_CLIENT_KEY(len) = {ADYEN_CLIENT_KEY.length}
+                </div>
+                <pre style={{ whiteSpace: "pre-wrap" }}>
+                  {JSON.stringify(adyenSession, null, 2)}
+                </pre>
+              </div>
+
+              {/* ✅ Adyen Drop-in */}
               {adyenSession && (
                 <div
                   className={styles.item_buy_content_section}
                   style={{ marginTop: 12 }}
                 >
                   <h4>カード決済（Adyen）</h4>
-                  <div className={styles.oneClickHint}>
-                    Adyen決済を開始しました（Drop-in表示は次の実装で追加します）
-                  </div>
-                  <div className={styles.oneClickHint}>
-                    session_id: {adyenSession.sessionId}
-                  </div>
-
-                  {/* 取消ボタン（最低限） */}
+                  <div ref={adyenContainerRef} />
                   <button
                     type="button"
                     onClick={() => {
