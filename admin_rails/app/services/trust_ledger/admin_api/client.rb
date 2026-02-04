@@ -6,6 +6,7 @@ module TrustLedger
   module AdminApi
     class Error < StandardError
       attr_reader :status, :body
+
       def initialize(message, status: nil, body: nil)
         super(message)
         @status = status
@@ -14,29 +15,46 @@ module TrustLedger
     end
 
     class Client
-      def initialize(
-        base_url: ENV.fetch("TRUSTLEDGER_ADMIN_API_BASE_URL"),
-        admin_key: ENV.fetch("TRUSTLEDGER_ADMIN_X_ADMIN_KEY")
-      )
-        @base_url = base_url.sub(%r{/\z}, "")
-        @admin_key = admin_key
+      class << self
+        # “singleton もどき”
+        def instance
+          @instance ||= new
+        end
+
+        # class methods
+        def get_health = instance.get_health
+        def list_webhook_events(params = {}) = instance.list_webhook_events(params)
+        def get_webhook_event(event_id) = instance.get_webhook_event(event_id)
+        def replay_webhook_event(event_id) = instance.replay_webhook_event(event_id)
+        def get_global_kpis(params = {}) = instance.get_global_kpis(params)
+        def get_shop_kpis(params = {}) = instance.get_shop_kpis(params)
+        def search_postings(params = {}) = instance.search_postings(params)
+        def get_posting_detail(posting_id) = instance.get_posting_detail(posting_id)
+        def list_missing_sales(params = {}) = instance.list_missing_sales(params)
+        def replay_sale(params = {}) = instance.replay_sale(params)
+        def list_shops(params = {}) = instance.list_shops(params)
+
+        # ★ mode を追加（API必須）
+        def update_shop_payment_provider(shop_id, provider:, mode: "row") =
+          instance.update_shop_payment_provider(shop_id, provider: provider, mode: mode)
       end
 
-      # =========================================================
+      def initialize(
+        base_url: ENV.fetch("TRUSTLEDGER_ADMIN_API_BASE_URL", "http://localhost:8081"),
+        admin_key: ENV.fetch("TRUSTLEDGER_ADMIN_X_ADMIN_KEY", "")
+      )
+        @base_url = base_url.to_s.sub(%r{/\z}, "")
+        @admin_key = admin_key.to_s
+      end
+
       # TrustLedger: Health
-      # =========================================================
       def get_health
         get_json("/api/admin/trustledger/health")
       end
 
-      # =========================================================
-      # TrustLedger: Webhook Events
-      # =========================================================
+      # Webhook Events
       def list_webhook_events(params = {})
-        query = URI.encode_www_form(params.compact)
-        path = "/api/admin/trustledger/webhooks/events"
-        path += "?#{query}" unless query.empty?
-        get_json(path)
+        get_json(with_query("/api/admin/trustledger/webhooks/events", params))
       end
 
       def get_webhook_event(event_id)
@@ -47,175 +65,98 @@ module TrustLedger
         post_json("/api/admin/trustledger/webhooks/events/#{event_id}/replay", {})
       end
 
-      # =========================================================
-      # TrustLedger: KPI
-      # =========================================================
+      # KPI
       def get_global_kpis(params = {})
-        query = URI.encode_www_form(params.compact)
-        path = "/api/admin/trustledger/kpis/global"
-        path += "?#{query}" unless query.empty?
-        get_json(path)
+        get_json(with_query("/api/admin/trustledger/kpis/global", params))
       end
 
       def get_shop_kpis(params = {})
-        query = URI.encode_www_form(params.compact)
-        path = "/api/admin/trustledger/kpis/shops"
-        path += "?#{query}" unless query.empty?
-        get_json(path)
+        get_json(with_query("/api/admin/trustledger/kpis/shops", params))
       end
 
-      # =========================================================
-      # TrustLedger: Postings
-      # =========================================================
+      # Postings
       def search_postings(params = {})
-        query = URI.encode_www_form(params.compact)
-        path = "/api/admin/trustledger/postings"
-        path += "?#{query}" unless query.empty?
-        get_json(path)
+        get_json(with_query("/api/admin/trustledger/postings", params))
       end
 
       def get_posting_detail(posting_id)
         get_json("/api/admin/trustledger/postings/#{posting_id}")
       end
 
-      # =========================================================
-      # TrustLedger: Reconciliation
-      # =========================================================
+      # Reconciliation
       def list_missing_sales(params = {})
-        query = URI.encode_www_form(params.compact)
-        path = "/api/admin/trustledger/reconciliation/missing-sales"
-        path += "?#{query}" unless query.empty?
-        get_json(path)
+        get_json(with_query("/api/admin/trustledger/reconciliation/missing-sales", params))
       end
 
       def replay_sale(params = {})
         post_json("/api/admin/trustledger/replay/sale", params)
       end
 
-      # =========================================================
-      # ✅ ProviderIntel v1: Catalog Sources (4 methods)
-      # =========================================================
-
-      # GET /api/admin/providerintel/sources?provider_id=&status=&limit=&offset=
-      def list_catalog_sources(params = {})
-        query = URI.encode_www_form(params.compact)
-        path = "/api/admin/providerintel/sources"
-        path += "?#{query}" unless query.empty?
-        get_json(path)
+      # Shops (Provider Settings)
+      def list_shops(params = {})
+        get_json(with_query("/api/admin/trustledger/shops", params))
       end
 
-      # GET /api/admin/providerintel/sources/:id
-      def get_catalog_source(source_id)
-        get_json("/api/admin/providerintel/sources/#{source_id}")
+      def get_shop(shop_id) = instance.get_shop(shop_id)
+
+      def get_shop(shop_id)
+        get_json("/api/admin/trustledger/shops/#{shop_id}")
       end
 
-      # POST /api/admin/providerintel/sources
-      # payload example:
-      # {
-      #   provider_id: 1,
-      #   source_type: "pdf",
-      #   source_url: "https://example.com/fees.pdf",
-      #   update_frequency: "weekly",
-      #   status: "active",
-      #   notes: "Stripe JP fees"
-      # }
-      def upsert_catalog_source(payload)
-        post_json("/api/admin/providerintel/sources", payload)
-      end
-
-      # POST /api/admin/providerintel/sources/:id/run
-      def run_catalog_source(source_id)
-        post_json("/api/admin/providerintel/sources/#{source_id}/run", {})
-      end
-
-
-
-      # =========================================================
-# Review Queue (v3.3)
-# =========================================================
-
-# GET /api/admin/review-queue?queue_type=&status=&limit=&offset=
-def list_review_queue(params = {})
-  query = URI.encode_www_form(params.compact)
-  path = "/api/admin/review-queue"
-  path += "?#{query}" unless query.empty?
-  get_json(path)
-end
-
-# GET /api/admin/review-queue/:id
-def get_review_queue_item(id)
-  get_json("/api/admin/review-queue/#{id}")
-end
-
-# POST /api/admin/review-queue/:id/decide
-# payload: { action: "approve|reject|request_more_info", note: "...", extra: {...} }
-def decide_review_queue_item(id, payload)
-  post_json("/api/admin/review-queue/#{id}/decide", payload)
-end
-
-
-def get_providerintel_document(id)
-  get_json("/api/admin/providerintel/documents/#{id}")
-end
-
-def get_providerintel_diff(id)
-  get_json("/api/admin/providerintel/diffs/#{id}")
-end
-
-
-      # =========================================================
-      # Internal HTTP helpers
-      # =========================================================
-      def post_json(path, payload)
-        uri = URI.parse(@base_url + path)
-        http = Net::HTTP.new(uri.host, uri.port)
-        http.read_timeout = 10
-        http.use_ssl = (uri.scheme == "https")
-
-        req = Net::HTTP::Post.new(uri.request_uri)
-        req["Accept"] = "application/json"
-        req["Content-Type"] = "application/json"
-        req["X-Admin-Key"] = @admin_key
-        req.body = JSON.dump(payload)
-
-        res = http.request(req)
-        body = res.body.to_s
-
-        if res.code.to_i >= 400
-          raise Error.new("Admin API error", status: res.code.to_i, body: body)
-        end
-
-        JSON.parse(body)
-      rescue Error => e
-        raise e
-      rescue JSON::ParserError
-        raise Error.new("Invalid JSON response", status: res&.code&.to_i, body: body)
-      rescue => e
-        raise Error.new("Request failed: #{e.class}: #{e.message}")
+      # ★ mode を追加（API必須）
+      def update_shop_payment_provider(shop_id, provider:, mode: "row")
+        post_json(
+          "/api/admin/trustledger/shops/payment-provider",
+          { mode: mode, shop_id: shop_id, provider: provider }
+        )
       end
 
       private
 
+      def with_query(path, params)
+        q = URI.encode_www_form(params.compact)
+        q.empty? ? path : "#{path}?#{q}"
+      end
+
       def get_json(path)
-        uri = URI.parse(@base_url + path)
+        request_json(Net::HTTP::Get, path)
+      end
+
+      def post_json(path, payload)
+        request_json(Net::HTTP::Post, path, payload: payload)
+      end
+
+      def request_json(klass, path, payload: nil)
+        uri  = URI.parse(@base_url + path)
         http = Net::HTTP.new(uri.host, uri.port)
+        http.open_timeout = 5
         http.read_timeout = 10
         http.use_ssl = (uri.scheme == "https")
 
-        req = Net::HTTP::Get.new(uri.request_uri)
-        req["Accept"] = "application/json"
-        req["X-Admin-Key"] = @admin_key
+        # HTTP 生ログ（1=on）
+        http.set_debug_output($stderr) if ENV["TRUSTLEDGER_ADMIN_API_DEBUG"] == "1"
 
-        res = http.request(req)
+        req = klass.new(uri.request_uri)
+        req["Accept"] = "application/json"
+        req["X-Admin-Key"] = @admin_key unless @admin_key.empty?
+
+        if payload
+          req["Content-Type"] = "application/json"
+          req.body = JSON.dump(payload)
+        end
+
+        res  = http.request(req)
         body = res.body.to_s
 
         if res.code.to_i >= 400
           raise Error.new("Admin API error", status: res.code.to_i, body: body)
         end
 
+        return {} if body.strip.empty? # 204/empty
+
         JSON.parse(body)
-      rescue Error => e
-        raise e
+      rescue Error
+        raise
       rescue JSON::ParserError
         raise Error.new("Invalid JSON response", status: res&.code&.to_i, body: body)
       rescue => e

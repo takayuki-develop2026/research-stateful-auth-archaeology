@@ -63,6 +63,10 @@ use App\Modules\Payment\Infrastructure\Gateway\StripePaymentGateway;
 use App\Modules\Payment\Infrastructure\Gateway\AdyenPaymentGateway;
 use App\Modules\Payment\Domain\Enum\PaymentProvider;
 
+use App\Modules\Payment\Domain\Shop\Repository\AdminShopQueryRepository;
+use App\Modules\Payment\Infrastructure\Persistence\Repository\Shop\EloquentAdminShopQueryRepository;
+
+
 final class PaymentServiceProvider extends ServiceProvider
 {
     public function register(): void
@@ -104,6 +108,8 @@ final class PaymentServiceProvider extends ServiceProvider
 
         $this->app->bind(AdminHoldQueryRepository::class, EloquentAdminHoldQueryRepository::class);
         $this->app->bind(AdminPayoutQueryRepository::class, EloquentAdminPayoutQueryRepository::class);
+
+        $this->app->bind(AdminShopQueryRepository::class, EloquentAdminShopQueryRepository::class);
 
         $this->app->bind(PaymentGatewayPort::class, function ($app) {
     $p = (string) env('PAYMENT_PROVIDER', PaymentProvider::STRIPE->value);

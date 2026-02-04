@@ -1,12 +1,19 @@
-<div style="padding:12px; border:1px solid #ddd; background:#fafafa; margin-bottom:16px;">
+<% current = request.path.to_s %>
+
+<div style="padding:12px; border:1px solid #ddd; background:#fafafa; margin-bottom:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
   <strong>TrustLedger 管理</strong>
-  <span style="margin-left:12px;">
-    <a href="/admin/trustledger/kpis/global">全体KPI</a> |
-    <a href="/admin/trustledger/kpis/shops">ショップ別KPI</a> |
-    <a href="/admin/trustledger/postings">仕訳（Postings）</a> |
-    <a href="/admin/trustledger/reconciliation/missing-sales">欠損検知（Reconciliation）</a> |
-    <a href="/admin/trustledger/webhook-events">Webhook</a>
-    <li><a href="/admin/dashboard/trustledger/providerintel/sources">ProviderIntel Sources</a></li>
-    <li><a href="/admin/dashboard/trustledger/review-queue?queue_type=providerintel&status=pending">ReviewQueue</a></li>
+
+  <a href="/admin/dashboard/trustledger" style="<%= current == "/admin/dashboard/trustledger" ? "font-weight:700;" : "" %>">Dashboard</a> |
+  <a href="/admin/dashboard/trustledger/kpis/global" style="<%= current.include?("/kpis/global") ? "font-weight:700;" : "" %>">全体KPI</a> |
+  <a href="/admin/dashboard/trustledger/kpis/shops" style="<%= current.include?("/kpis/shops") ? "font-weight:700;" : "" %>">ショップKPI</a> |
+  <a href="/admin/dashboard/trustledger/postings" style="<%= current.include?("/postings") ? "font-weight:700;" : "" %>">Postings</a> |
+  <a href="/admin/dashboard/trustledger/reconciliation/missing-sales" style="<%= current.include?("/reconciliation") ? "font-weight:700;" : "" %>">Reconciliation</a> |
+  <a href="/admin/dashboard/trustledger/webhook-events" style="<%= current.include?("/webhook-events") ? "font-weight:700;" : "" %>">Webhook</a> |
+  <a href="/admin/dashboard/trustledger/provider-settings" style="<%= current.include?("/provider-settings") ? "font-weight:700;" : "" %>">Provider Settings</a> |
+  <a href="/admin/dashboard/trustledger/providerintel/sources" style="<%= current.include?("/providerintel") ? "font-weight:700;" : "" %>">ProviderIntel</a> |
+  <a href="/admin/dashboard/trustledger/review-queue?status=pending" style="<%= current.include?("/review-queue") ? "font-weight:700;" : "" %>">Review Queue</a>
+
+  <span style="margin-left:auto; color:#666; font-size:12px;">
+    base_url: <%= ENV["TRUSTLEDGER_ADMIN_API_BASE_URL"] %>
   </span>
 </div>

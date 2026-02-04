@@ -2,15 +2,91 @@
 
 <h1>TrustLedger Dashboard</h1>
 
-<ul>
-  <li><a href="/admin/dashboard/trustledger/webhook-events">Webhook Events</a></li>
-  <li><a href="/admin/dashboard/trustledger/kpis/global">Global KPI</a></li>
-  <li><a href="/admin/dashboard/trustledger/kpis/shops">Shop KPI</a></li>
-  <li><a href="/admin/dashboard/trustledger/postings">Postings</a></li>
-  <li><a href="/admin/dashboard/trustledger/reconciliation/missing-sales">Reconciliation</a></li>
-</ul>
+<% if @error %>
+  <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
+    <strong>API Error</strong><br>
+    <div>message: <%= @error[:message] %></div>
+    <div>status: <%= @error[:status] %></div>
+    <pre style="white-space:pre-wrap;"><%= @error[:body] %></pre>
+  </div>
+<% end %>
 
-<h2>ProviderIntel</h2>
-<ul>
-  <li><a href="/admin/dashboard/trustledger/providerintel/sources">Catalog Sources</a></li>
-</ul>
+<div style="display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; margin:12px 0;">
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="color:#666; font-size:12px;">Health</div>
+    <div style="font-size:18px; margin-top:6px;">
+      <strong><%= @health ? "OK" : "UNKNOWN" %></strong>
+    </div>
+    <div style="margin-top:10px;">
+      <a href="/admin/dashboard/trustledger/health">詳細 →</a>
+    </div>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="color:#666; font-size:12px;">Review Queue（pending）</div>
+    <div style="font-size:18px; margin-top:6px;">
+      <strong><%= @review_pending_total.nil? ? "-" : @review_pending_total %></strong>
+    </div>
+    <div style="margin-top:10px;">
+      <a href="/admin/dashboard/trustledger/review-queue?status=pending">開く →</a>
+    </div>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="color:#666; font-size:12px;">Provider Settings</div>
+    <div style="font-size:14px; margin-top:6px;">
+      ショップ別に PSP（stripe/adyen）を切替
+    </div>
+    <div style="margin-top:10px;">
+      <a href="/admin/dashboard/trustledger/provider-settings">設定 →</a>
+    </div>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <h3 style="margin:0 0 8px 0;">最近の失敗（Webhook events / last 7 days）</h3>
+
+    <% if @recent_failed_webhooks && @recent_failed_webhooks.any? %>
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="text-align:left; padding:8px; border:1px solid #ddd;">event_id</th>
+            <th style="text-align:left; padding:8px; border:1px solid #ddd;">type</th>
+            <th style="text-align:left; padding:8px; border:1px solid #ddd;">status</th>
+            <th style="text-align:left; padding:8px; border:1px solid #ddd;">created_at</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% @recent_failed_webhooks.each do |e| %>
+            <tr>
+              <td style="padding:8px; border:1px solid #ddd;">
+                <a href="/admin/dashboard/trustledger/webhook-events/<%= e["event_id"] %>"><%= e["event_id"] %></a>
+              </td>
+              <td style="padding:8px; border:1px solid #ddd;"><%= e["event_type"] || e["type"] %></td>
+              <td style="padding:8px; border:1px solid #ddd;"><%= e["status"] %></td>
+              <td style="padding:8px; border:1px solid #ddd;"><%= e["created_at"] %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% else %>
+      <div style="color:#666;">直近7日で failed は見つかりません。</div>
+    <% end %>
+
+    <div style="margin-top:10px;">
+      <a href="/admin/dashboard/trustledger/webhook-events">一覧で見る →</a>
+    </div>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <h3 style="margin:0 0 8px 0;">Quick Links</h3>
+    <ul style="margin:0; padding-left:18px;">
+      <li><a href="/admin/dashboard/trustledger/kpis/global">全ショップ売上</a></li>
+      <li><a href="/admin/dashboard/trustledger/kpis/shops">各ショップ売上</a></li>
+      <li><a href="/admin/dashboard/trustledger/postings">仕訳一覧</a></li>
+      <li><a href="/admin/dashboard/trustledger/reconciliation/missing-sales">欠損検知</a></li>
+      <li><a href="/admin/dashboard/trustledger/providerintel/sources">ProviderIntel Sources</a></li>
+    </ul>
+  </div>
+</div>

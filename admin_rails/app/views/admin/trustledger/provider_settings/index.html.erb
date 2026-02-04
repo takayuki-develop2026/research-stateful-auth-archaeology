@@ -1,0 +1,141 @@
+<%= render "admin/trustledger/nav" %>
+
+<h1>Provider Settings（ショップ別PSP）</h1>
+
+<% if @error %>
+  <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
+    <strong>API Error</strong><br>
+    <div>message: <%= @error[:message] %></div>
+    <div>status: <%= @error[:status] %></div>
+    <pre style="white-space:pre-wrap;"><%= @error[:body] %></pre>
+  </div>
+<% end %>
+
+<div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin:12px 0; padding:12px; border:1px solid #ddd; background:#fafafa;">
+  <form method="get" action="/admin/dashboard/trustledger/provider-settings" style="display:flex; gap:10px; flex-wrap:wrap;">
+    <label>検索:
+      <input name="q" value="<%= h(@q) %>" placeholder="name / shop_code" />
+    </label>
+
+    <label>status:
+      <select name="status">
+        <option value="">all</option>
+        <option value="active"   <%= "selected" if @status=="active" %>>active</option>
+        <option value="inactive" <%= "selected" if @status=="inactive" %>>inactive</option>
+      </select>
+    </label>
+
+    <label>provider:
+      <select name="provider">
+        <option value="">all</option>
+        <option value="stripe" <%= "selected" if @provider=="stripe" %>>stripe</option>
+        <option value="adyen"  <%= "selected" if @provider=="adyen" %>>adyen</option>
+      </select>
+    </label>
+
+    <label>limit:
+      <select name="limit">
+        <% [25,50,100,200].each do |n| %>
+          <option value="<%= n %>" <%= "selected" if @limit==n %>><%= n %></option>
+        <% end %>
+      </select>
+    </label>
+
+    <input type="hidden" name="page" value="1" />
+
+    <button type="submit">絞り込み</button>
+  </form>
+
+  <div style="margin-left:auto; color:#666;">
+    total: <%= @total %> / page: <%= @page %> / pages: <%= @pages %>
+  </div>
+</div>
+
+<!-- ✅ Bulk update -->
+<div style="margin:12px 0; padding:12px; border:1px solid #ddd; background:#fff;">
+  <h3 style="margin:0 0 8px 0;">一括更新</h3>
+  <form method="post" action="/admin/dashboard/trustledger/provider-settings/update">
+    <%= csrf_meta_tags %>
+    <input type="hidden" name="mode" value="bulk" />
+
+    <label>provider:
+      <select name="provider">
+        <option value="stripe">stripe</option>
+        <option value="adyen">adyen</option>
+      </select>
+    </label>
+
+    <label style="margin-left:12px;">shop_ids:
+      <input name="shop_ids" placeholder="例: 1,2,3" style="min-width:240px;" />
+    </label>
+
+    <button type="submit" style="margin-left:12px;">一括更新する</button>
+
+    <div style="margin-top:8px; color:#666; font-size:13px;">
+      ※ まずは安全運用のため “shop_id指定” で一括更新（将来、検索結果全件へ拡張も可能）
+    </div>
+  </form>
+</div>
+
+<table style="width:100%; border-collapse:collapse;">
+  <thead>
+    <tr style="background:#f3f4f6;">
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">shop_id</th>
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">shop_code</th>
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">name</th>
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">owner</th>
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">status</th>
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">type</th>
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">payment_provider</th>
+      <th style="text-align:left; padding:8px; border:1px solid #ddd;">action</th>
+    </tr>
+  </thead>
+
+  <tbody>
+    <% @items.each do |s| %>
+      <tr>
+        <td style="padding:8px; border:1px solid #ddd;"><%= s["id"] %></td>
+        <td style="padding:8px; border:1px solid #ddd;"><%= s["shop_code"] %></td>
+        <td style="padding:8px; border:1px solid #ddd;"><%= s["name"] %></td>
+        <td style="padding:8px; border:1px solid #ddd;"><%= s["owner_name"] || "-" %></td>
+        <td style="padding:8px; border:1px solid #ddd;"><%= s["status"] %></td>
+        <td style="padding:8px; border:1px solid #ddd;"><%= s["type"] %></td>
+        <td style="padding:8px; border:1px solid #ddd;">
+          <code><%= s["payment_provider"] %></code>
+        </td>
+
+        <td style="padding:8px; border:1px solid #ddd;">
+          <form method="post" action="/admin/dashboard/trustledger/provider-settings/update" style="display:flex; gap:8px; align-items:center;">
+            <%= csrf_meta_tags %>
+            <input type="hidden" name="mode" value="row" />
+            <input type="hidden" name="shop_id" value="<%= s["id"] %>" />
+
+            <select name="provider">
+              <option value="stripe" <%= "selected" if s["payment_provider"]=="stripe" %>>stripe</option>
+              <option value="adyen"  <%= "selected" if s["payment_provider"]=="adyen" %>>adyen</option>
+            </select>
+
+            <button type="submit">更新</button>
+          </form>
+
+          <div style="margin-top:6px; font-size:12px; color:#666;">
+            id:<%= s["id"] %> updated:<%= s["updated_at"] %>
+          </div>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<!-- pagination -->
+<div style="margin:16px 0; display:flex; gap:12px; align-items:center;">
+  <% if @page > 1 %>
+    <a href="/admin/dashboard/trustledger/provider-settings?<%= URI.encode_www_form({ q:@q, status:@status, provider:@provider, limit:@limit, page:@page-1 }.compact) %>">← Prev</a>
+  <% end %>
+
+  <span>page <%= @page %> / <%= @pages %></span>
+
+  <% if @page < @pages %>
+    <a href="/admin/dashboard/trustledger/provider-settings?<%= URI.encode_www_form({ q:@q, status:@status, provider:@provider, limit:@limit, page:@page+1 }.compact) %>">Next →</a>
+  <% end %>
+</div>

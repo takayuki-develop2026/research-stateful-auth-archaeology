@@ -12,15 +12,14 @@ class Shop extends Model
     protected $table = 'shops';
 
     protected $fillable = [
-        'shop_code',
-        'owner_user_id',
-        'name',
-        'type',
-        'status',
-        'description',
-        'logo',
-        'banner_url',
-    ];
+  'shop_code','owner_user_id','name','type','status','description','logo','banner_url',
+  'payment_provider','payment_provider_meta','payment_provider_updated_at',
+];
+
+protected $casts = [
+  'payment_provider_meta' => 'array',
+  'payment_provider_updated_at' => 'datetime',
+];
 
     public function shippingAddress()
     {

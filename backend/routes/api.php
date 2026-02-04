@@ -655,3 +655,31 @@ Route::middleware(['admin.fixed_or_key'])
 
 
     Route::post('/webhooks/adyen', \App\Modules\Payment\Presentation\Http\Controllers\AdyenWebhookController::class);
+
+
+
+    use App\Modules\Payment\Presentation\Http\Controllers\Admin\TrustLedger\GetShopPaymentProviderController;
+    use App\Modules\Payment\Presentation\Http\Controllers\Admin\TrustLedger\SetShopPaymentProviderController;
+
+    Route::middleware(['admin.fixed_or_key'])
+  ->prefix('admin/trustledger')
+  ->group(function () {
+      Route::get('shops/{shopId}/payment-provider', GetShopPaymentProviderController::class)->whereNumber('shopId');
+      Route::post('shops/{shopId}/payment-provider', SetShopPaymentProviderController::class)->whereNumber('shopId');
+  });
+
+
+
+
+use App\Modules\Payment\Presentation\Http\Controllers\Admin\TrustLedger\ListShopsController;
+use App\Modules\Payment\Presentation\Http\Controllers\Admin\TrustLedger\UpdateShopPaymentProviderController;
+
+Route::prefix('admin')
+    ->middleware(['admin.fixed_or_key']) // ←あなたの運用に合わせて
+    ->group(function () {
+
+        Route::prefix('trustledger')->group(function () {
+            Route::get('shops', ListShopsController::class);
+            Route::post('shops/payment-provider', UpdateShopPaymentProviderController::class);
+        });
+});

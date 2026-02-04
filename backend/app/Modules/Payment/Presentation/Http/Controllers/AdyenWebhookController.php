@@ -54,7 +54,11 @@ final class AdyenWebhookController extends Controller
             $eventDate = (string)($nri['eventDate'] ?? '');
 
             // eventId: provider + pspRef + eventCode + success + eventDate
-            $eventId = hash('sha256', 'adyen|' . $pspRef . '|' . $eventCode . '|' . $success . '|' . $eventDate);
+            $merchantRef = (string)($nri['merchantReference'] ?? '');
+
+$eventId = hash('sha256',
+  'adyen|' . $pspRef . '|' . $eventCode . '|' . $success . '|' . $merchantRef
+);
 
             // eventDate is ISO8601. Use app TZ.
             $occurredAt = new \DateTimeImmutable($eventDate ?: 'now', new \DateTimeZone(config('app.timezone')));

@@ -73,15 +73,26 @@ const loadAdyenSdk = async (): Promise<{
 
 type CreateOrderResponse = { order_id: number };
 
+type StartPaymentBase = {
+  provider: "stripe" | "adyen";
+  payment_id: number;
+  status: string; // initiated / requires_action / ...
+  provider_payment_id: string | null;
+  instructions?: any | null;
+};
+
 type StartPaymentResponse =
-  | { provider: "stripe"; client_secret: string }
-  | {
+  | (StartPaymentBase & {
+      provider: "stripe";
+      client_secret: string | null;
+    })
+  | (StartPaymentBase & {
       provider: "adyen";
       session_id: string;
       session_data: string;
-      client_key?: string; // backend互換（使わない）
+      client_key?: string | null;
       environment: "test" | "live";
-    };
+    });
 
 type OneClickResponse = {
   payment_id: number;
@@ -361,19 +372,19 @@ initializedSessionIdRef.current = adyenSession.sessionId;
 
         if (cancelled) return;
 
-        // ✅ セッションフローは「Dropinクラスで作る」のが安定（checkout.create 依存しない）
-        dropin = new Dropin(checkout, {
-          showPayButton: true,
-          openFirstPaymentMethod: true, // あると安定
-          paymentMethodsConfiguration: {
-            card: {
-              hasHolderName: true,
-              holderNameRequired: true,
-              hideCVC: false,
-            },
-          },
-        });
-        dropin.mount(el);
+        // // ✅ セッションフローは「Dropinクラスで作る」のが安定（checkout.create 依存しない）
+        // dropin = new Dropin(checkout, {
+        //   showPayButton: true,
+        //   openFirstPaymentMethod: true, // あると安定
+        //   paymentMethodsConfiguration: {
+        //     card: {
+        //       hasHolderName: true,
+        //       holderNameRequired: true,
+        //       hideCVC: false,
+        //     },
+        //   },
+        // });
+        // dropin.mount(el);
 
         const dump = (label: string) => {
           const iframes = el.querySelectorAll("iframe");
@@ -624,7 +635,7 @@ initializedSessionIdRef.current = adyenSession.sessionId;
         }
 
         const result = await stripe.confirmCardPayment(
-          paymentRes.client_secret,
+          paymentRes.client_secret!,
           {
             payment_method: { card },
           },

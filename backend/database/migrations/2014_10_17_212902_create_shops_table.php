@@ -23,7 +23,7 @@ return new class () extends Migration {
             $table->foreignId('owner_user_id')
                 ->nullable()
                   ->constrained('users') // 外部キー制約を有効化
-                  ->cascadeOnDelete();   // 関連ユーザー削除時にショップも削除されるように設定
+                  ->nullOnDelete();   // 関連ユーザー削除時にショップも削除されるように設定
 
 
             $table->enum('type', ['personal', 'business'])
@@ -41,6 +41,15 @@ return new class () extends Migration {
             // 店舗ロゴ
             $table->string('logo')->nullable();
 
+            // 決済プロバイダー情報
+            $table->string('payment_provider', 32)
+                ->default('stripe');
+                // 検索性が欲しければ index
+            $table->index('payment_provider');
+
+            $table->json('payment_provider_meta')->nullable();
+            $table->timestamp('payment_provider_updated_at')->nullable();
+
             $table->timestamps();
         });
     }
@@ -53,5 +62,13 @@ return new class () extends Migration {
         });
 
         Schema::dropIfExists('shops');
+
+        Schema::table('shops', function (Blueprint $table) {
+            $table->dropColumn([
+                'payment_provider',
+                'payment_provider_meta',
+                'payment_provider_updated_at',
+            ]);
+        });
     }
 };

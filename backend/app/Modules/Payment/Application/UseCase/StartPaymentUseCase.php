@@ -13,12 +13,15 @@ use App\Modules\Payment\Domain\Repository\PaymentRepository;
 use App\Modules\Payment\Domain\Port\PaymentGatewayPort;
 use Illuminate\Support\Facades\DB;
 
+use App\Modules\Payment\Infrastructure\Gateway\StripePaymentGateway;
+use App\Modules\Payment\Infrastructure\Gateway\AdyenPaymentGateway;
+
 final class StartPaymentUseCase
 {
     public function __construct(
         private OrderRepository $orders,
         private PaymentRepository $payments,
-        private PaymentGatewayPort $gateway,
+        // private PaymentGatewayPort $gateway, // ← なくてもOK（残してもOKだが使わない）
     ) {}
 
     public function handle(StartPaymentInput $input, int $userId): StartPaymentOutput
@@ -34,15 +37,23 @@ final class StartPaymentUseCase
 
             $method = PaymentMethod::from($input->method);
 
-            // provider: envで切替
-            $provider = PaymentProvider::from((string) env('PAYMENT_PROVIDER', PaymentProvider::STRIPE->value));
+            // ✅ 1) provider を shop 設定優先で決定（なければ env fallback）
+            $provider = $this->resolveProviderByShop($order->shopId());
 
-            \Log::info('[🔥StartPayment] provider check', [
-                'env_PAYMENT_PROVIDER' => env('PAYMENT_PROVIDER'),
+            // ✅ 2) provider に応じて gateway を動的に解決
+            $gateway = $this->resolveGateway($provider);
+
+            \Log::info('[🔥StartPayment] provider resolved', [
+                'shop_id' => $order->shopId(),
                 'provider_value' => $provider->value,
-                'gateway_class' => get_class($this->gateway),
+                'gateway_class' => get_class($gateway),
                 'route' => request()->path(),
             ]);
+
+            // ✅ Adyen MVP制限（必要なら）
+            if ($provider === PaymentProvider::ADYEN && $method !== PaymentMethod::CARD) {
+                throw new \DomainException('Adyen MVP supports card only');
+            }
 
             // Payment 先に作る（id確定）
             $payment = Payment::initiate(
@@ -68,7 +79,7 @@ final class StartPaymentUseCase
             // Stripe
             if ($provider === PaymentProvider::STRIPE) {
 
-                $res = $this->gateway->createIntent(
+                $res = $gateway->createIntent(
                     method: $method,
                     amount: $order->totalAmount(),
                     currency: $order->currency(),
@@ -111,19 +122,18 @@ final class StartPaymentUseCase
             }
 
             // Adyen Sessions + Drop-in
-            $res = $this->gateway->createSession(
+            $res = $gateway->createSession(
                 method: $method,
                 amount: $order->totalAmount(),
                 currency: $order->currency(),
                 context: $ctx
             );
 
-            // ✅ session_id / session_data が必須（provider_payment_idは必須にしない）
             if (empty($res['session_id']) || empty($res['session_data'])) {
                 throw new \RuntimeException('Adyen session fields missing from gateway response');
             }
 
-            // provider_payment_id があるなら保存（この実装では session_id を入れて返している）
+            // provider_payment_id があるなら保存（実装次第で session_id を入れてもOK）
             if (!empty($res['provider_payment_id'])) {
                 $payment = $payment->withProviderPayment($res['provider_payment_id']);
                 $payment = $this->payments->save($payment);
@@ -145,5 +155,40 @@ final class StartPaymentUseCase
                 instructions: null,
             );
         });
+    }
+
+    private function resolveProviderByShop(int $shopId): PaymentProvider
+    {
+        // shops.payment_provider を優先
+        $v = DB::table('shops')->where('id', $shopId)->value('payment_provider');
+
+        if (is_string($v) && $v !== '') {
+            // DBに不正値が入っていたら例外にせずfallback（運用事故耐性）
+            try {
+                return PaymentProvider::from($v);
+            } catch (\ValueError) {
+                \Log::warning('[🔥StartPayment] invalid shop payment_provider, fallback to env', [
+                    'shop_id' => $shopId,
+                    'value' => $v,
+                ]);
+            }
+        }
+
+        // fallback: env
+        $env = (string) env('PAYMENT_PROVIDER', PaymentProvider::STRIPE->value);
+        try {
+            return PaymentProvider::from($env);
+        } catch (\ValueError) {
+            return PaymentProvider::STRIPE;
+        }
+    }
+
+    private function resolveGateway(PaymentProvider $provider): PaymentGatewayPort
+    {
+        // PaymentGatewayPort を「shopごとに」切り替えるため、ここで具象を make する
+        return match ($provider) {
+            PaymentProvider::ADYEN  => app()->make(AdyenPaymentGateway::class),
+            default                => app()->make(StripePaymentGateway::class),
+        };
     }
 }

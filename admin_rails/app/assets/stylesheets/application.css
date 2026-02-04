@@ -9,4 +9,4 @@
  * Consider organizing styles into separate files for maintainability.
  */
 
- @import "admin_dashboard";
+ @import url("admin_dashboard.css");

@@ -8,25 +8,23 @@ return new class () extends Migration {
     public function up(): void
     {
         Schema::create('processed_webhook_events', function (Blueprint $table) {
-            $table->id();
+    $table->id();
 
-            $table->string('provider', 50)->index();          // stripe
-            $table->string('event_id', 191)->index();         // evt_xxx
-            $table->string('event_type', 191)->index();       // payment_intent.succeeded ...
-            $table->char('payload_hash', 64)->index();        // sha256(payload)
-            $table->string('status', 32)->index(); // reserved | succeeded | ignored | failed
-            $table->unsignedBigInteger('payment_id')->nullable()->index();
-            $table->unsignedBigInteger('order_id')->nullable()->index();
-            $table->string('error_code', 64)->nullable();
-            $table->string('error_message', 255)->nullable();
+    $table->string('provider', 50);                 // stripe|adyen
+    $table->char('event_id', 64);                   // sha256 hex (fixed)
+    $table->string('event_type', 191)->index();     // payment_intent.succeeded / AUTHORISATION ...
+    $table->char('payload_hash', 64)->index();      // sha256(payload)
+    $table->string('status', 32)->index();          // reserved|ok|ignored|error など
+    $table->unsignedBigInteger('payment_id')->nullable()->index();
+    $table->unsignedBigInteger('order_id')->nullable()->index();
+    $table->string('error_code', 64)->nullable();
+    $table->string('error_message', 255)->nullable();
 
+    $table->timestamp('processed_at')->nullable();
+    $table->timestamps();
 
-            $table->timestamp('processed_at')->nullable();
-
-            $table->timestamps();
-
-            $table->unique(['provider', 'event_id']);
-        });
+    $table->unique(['provider', 'event_id'], 'uq_processed_webhook_provider_event');
+});
     }
 
     public function down(): void

@@ -264,6 +264,86 @@ final class HandlePaymentWebhookUseCase
                     return;
                 }
 
+
+                // ===== Adyen (MVP) =====
+if ($isAdyen) {
+
+    if ($input->eventType !== 'AUTHORISATION') {
+        return;
+    }
+
+    if (!is_int($orderIdFromMeta)) {
+        return;
+    }
+
+    if (!$payment) {
+        $payment = $this->payments->findLatestByOrderId($orderIdFromMeta);
+    }
+
+    $order = $this->orders->findById($orderIdFromMeta);
+    if (!$order) {
+        return;
+    }
+
+
+    $finalOrderId = $order->id();
+if ($payment) {
+    $finalPaymentId = $payment->id();
+}
+
+// ✅ amount/currency チェック
+$nriAmount   = $input->payload['amount']['value'] ?? null;
+$nriCurrency = $input->payload['amount']['currency'] ?? null;
+
+$webhookAmount   = is_numeric($nriAmount) ? (int)$nriAmount : null;
+$webhookCurrency = is_string($nriCurrency) ? strtoupper($nriCurrency) : null;
+
+$expectedAmount   = $payment ? $payment->amount() : $order->totalAmount();
+$expectedCurrency = $payment ? strtoupper($payment->currency()) : strtoupper($order->currency());
+
+// 欠落 or 不一致なら “絶対に paid にしない”
+if ($webhookAmount === null || $webhookCurrency === null) {
+    $finalStatus = 'error';
+    $finalErrorMessage = 'adyen_amount_currency_missing';
+    return;
+}
+if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency) {
+    $finalStatus = 'error';
+    $finalErrorMessage = 'adyen_amount_currency_mismatch';
+    return;
+}
+
+    // ==========================================
+    // 以降はあなたの既存ロジックそのまま
+    // ==========================================
+    if ($domainEvent->type === DomainPaymentEventType::FAILED) {
+        if ($payment) {
+            $this->payments->save(
+                $payment->markFailed([
+                    'reason' => $domainEvent->reason ?? 'adyen_failed'
+                ])
+            );
+        }
+        return;
+    }
+
+    if ($domainEvent->type === DomainPaymentEventType::SUCCEEDED) {
+        if ($payment) {
+            $payment = $payment->withProviderPayment($domainEvent->providerPaymentId)
+                               ->markSucceeded();
+            $this->payments->save($payment);
+        }
+
+        $orderPaidEvent = $this->markOrderPaid->handle(
+            orderId: $order->id(),
+            paidAt: $domainEvent->occurredAt,
+        );
+        return;
+    }
+
+    return;
+}
+
                 // -----------------------------------------
                 // 4-5) SUCCEEDED / FAILED / REQUIRES_ACTION
                 // -----------------------------------------

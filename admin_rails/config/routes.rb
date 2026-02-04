@@ -23,6 +23,10 @@ Rails.application.routes.draw do
       get  "/reconciliation/missing-sales", to: "reconciliation#missing_sales"
       post "/reconciliation/replay/sale",   to: "reconciliation#replay_sale"
 
+      # Provider Settings (PSP per shop)
+get  "/provider-settings",            to: "provider_settings#index"
+post "/provider-settings/update",     to: "provider_settings#update"   # bulk/row update両対応
+
 # ProviderIntel (Catalog Sources)
 get  "/providerintel/sources",                 to: "providerintel_sources#index"
 get  "/providerintel/sources/new",             to: "providerintel_sources#new"
