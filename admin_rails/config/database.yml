@@ -1,0 +1,20 @@
+default: &default
+  adapter: mysql2
+  encoding: utf8mb4
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+  host: <%= ENV.fetch("DB_HOST", "mysql") %>
+  port: <%= ENV.fetch("DB_PORT", 3306) %>
+  username: <%= ENV.fetch("DB_USERNAME", "laravel_user") %>
+  password: <%= ENV.fetch("DB_PASSWORD", "laravel_pass") %>
+
+development:
+  <<: *default
+  database: <%= ENV.fetch("DB_DATABASE", "admin_rails_development") %>
+
+test:
+  <<: *default
+  database: <%= ENV.fetch("DB_DATABASE_TEST", "admin_rails_test") %>
+
+production:
+  <<: *default
+  database: <%= ENV.fetch("DB_DATABASE", "admin_rails_production") %>

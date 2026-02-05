@@ -683,3 +683,15 @@ Route::prefix('admin')
             Route::post('shops/payment-provider', UpdateShopPaymentProviderController::class);
         });
 });
+
+
+
+use App\Modules\Payment\Presentation\Http\Controllers\AdyenPreviewController;
+use App\Modules\Payment\Presentation\Http\Controllers\AdyenCommitController;
+
+
+Route::middleware('auth.occ')->group(function () {
+    // Payment (Adyen)
+    Route::post('/payments/adyen/session/preview', AdyenPreviewController::class);
+    Route::post('/payments/adyen/commit', [AdyenCommitController::class, 'commit']);
+});

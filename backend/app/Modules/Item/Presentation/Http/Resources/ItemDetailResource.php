@@ -32,6 +32,7 @@ final class ItemDetailResource
             'comments'         => $row['comments'] ?? [],
             'is_favorited'     => $row['is_favorited'] ?? false,
             'favorites_count' => $row['favorites_count'] ?? 0,
+            'shop_payment_provider' => $row['shop_payment_provider'] ?? null,
         ];
     }
 }

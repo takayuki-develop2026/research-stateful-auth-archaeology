@@ -17,10 +17,8 @@ final class AdyenWebhookController extends Controller
 
     public function __invoke(Request $request): Response
     {
-        $payloadRaw = $request->getContent();
         $payload = $request->json()->all();
 
-        // Adyen requires "[accepted]"
         $items = $payload['notificationItems'] ?? [];
         if (!is_array($items)) {
             return response('[accepted]', 200);
@@ -32,7 +30,7 @@ final class AdyenWebhookController extends Controller
             $nri = $wrapper['NotificationRequestItem'] ?? null;
             if (!is_array($nri)) continue;
 
-            // ✅ HMAC verify (fail => ignore, but return [accepted])
+            // HMAC verify (fail => ignore, but return [accepted])
             try {
                 if (!$verifier->verify($nri)) {
                     \Log::warning('[AdyenWebhook] HMAC verification failed', [
@@ -52,40 +50,42 @@ final class AdyenWebhookController extends Controller
             $success   = (string)($nri['success'] ?? '');
             $pspRef    = (string)($nri['pspReference'] ?? '');
             $eventDate = (string)($nri['eventDate'] ?? '');
-
-            // eventId: provider + pspRef + eventCode + success + eventDate
             $merchantRef = (string)($nri['merchantReference'] ?? '');
 
-$eventId = hash('sha256',
-  'adyen|' . $pspRef . '|' . $eventCode . '|' . $success . '|' . $merchantRef
-);
+            // ✅ eventId: 安定キー（pspRef + eventCode + success + merchantReference）
+            $eventId = hash('sha256', 'adyen|' . $pspRef . '|' . $eventCode . '|' . $success . '|' . $merchantRef);
 
-            // eventDate is ISO8601. Use app TZ.
-            $occurredAt = new \DateTimeImmutable($eventDate ?: 'now', new \DateTimeZone(config('app.timezone')));
+            // ✅ payloadHash: NRI単位（items複数に対応）
+            $payloadHash = hash('sha256', json_encode($nri, JSON_UNESCAPED_UNICODE));
+
+            $occurredAt = new \DateTimeImmutable(
+                $eventDate ?: 'now',
+                new \DateTimeZone((string) config('app.timezone'))
+            );
 
             $input = new HandlePaymentWebhookInput(
                 provider: 'adyen',
                 eventId: $eventId,
-                eventType: $eventCode,          // AUTHORISATION
-                payload: $nri,                  // ✅ NRI only
-                payloadHash: hash('sha256', $payloadRaw),
+                eventType: $eventCode,
+                payload: $nri,
+                payloadHash: $payloadHash,
                 occurredAt: $occurredAt,
             );
 
             try {
                 $this->paymentUseCase->handle($input);
             } catch (\Throwable $e) {
-                \Log::error('[🔥AdyenWebhook] UseCase swallowed', [
+                \Log::error('[AdyenWebhook] UseCase error swallowed', [
                     'event_id' => $eventId,
                     'event_code' => $eventCode,
                     'message' => $e->getMessage(),
                 ]);
-                \Log::info('[🔥🔥AdyenWebhook] nri', [
-  'eventCode' => $nri['eventCode'] ?? null,
-  'success' => $nri['success'] ?? null,
-  'pspReference' => $nri['pspReference'] ?? null,
-  'merchantReference' => $nri['merchantReference'] ?? null,
-]);
+                \Log::info('[AdyenWebhook] nri', [
+                    'eventCode' => $nri['eventCode'] ?? null,
+                    'success' => $nri['success'] ?? null,
+                    'pspReference' => $nri['pspReference'] ?? null,
+                    'merchantReference' => $nri['merchantReference'] ?? null,
+                ]);
             }
         }
 

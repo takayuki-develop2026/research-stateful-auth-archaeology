@@ -1,0 +1,41 @@
+.thankYouPage {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 80vh;
+  background-color: #f7f7f7;
+  text-align: center;
+}
+
+.messageBox {
+  background: #ffffff;
+  padding: 40px 48px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-width: 520px;
+  width: 100%;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #ef4444; /* 赤 */
+  margin-bottom: 24px;
+}
+
+.message {
+  font-size: 1.05rem;
+  line-height: 1.8;
+  color: #333333;
+}
+
+.actions {
+  margin-top: 32px;
+}
+
+.backHomeLink {
+  color: #3b82f6; /* 青 */
+  text-decoration: underline;
+  font-weight: bold;
+  font-size: 1rem;
+}

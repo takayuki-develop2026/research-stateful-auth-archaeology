@@ -66,6 +66,17 @@ use App\Modules\Payment\Domain\Enum\PaymentProvider;
 use App\Modules\Payment\Domain\Shop\Repository\AdminShopQueryRepository;
 use App\Modules\Payment\Infrastructure\Persistence\Repository\Shop\EloquentAdminShopQueryRepository;
 
+use App\Modules\Payment\Domain\Repository\PaymentPreviewRepository;
+use App\Modules\Payment\Infrastructure\Persistence\Repository\DbPaymentPreviewRepository;
+
+use App\Modules\Payment\Domain\Repository\PaymentRepository;
+use App\Modules\Payment\Infrastructure\Persistence\Repository\EloquentPaymentRepository;
+
+use App\Modules\Payment\Domain\Repository\PaymentQueryRepository;
+use App\Modules\Payment\Infrastructure\Persistence\Repository\EloquentPaymentQueryRepository;
+
+use App\Modules\Payment\Application\UseCase\CreateAdyenPreviewSessionUseCase;
+
 
 final class PaymentServiceProvider extends ServiceProvider
 {
@@ -110,6 +121,15 @@ final class PaymentServiceProvider extends ServiceProvider
         $this->app->bind(AdminPayoutQueryRepository::class, EloquentAdminPayoutQueryRepository::class);
 
         $this->app->bind(AdminShopQueryRepository::class, EloquentAdminShopQueryRepository::class);
+
+        $this->app->bind(PaymentPreviewRepository::class, DbPaymentPreviewRepository::class);
+        $this->app->bind(PaymentRepository::class, EloquentPaymentRepository::class);
+        $this->app->bind(PaymentQueryRepository::class, EloquentPaymentQueryRepository::class);
+
+        $this->app->when(CreateAdyenPreviewSessionUseCase::class)
+            ->needs(PaymentGatewayPort::class)
+            ->give(AdyenPaymentGateway::class);
+
 
         $this->app->bind(PaymentGatewayPort::class, function ($app) {
     $p = (string) env('PAYMENT_PROVIDER', PaymentProvider::STRIPE->value);

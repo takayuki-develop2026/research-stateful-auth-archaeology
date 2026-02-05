@@ -63,6 +63,17 @@ laravel環境構築
    ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
    ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br>
 
+
+ストライプ決済実行時
+stripe listen --forward-to http://localhost/api/webhooks/stripe 
+
+アディエン決済実行時
+ngrok http 80  
+
+出品時解析システム実行時
+docker compose exec php php artisan queue:work
+
+
 # 次のステップ提案<br>
 
 

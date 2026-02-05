@@ -30,17 +30,11 @@ final class AdyenPaymentGateway implements PaymentGatewayPort
         $baseUrl         = (string) config('services.adyen.checkout_base_url');   // https://checkout-test.adyen.com
         $returnUrl       = (string) config('services.adyen.return_url');         // http://localhost/thanks/buy/adyen
 
-        // Context
-        $paymentId = (int) ($context['payment_id'] ?? 0);
-        $orderId   = (int) ($context['order_id'] ?? 0);
-
-        if ($paymentId <= 0 || $orderId <= 0) {
-            throw new \RuntimeException('payment_id/order_id missing in context');
+        // ✅ 最重要：merchantReference は preview_key（uuid）を入れる
+        $previewKey = (string)($context['reference'] ?? $context['preview_key'] ?? '');
+        if ($previewKey === '') {
+            throw new \RuntimeException('reference/preview_key missing in context');
         }
-
-        // ✅ 最重要：webhook の merchantReference から order_id を取れるようにする
-        // -> 文字列として "2" のように入れる
-        $merchantReference = (string) $orderId;
 
         $payload = [
             'merchantAccount' => $merchantAccount,
@@ -48,12 +42,10 @@ final class AdyenPaymentGateway implements PaymentGatewayPort
                 'value'    => $amount,
                 'currency' => strtoupper($currency),
             ],
-            'reference'    => $merchantReference,
+            'reference'    => $previewKey, // ✅ merchantReference として通知される
             'returnUrl'    => $returnUrl,
             'countryCode'  => 'JP',
             'shopperLocale'=> 'ja-JP',
-
-            // Drop-in Sessions 前提
         ];
 
         $url = rtrim($baseUrl, '/') . '/v70/sessions';
@@ -64,7 +56,6 @@ final class AdyenPaymentGateway implements PaymentGatewayPort
             ])
             ->post($url, $payload);
 
-        // ✅ 201 Created も成功なので successful() を使う
         if (!$res->successful()) {
             throw new \RuntimeException('Adyen sessions failed: ' . $res->status() . ' ' . $res->body());
         }
@@ -74,9 +65,6 @@ final class AdyenPaymentGateway implements PaymentGatewayPort
             throw new \RuntimeException('Adyen sessions invalid json: ' . $res->body());
         }
 
-        // Adyen Sessions response:
-        // - id          => sessionId
-        // - sessionData => sessionData
         $sessionId   = $json['id'] ?? null;
         $sessionData = $json['sessionData'] ?? null;
 
@@ -85,13 +73,10 @@ final class AdyenPaymentGateway implements PaymentGatewayPort
         }
 
         return [
-            // provider_payment_id はこの段階では “sessionId” を一旦入れておく（後でpspReferenceで上書き）
+            // provider_payment_id は “sessionId” を仮置き（webhook で pspReference に上書き）
             'provider_payment_id' => $sessionId,
-
             'session_id'   => $sessionId,
             'session_data' => $sessionData,
-
-            // フロントは NEXT_PUBLIC_ADYEN_CLIENT_KEY を使う想定でも返してOK（互換用）
             'client_key'   => (string) config('services.adyen.client_key', ''),
             'environment'  => ($environment === 'live') ? 'live' : 'test',
             'status'       => null,

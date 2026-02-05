@@ -165,3 +165,45 @@
   font-size: 0.8rem;
   color: #6b7280;
 }
+
+/* DEV: Card PSP Mode buttons */
+.pspModeWrap {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pspModeBtn {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #111827;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease,
+    color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.pspModeBtn:hover {
+  background: #f3f4f6; /* hoverで薄く */
+  border-color: #d1d5db;
+}
+
+.pspModeBtn:active {
+  transform: translateY(1px);
+}
+
+.pspModeBtnActive {
+  border-color: #111827;
+  background: #111827;
+  color: #ffffff;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.pspModeBtnActive:hover {
+  background: #0b1220; /* active時hover */
+  border-color: #0b1220;
+}
+

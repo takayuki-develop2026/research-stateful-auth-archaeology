@@ -167,11 +167,17 @@ services:
       - ./admin_rails:/app
     env_file:
       - ./admin_rails/.env
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: laravel_user
+      DB_PASSWORD: laravel_pass
+      DB_DATABASE: admin_rails_development
     command: bash -lc "rm -f /app/tmp/pids/server.pid && bundle install && bin/rails server -b 0.0.0.0 -p 3000"
     ports:
       - "3001:3000"
     depends_on:
-      - nginx
+      - mysql
     networks:
       - simulation1_network
 # ============================================================

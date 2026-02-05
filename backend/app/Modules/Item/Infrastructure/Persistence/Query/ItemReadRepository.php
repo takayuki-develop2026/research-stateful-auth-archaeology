@@ -52,86 +52,64 @@ final class ItemReadRepository
      */
     public function findWithDisplayEntities(int $itemId): ?array
 {
-    $item = Item::find($itemId);
-    if (! $item) {
-        return null;
-    }
+    $row = DB::table('items as i')
+        ->leftJoin('shops as s', 's.id', '=', 'i.shop_id')
+        ->where('i.id', $itemId)
+        ->select([
+            'i.id',
+            'i.shop_id',
+            'i.name',
+            'i.price',
+            'i.explain',
+            'i.remain',
+            'i.item_image',
+            'i.brand',
+            'i.condition',
+            's.payment_provider as shop_payment_provider',
+        ])
+        ->first();
 
-    // ① human / entity（最優先）
-    $entity = $this->pickBestEntityRow($itemId);
+    if (! $row) return null;
+
+    // 既存ロジックはそのまま（$item を $row に置き換える）
+    $entity = $this->pickBestEntityRow($row->id);
 
     if ($entity !== null) {
         $display = [
-            'brand' => [
-                'name'      => $entity->brand_name,
-                'source'    => $entity->source,
-                'is_latest' => true, // entity は latest 管理下
-            ],
-            'condition' => [
-                'name'      => $entity->condition_name,
-                'source'    => $entity->source,
-                'is_latest' => true,
-            ],
-            'color' => [
-                'name'      => $entity->color_name,
-                'source'    => $entity->source,
-                'is_latest' => true,
-            ],
+            'brand' => ['name' => $entity->brand_name, 'source' => $entity->source, 'is_latest' => true],
+            'condition' => ['name' => $entity->condition_name, 'source' => $entity->source, 'is_latest' => true],
+            'color' => ['name' => null,'source' => 'raw','is_latest' => false,],
         ];
-    }
-    // ② AI provisional（entity が無い場合のみ）
-    elseif ($analysis = $this->analysisRepo->findLatestActiveByItemId($itemId)) {
+    } elseif ($analysis = $this->analysisRepo->findLatestActiveByItemId($row->id)) {
         $display = [
-            'brand' => [
-                ...($analysis['brand'] ?? ['name' => null]),
-                'is_latest' => false, // ★ analysis_results なので false
-            ],
-            'condition' => [
-                ...($analysis['condition'] ?? ['name' => null]),
-                'is_latest' => false,
-            ],
-            'color' => [
-                ...($analysis['color'] ?? ['name' => null]),
-                'is_latest' => false,
-            ],
+            'brand' => [...($analysis['brand'] ?? ['name' => null]), 'is_latest' => false],
+            'condition' => [...($analysis['condition'] ?? ['name' => null]), 'is_latest' => false],
+            'color' => [...($analysis['color'] ?? ['name' => null]), 'is_latest' => false],
         ];
-    }
-    // ③ raw fallback
-    else {
+    } else {
         $display = [
-            'brand' => [
-                'name'      => $item->brand,
-                'source'    => 'raw',
-                'is_latest' => false,
-            ],
-            'condition' => [
-                'name'      => $item->condition,
-                'source'    => 'raw',
-                'is_latest' => false,
-            ],
-            'color' => [
-                'name'      => $item->color,
-                'source'    => 'raw',
-                'is_latest' => false,
-            ],
+            'brand' => ['name' => $row->brand, 'source' => 'raw', 'is_latest' => false],
+            'condition' => ['name' => $row->condition, 'source' => 'raw', 'is_latest' => false],
+            'color' => ['name' => null, 'source' => 'raw', 'is_latest' => false],
         ];
     }
 
     return [
-        'id'        => $item->id,
-        'shop_id'   => $item->shop_id,
-        'name'      => $item->name,
-        'price'     => $item->price,
-        'explain'   => $item->explain,
-        'remain'    => $item->remain,
+        'id'        => (int) $row->id,
+        'shop_id'   => (int) $row->shop_id,
+        'name'      => (string) $row->name,
+        'price'     => (int) $row->price,
+        'explain'   => (string) $row->explain,
+        'remain'    => (int) $row->remain,
+        'item_image'=> $row->item_image,
 
         'brand'     => $display['brand']['name'],
         'condition' => $display['condition']['name'],
         'color'     => $display['color']['name'],
-
         'display'   => $display,
 
-        'item_image' => $item->item_image,
+        // ★追加：shop の決済プロバイダ
+        'shop_payment_provider' => $row->shop_payment_provider ?? null,
     ];
 }
 

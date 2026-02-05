@@ -16,7 +16,7 @@
   <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width: 100%;">
     <tr><th>posting_id</th><td><%= posting["posting_id"] || posting["id"] %></td></tr>
     <tr><th>shop_id</th><td><%= posting["shop_id"] %></td></tr>
-    <tr><th>occurred_at</th><td><%= posting["occurred_at"] %></td></tr>
+    <tr><th>occurred_at</th><td><%= fmt_jst(posting["occurred_at"]) %></td></tr>
     <tr><th>種別</th><td><%= posting["posting_type"] || posting["type"] %></td></tr>
     <tr><th>amount</th><td><%= posting["amount"] %> <%= posting["currency"] %></td></tr>
     <tr><th>order_id</th><td><%= posting["order_id"] %></td></tr>

@@ -6,6 +6,7 @@ use App\Modules\Payment\Application\Dto\HandlePaymentWebhookInput;
 use App\Modules\Payment\Domain\Event\DomainPaymentEventType;
 use App\Modules\Payment\Domain\Repository\PaymentQueryRepository;
 use App\Modules\Payment\Domain\Repository\PaymentRepository;
+use App\Modules\Payment\Domain\Repository\PaymentPreviewRepository;
 use App\Modules\Payment\Domain\Service\StripeEventMapper;
 use App\Modules\Payment\Domain\Service\AdyenEventMapper;
 use App\Modules\Order\Domain\Event\OrderPaid;
@@ -22,7 +23,7 @@ use App\Modules\Order\Application\UseCase\MarkOrderPaidUseCase;
 final class HandlePaymentWebhookUseCase
 {
     public function __construct(
-        private PaymentQueryRepository $webhookEvents, // reserve/complete の正（processed正統）
+        private PaymentQueryRepository $webhookEvents,
         private PaymentRepository $payments,
         private OrderRepository $orders,
         private ShopLedgerRepository $ledgers,
@@ -31,8 +32,8 @@ final class HandlePaymentWebhookUseCase
         private PostLedgerPort $port,
         private PostFeeFromStripeChargeUseCase $postFee,
         private MarkOrderPaidUseCase $markOrderPaid,
-    ) {
-    }
+        private PaymentPreviewRepository $previews, // ✅ Adyen: preview_key 解決に必要
+    ) {}
 
     public function handle(HandlePaymentWebhookInput $input): void
     {
@@ -65,6 +66,7 @@ final class HandlePaymentWebhookUseCase
 
         try {
             // payload metadata から拾う（Paymentが無い救済・監査紐付けのため）
+            // ✅ Adyen は order_id を payload から直接取らない（preview_key 経由）
             $orderIdFromMeta = $this->extractOrderIdFromPayloadMeta($input);
             $paymentIdFromMeta = $this->extractPaymentIdFromPayloadMeta($input);
 
@@ -151,7 +153,7 @@ final class HandlePaymentWebhookUseCase
 
                 // -----------------------------------------
                 // 4-2) Payment が無い救済ルート（Stripeのみ）
-                //  - Adyenは merchantReference 起点で処理する
+                //  - Adyenは merchantReference(=preview_key) 起点で処理する
                 // -----------------------------------------
                 if (!$payment && !$isAdyen) {
 
@@ -269,24 +271,51 @@ final class HandlePaymentWebhookUseCase
                         return;
                     }
 
-                    // order_id は merchantReference（numeric前提）
-                    if (!is_int($orderIdFromMeta)) {
+                    // ✅ merchantReference = preview_key(UUID)
+                    $previewKey = $this->extractPreviewKeyFromAdyen($input);
+                    if (!is_string($previewKey) || $previewKey === '') {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'adyen_preview_key_missing';
                         return;
                     }
 
-                    // Paymentが取れてなければ orderId で救済
-                    if (!$payment) {
-                        $payment = $this->payments->findLatestByOrderId($orderIdFromMeta);
+                    // ✅ committed preview を解決（ここが正統ルート）
+                    $preview = $this->previews->findCommittedByKey($previewKey);
+                    if (!$preview) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'adyen_preview_not_committed';
+                        return;
                     }
 
-                    $order = $this->orders->findById($orderIdFromMeta);
+                    $orderId = is_numeric($preview->order_id ?? null) ? (int)$preview->order_id : null;
+                    $paymentId = is_numeric($preview->payment_id ?? null) ? (int)$preview->payment_id : null;
+
+                    if (!$orderId || !$paymentId) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'adyen_preview_missing_order_or_payment';
+                        return;
+                    }
+
+                    $order = $this->orders->findById($orderId);
                     if (!$order) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'adyen_order_not_found';
                         return;
                     }
 
                     $finalOrderId = $order->id();
-                    if ($payment) {
-                        $finalPaymentId = $payment->id();
+                    $finalPaymentId = $paymentId;
+
+                    // Payment を解決（最優先 payment_id）
+                    $payment = $this->payments->findById($paymentId);
+                    if (!$payment) {
+                        // 念のため救済（通常ここには来ないはず）
+                        $payment = $this->payments->findLatestByOrderId($orderId);
+                    }
+                    if (!$payment) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'adyen_payment_not_found';
+                        return;
                     }
 
                     // ✅ amount/currency チェック（不一致なら絶対に paid にしない）
@@ -296,8 +325,8 @@ final class HandlePaymentWebhookUseCase
                     $webhookAmount   = is_numeric($nriAmount) ? (int)$nriAmount : null;
                     $webhookCurrency = is_string($nriCurrency) ? strtoupper($nriCurrency) : null;
 
-                    $expectedAmount   = $payment ? $payment->amount() : $order->totalAmount();
-                    $expectedCurrency = $payment ? strtoupper($payment->currency()) : strtoupper($order->currency());
+                    $expectedAmount   = $payment->amount();
+                    $expectedCurrency = strtoupper($payment->currency());
 
                     if ($webhookAmount === null || $webhookCurrency === null) {
                         $finalStatus = 'error';
@@ -312,25 +341,22 @@ final class HandlePaymentWebhookUseCase
                     }
 
                     if ($domainEvent->type === DomainPaymentEventType::FAILED) {
-                        if ($payment) {
-                            $this->payments->save(
-                                $payment->markFailed([
-                                    'reason' => $domainEvent->reason ?? 'adyen_failed'
-                                ])
-                            );
-                        }
+                        $this->payments->save(
+                            $payment->markFailed([
+                                'reason' => $domainEvent->reason ?? 'adyen_failed'
+                            ])
+                        );
                         return;
                     }
 
                     if ($domainEvent->type === DomainPaymentEventType::SUCCEEDED) {
 
-                        // Payment succeeded
-                        if ($payment) {
-                            $payment = $payment
-                                ->withProviderPayment($domainEvent->providerPaymentId)
-                                ->markSucceeded();
-                            $this->payments->save($payment);
-                        }
+                        // Payment succeeded（pspReference を provider_payment_id に確定させる）
+                        $payment = $payment
+                            ->withProviderPayment($domainEvent->providerPaymentId)
+                            ->markSucceeded();
+
+                        $this->payments->save($payment);
 
                         // Order paid（冪等は MarkOrderPaidUseCase で担保）
                         $orderPaidEvent = $this->markOrderPaid->handle(
@@ -338,20 +364,13 @@ final class HandlePaymentWebhookUseCase
                             paidAt: $domainEvent->occurredAt,
                         );
 
-                        // ✅ KPI/台帳反映の本体：ledger_postings に SALE を起こす
-                        // idempotency: pspReference を最優先（無ければ mapperの providerPaymentId）
+                        // ✅ ledger_postings に SALE
                         $pspRef = (string)($input->payload['pspReference'] ?? '');
                         $providerPaymentId = is_string($domainEvent->providerPaymentId) ? $domainEvent->providerPaymentId : '';
 
                         $sourceEventIdBase = $pspRef !== '' ? $pspRef : $providerPaymentId;
                         if ($sourceEventIdBase === '') {
-                            // 最悪ケース：eventId（hash）でフォールバック
                             $sourceEventIdBase = $input->eventId;
-                        }
-
-                        // Payment不在なら台帳は起こさない（現状方針に合わせる）
-                        if (!$payment) {
-                            return;
                         }
 
                         $this->port->post(new PostLedgerCommand(
@@ -367,7 +386,7 @@ final class HandlePaymentWebhookUseCase
                             meta: [
                                 'provider_payment_id' => $providerPaymentId !== '' ? $providerPaymentId : null,
                                 'psp_reference'       => $pspRef !== '' ? $pspRef : null,
-                                'merchant_reference'  => $input->payload['merchantReference'] ?? null,
+                                'merchant_reference'  => $previewKey, // ✅ preview_key
                                 'webhook_event_type'  => $input->eventType,
                                 'webhook_event_id'    => $input->eventId,
                                 'success'             => $input->payload['success'] ?? null,
@@ -477,19 +496,13 @@ final class HandlePaymentWebhookUseCase
     }
 
     /**
-     * Adyen: merchantReference（数値）= order_id
      * Stripe: payload.data.object.metadata.order_id
+     * Adyen: order_id を payload からは取らない（preview_key 経由に固定）
      */
     private function extractOrderIdFromPayloadMeta(HandlePaymentWebhookInput $input): ?int
     {
+        // ✅ Adyen は order_id を payload から直接取らない
         if ($input->provider === 'adyen') {
-            $nri = $input->payload;
-            if (is_array($nri)) {
-                $mr = $nri['merchantReference'] ?? null;
-                if (is_string($mr) && is_numeric($mr)) {
-                    return (int)$mr;
-                }
-            }
             return null;
         }
 
@@ -505,6 +518,22 @@ final class HandlePaymentWebhookUseCase
         }
 
         return null;
+    }
+
+    /**
+     * Adyen: merchantReference = preview_key(uuid)
+     */
+    private function extractPreviewKeyFromAdyen(HandlePaymentWebhookInput $input): ?string
+    {
+        if ($input->provider !== 'adyen') return null;
+
+        $nri = $input->payload;
+        if (!is_array($nri)) return null;
+
+        $mr = $nri['merchantReference'] ?? null;
+        if (!is_string($mr) || $mr === '') return null;
+
+        return $mr; // ✅ preview_key(UUID)
     }
 
     /**

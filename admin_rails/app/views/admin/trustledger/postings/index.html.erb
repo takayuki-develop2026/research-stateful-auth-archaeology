@@ -122,7 +122,7 @@
               <%= p["posting_id"] || p["id"] %>
             </a>
           </td>
-          <td><%= p["occurred_at"] %></td>
+          <td><%= fmt_jst(p["occurred_at"]) %></td>
           <td>
             <div><%= jp_posting_type(p["posting_type"] || p["type"]) %></div>
             <div style="color:#666; font-size:12px;"><%= (p["posting_type"] || p["type"]) %></div>
