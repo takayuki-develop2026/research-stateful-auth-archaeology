@@ -4,6 +4,9 @@ export type PublicItemSummary = {
   price: number | null;
   itemImagePath: string | null;
 
+  remain?: number | null;
+  is_sold_out?: boolean | null;
+
   brandPrimary: string | null;
   conditionName: string | null;
   colorName: string | null;

@@ -497,6 +497,30 @@
   margin-top: 10px;
 }
 
+
+/* 売切 */
+.soldOutOverlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  font-weight: 900;
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 999px;
+}
+
+.imageArea {
+  position: relative;
+}
+
+.imageSoldOut {
+  filter: grayscale(0.9);
+  opacity: 0.78;
+}
+
 /* ============================================================
    レスポンシブ
 ============================================================ */

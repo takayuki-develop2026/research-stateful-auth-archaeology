@@ -152,6 +152,26 @@
   border-radius: 4px;
 }
 
+.soldOutBadge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 30;
+
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+.itemImageSoldOut {
+  filter: grayscale(0.9);
+  opacity: 0.75;
+}
+
 /* アイテム情報 */
 .item_info {
   display: flex;

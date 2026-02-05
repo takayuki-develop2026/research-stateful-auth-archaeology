@@ -8,6 +8,8 @@ final class PublicCatalogItemDto
         public readonly int $id,
         public readonly string $name,
         public readonly int $price,
+        public readonly int $remain,
+
         public readonly ?string $brandPrimary,
         public readonly ?string $conditionName,
         public readonly ?string $colorName,
@@ -19,12 +21,20 @@ final class PublicCatalogItemDto
     ) {
     }
 
+    public function isSoldOut(): bool
+    {
+        return $this->remain <= 0;
+    }
+
     public function toArray(): array
     {
         return [
             'id' => $this->id,
             'name' => $this->name,
             'price' => $this->price,
+            'remain' => $this->remain,
+            'is_sold_out' => $this->isSoldOut(),
+
             'brandPrimary' => $this->brandPrimary,
             'conditionName' => $this->conditionName,
             'colorName' => $this->colorName,

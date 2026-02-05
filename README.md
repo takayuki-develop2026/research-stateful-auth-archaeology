@@ -1,9 +1,7 @@
-# アプリケーション名： (OmniCommerceCore)Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、システム<br>
+# アプリケーション名： (OmniCommerceCore)Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、（自動出荷なども計画）システム<br>
 
-リポジトリ名：<br>
-research-stateful-auth-archaeology<br>
-ブランチ名：<br>
-- main<br>
+リポジトリ名: - research-stateful-auth-archaeology<br>
+ブランチ名: - main<br>
 
 それぞれのブランチのREADMEを参照してセットアップ<br>
 
@@ -64,18 +62,18 @@ laravel環境構築
    ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br><br>
 
 
-ストライプ決済実行時<br>
-stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
+- Stripe決済実行時<br>
+（ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
 カード番号：4242 4242 4242 4242<br>
 有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br><br>
 
-アディエン決済実行時<br>
-ngrok http 80  (ターミナルで実行のまま)<br>
+- Adyen決済実行時<br>
+（ターミナルコマンド）ngrok http 80  (ターミナルで実行のまま)<br>
 カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
 有効期限（未来）・名前、は決まりなし。<br><br>
 
-出品時解析システム (ターミナルで実行のまま)<br>
-docker compose exec php php artisan queue:work<br><br>
+- 出品解析システム <br>
+（ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
 
 
 # 次のステップ提案<br>

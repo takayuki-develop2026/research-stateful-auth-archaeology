@@ -30,36 +30,33 @@ export default function Home() {
     const just = sessionStorage.getItem("occore_just_logged_in_v1");
     if (just !== "1") return;
 
-    // IdaasProvider が保存した shopCode を優先
     const shopCode = sessionStorage.getItem("occore_owner_shop_code_v1");
 
-    // 取れない場合は user.shop_roles から読む（user が無い場合もあるのでガード）
     const r0 = (user as any)?.shop_roles?.[0];
     const fallback = r0?.role === "owner" ? r0?.shop_code : null;
 
     const code = shopCode || fallback;
     if (!code) return;
 
-    // ✅ ここではフラグを消さない（useAuthGuard の干渉を避ける）
     router.replace(`/shops/${code}/dashboard`);
 
-    // ✅ 遷移が開始してからフラグを消す（1回きり）
     setTimeout(() => {
       sessionStorage.removeItem("occore_just_logged_in_v1");
-      sessionStorage.removeItem("occore_owner_shop_code_v1"); // 任意：消してOK
+      sessionStorage.removeItem("occore_owner_shop_code_v1");
     }, 1500);
   }, [authReady, isAuthenticated, user, router]);
+
   /* =========================
      Tab / Search
   ========================= */
   const currentTab = useMemo<"all" | "mylist">(
     () => (searchParams.get("tab") === "mylist" ? "mylist" : "all"),
-    [searchParams]
+    [searchParams],
   );
 
   const searchQuery = useMemo(
     () => searchParams.get("all_item_search") ?? "",
-    [searchParams]
+    [searchParams],
   );
 
   const isSearch = searchQuery.trim().length > 0;
@@ -80,28 +77,48 @@ export default function Home() {
   const items: PublicItemCard[] = useMemo(() => {
     const raw =
       currentTab === "mylist"
-        ? favoriteResult.items.map((item) => ({
-            ...item,
-            displayType: null,
-          }))
+        ? favoriteResult.items.map((item) => ({ ...item, displayType: null }))
         : isSearch
           ? searchResult.items
           : listResult.items;
 
-    return raw.map((item: any) => ({
-      // 型を一時的に any にしてアクセスを許容
-      id: item.id,
-      name: item.name,
-      // 検索APIでは price がオブジェクト（{amount: 5000}）なので対応させる
-      price:
+    return raw.map((item: any) => {
+      // price: number or {amount}
+      const price =
         typeof item.price === "object"
           ? item.price?.amount
-          : (item.price ?? null),
-      // スネークケース（item_image_path）とキャメルケース（itemImagePath）の両方に対応
-      itemImagePath: item.item_image_path ?? item.itemImagePath ?? null,
-      displayType: item.displayType ?? null,
-      isFavorited: Boolean(item.isFavorited),
-    }));
+          : (item.price ?? null);
+
+      const itemImagePath = item.item_image_path ?? item.itemImagePath ?? null;
+
+      // ✅ remain / is_sold_out（両対応）
+      const remain =
+        typeof item.remain === "number"
+          ? item.remain
+          : typeof item.stock_remain === "number"
+            ? item.stock_remain
+            : null;
+
+      const isSoldOut =
+        typeof item.is_sold_out === "boolean"
+          ? item.is_sold_out
+          : remain !== null
+            ? remain <= 0
+            : false;
+
+      return {
+        id: item.id,
+        name: item.name,
+        price,
+        itemImagePath,
+        displayType: item.displayType ?? null,
+        isFavorited: Boolean(item.isFavorited),
+
+        // ✅ 追加
+        remain,
+        isSoldOut,
+      };
+    });
   }, [
     currentTab,
     isSearch,
@@ -124,7 +141,6 @@ export default function Home() {
       } else {
         await apiClient.post(`/favorites/${item.id}`);
       }
-      // await apiClient.delete(`/favorites/${item.id}`);
       mutate(() => true);
     } catch (e) {
       console.error(e);
@@ -145,7 +161,7 @@ export default function Home() {
 
       {!isPageLoading && (
         <>
-          {/* 🏪 ショップ別ホームリンク（追加） */}
+          {/* 🏪 ショップ別ホームリンク */}
           <div className={styles.shopButtons}>
             {["a", "b", "c", "d"].map((code) => (
               <button
@@ -162,18 +178,14 @@ export default function Home() {
           <div className={styles.main_select}>
             <Link
               href={{ pathname: "/", query: { all_item_search: searchQuery } }}
-              className={`${styles.recs} ${
-                currentTab === "all" ? styles.active : ""
-              }`}
+              className={`${styles.recs} ${currentTab === "all" ? styles.active : ""}`}
             >
               すべて
             </Link>
 
             <Link
               href={{ pathname: "/", query: { tab: "mylist" } }}
-              className={`${styles.mylists} ${
-                currentTab === "mylist" ? styles.active : ""
-              }`}
+              className={`${styles.mylists} ${currentTab === "mylist" ? styles.active : ""}`}
             >
               マイリスト
             </Link>
@@ -187,17 +199,26 @@ export default function Home() {
 
                 return (
                   <div key={item.id} className={styles.items_select_all}>
+                    {/* ✅ 完売でも詳細は見せる（クリック挙動は変更しない） */}
                     <div
                       className={styles.cardLink}
                       role="button"
                       tabIndex={0}
                       onClick={() => router.push(`/item/${item.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") router.push(`/item/${item.id}`);
+                      }}
                     >
                       <div className={styles.itemImageWrapper}>
                         {item.displayType && (
                           <span className={styles.ownStar}>
                             {item.displayType === "STAR" ? "⭐️" : "💫"}
                           </span>
+                        )}
+
+                        {/* ✅ 完売バッジ */}
+                        {item.isSoldOut && (
+                          <span className={styles.soldOutBadge}>完売</span>
                         )}
 
                         {isAuthenticated && (
@@ -215,7 +236,9 @@ export default function Home() {
                         <img
                           src={getImageUrl(item.itemImagePath, IMAGE_TYPE.ITEM)}
                           alt={item.name}
-                          className={styles.itemImage}
+                          className={`${styles.itemImage} ${
+                            item.isSoldOut ? styles.itemImageSoldOut : ""
+                          }`}
                           onError={onImageError}
                         />
                       </div>
@@ -228,6 +251,13 @@ export default function Home() {
                             ? item.price.toLocaleString()
                             : "-"}
                         </p>
+
+                        {/* 任意：残数を出したい場合 */}
+                        {/* {typeof item.remain === "number" && (
+                          <p className={styles.item_remain}>
+                            残り {item.remain}
+                          </p>
+                        )} */}
                       </div>
                     </div>
                   </div>

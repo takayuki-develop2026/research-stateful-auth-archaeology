@@ -2,7 +2,6 @@
 
 namespace App\Modules\Item\Application\Assembler;
 
-use App\Models\Item as EloquentItem;
 use App\Modules\Item\Application\Dto\Item\PublicItemDto;
 use Carbon\Carbon;
 
@@ -16,11 +15,16 @@ final class PublicItemAssembler
         int $favoritesCount,
     ): PublicItemDto {
 
-        $itemId = (int) $row['id'];
-        $shopId = $row['shop_id'] ?? null;
-        $createdByUserId = $row['created_by_user_id'] ?? null;
+        $itemId = (int) ($row['id'] ?? 0);
+
+        $shopIdRaw = $row['shop_id'] ?? null;
+        $shopId = $shopIdRaw !== null ? (int) $shopIdRaw : null;
+
+        $createdByUserIdRaw = $row['created_by_user_id'] ?? null;
+        $createdByUserId = $createdByUserIdRaw !== null ? (int) $createdByUserIdRaw : null;
 
         $isOwner = $viewerUserId !== null
+            && $createdByUserId !== null
             && $createdByUserId === $viewerUserId;
 
         $belongsToAnyShop = !empty($viewerShopIds);
@@ -28,58 +32,67 @@ final class PublicItemAssembler
         $canManage = $shopId !== null
             && in_array($shopId, $viewerShopIds, true);
 
-        // =========================
-        // ⭐️ / 💫 表示ルール（修正版）
-        // =========================
+        // remain / soldout
+        $remain = (int) ($row['remain'] ?? 0);
+        $isSoldOut = $remain <= 0;
 
+        // =========================
+        // displayType（固定）
+        // =========================
         $displayType = null;
 
-        /**
-         * ⭐️ ショップ所属ユーザーの個人出品
-         * - owner であっても
-         * - shop_id === null
-         * - viewer が shop に所属している
-         */
-        if (
-            $shopId === null
-            && $isOwner
-            && $belongsToAnyShop
-        ) {
+        // ⭐️ ショップ所属ユーザーの個人出品（shop_id=null かつ owner かつ viewer が shop所属）
+        if ($shopId === null && $isOwner && $belongsToAnyShop) {
             $displayType = 'STAR';
         }
-
-        /**
-         * 💫 一般ユーザーの個人出品
-         */
-        elseif (
-            $shopId === null
-            && $isOwner
-            && !$belongsToAnyShop
-        ) {
-            $displayType = 'MY_ITEM';
+        // 💫 一般ユーザーの個人出品（shop_id=null かつ owner かつ viewer は shop非所属）
+        elseif ($shopId === null && $isOwner && !$belongsToAnyShop) {
+            $displayType = 'OWN';
         }
 
-        /**
-         * ❤️ FAVORITE は最優先
-         */
+        // ❤️ FAVORITE 最優先
         if ($isFavorited) {
             $displayType = 'FAVORITE';
         }
 
+        // 画像（複数キーを吸収して強くする）
+        $rawImage =
+            $row['item_image']
+            ?? $row['item_image_path']
+            ?? $row['itemImagePath']
+            ?? null;
+
+        $itemImagePath = is_string($rawImage) && $rawImage !== ''
+            ? '/storage/' . ltrim($rawImage, '/')
+            : null;
+
+        // publishedAt（string: DATE_ATOM）
+$publishedAtRaw = $row['published_at'] ?? null;
+$publishedAt = null;
+
+if ($publishedAtRaw instanceof \DateTimeInterface) {
+    $publishedAt = $publishedAtRaw->format(DATE_ATOM);
+} elseif (is_string($publishedAtRaw) && $publishedAtRaw !== '') {
+    $publishedAt = Carbon::parse($publishedAtRaw)->format(DATE_ATOM);
+}
+
         return new PublicItemDto(
             id: $itemId,
-            name: (string) $row['name'],
-            price: (int) $row['price'],
-            itemImagePath: $row['item_image']
-                ? '/storage/' . ltrim($row['item_image'], '/')
-                : null,
+            name: (string) ($row['name'] ?? ''),
+            price: (int) ($row['price'] ?? 0),
+            itemImagePath: $itemImagePath,
+
+            // ✅ API契約の核心
+            remain: $remain,
+            isSoldOut: $isSoldOut,
+
             brandPrimary: $row['brand'] ?? null,
             conditionName: $row['condition'] ?? null,
-            colorName: null,
-            publishedAt: $row['published_at']
-                ? Carbon::parse($row['published_at'])->toISOString()
-                : null,
+            colorName: $row['color'] ?? null, // 今 null 固定なら null のままでOK
+
+            publishedAt: $publishedAt, // ✅ DateTimeInterface
             displayType: $displayType,
+
             isOwner: $isOwner,
             canManage: $canManage,
             isFavorited: $isFavorited,

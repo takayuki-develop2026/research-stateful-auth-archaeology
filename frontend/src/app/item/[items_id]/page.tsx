@@ -123,15 +123,25 @@ export default function ItemDetailPage() {
   // ✅ ここから下は「必ず item が存在する」ので確定変数に寄せる
   const resolvedItem = item;
 
+  // ✅ is_sold_out 優先（APIのSoT）＋後方互換(remain)
+  const remainNum =
+    typeof (resolvedItem as any).remain === "number"
+      ? (resolvedItem as any).remain
+      : null;
 
-  
+  const isSoldOut =
+    typeof (resolvedItem as any).is_sold_out === "boolean"
+      ? (resolvedItem as any).is_sold_out
+      : remainNum !== null
+        ? remainNum <= 0
+        : false;
+
   /* =========================
      ここから下は item が必ず存在
   ========================= */
 
   const isOwner = false;
   const canInteract = isAuthenticated && !isOwner;
-  const isSoldOut = resolvedItem.remain === 0;
 
   const displayedFavorited = isFavorited;
   const displayedCount = favoritesCount;
@@ -165,21 +175,21 @@ export default function ItemDetailPage() {
           is_favorited: nextFavorited,
           favorites_count: Math.max(
             0,
-            current.favorites_count + (nextFavorited ? 1 : -1)
+            current.favorites_count + (nextFavorited ? 1 : -1),
           ),
         };
       },
-      { revalidate: false }
+      { revalidate: false },
     );
 
     try {
       if (nextFavorited) {
         await auth.apiClient.post(
-          `/reactions/items/${resolvedItem.id}/favorite`
+          `/reactions/items/${resolvedItem.id}/favorite`,
         );
       } else {
         await auth.apiClient.delete(
-          `/reactions/items/${resolvedItem.id}/favorite`
+          `/reactions/items/${resolvedItem.id}/favorite`,
         );
       }
 
@@ -249,49 +259,50 @@ export default function ItemDetailPage() {
     router.push(`/purchase/${resolvedItem.id}`);
   };
 
-type DisplayBrand = {
-  name: string | null;
-  source?: "ai_provisional" | "human_confirmed";
-  is_latest?: boolean; // 後方互換
-};
+  type DisplayBrand = {
+    name: string | null;
+    source?: "ai_provisional" | "human_confirmed";
+    is_latest?: boolean; // 後方互換
+  };
 
-const displayBrand = (resolvedItem.display?.brand ??null) as DisplayBrand | null;
+  const displayBrand = (resolvedItem.display?.brand ??
+    null) as DisplayBrand | null;
 
-const badge =
-  displayBrand?.is_latest && displayBrand?.source === "human_confirmed" ? (
-    <span
-      style={{
-        color: "#22c55e", // 濃いめの緑（確定済み）
-        fontSize: "0.90rem",
-        lineHeight: "1.4",
-        display: "inline-block",
-        marginLeft: "40px",
-        verticalAlign: "middle",
-      }}
-    >
-      AI解析 → 管理手動確定
-      <br />
-      （ブランド名・カラー・コンディション、
-      <br />
-      開発計画中:画像解析など）
-    </span>
-  ) : displayBrand?.source === "ai_provisional" ? (
-    <span
-      style={{
-        color: "#a3e635", // 黄緑色 (Tailwindのlime-400相当)
-        fontSize: "0.90rem",
-        display: "inline-block",
-        marginLeft: "40px", // 位置を同じに設定
-        verticalAlign: "middle",
-      }}
-    >
-      AI解析
-      <br />
-      （ブランド名・カラー・コンディション、
-      <br />
-      開発計画中:画像解析など）
-    </span>
-  ) : null;
+  const badge =
+    displayBrand?.is_latest && displayBrand?.source === "human_confirmed" ? (
+      <span
+        style={{
+          color: "#22c55e", // 濃いめの緑（確定済み）
+          fontSize: "0.90rem",
+          lineHeight: "1.4",
+          display: "inline-block",
+          marginLeft: "40px",
+          verticalAlign: "middle",
+        }}
+      >
+        AI解析 → 管理手動確定
+        <br />
+        （ブランド名・カラー・コンディション、
+        <br />
+        開発計画中:画像解析など）
+      </span>
+    ) : displayBrand?.source === "ai_provisional" ? (
+      <span
+        style={{
+          color: "#a3e635", // 黄緑色 (Tailwindのlime-400相当)
+          fontSize: "0.90rem",
+          display: "inline-block",
+          marginLeft: "40px", // 位置を同じに設定
+          verticalAlign: "middle",
+        }}
+      >
+        AI解析
+        <br />
+        （ブランド名・カラー・コンディション、
+        <br />
+        開発計画中:画像解析など）
+      </span>
+    ) : null;
 
   /* =========================
     JSX
@@ -302,12 +313,13 @@ const badge =
         <div className={styles.card}>
           {/* 商品画像エリア */}
           <div className={styles.imageArea}>
+            {isSoldOut && <div className={styles.soldOutOverlay}>SOLD OUT</div>}
+
             <img
               src={getImageUrl(resolvedItem.item_image)}
               onError={onImageError}
-              // onError={(e) => onImageError(e, resolvedItem.name)}
               alt="商品写真"
-              className={styles.image}
+              className={`${styles.image} ${isSoldOut ? styles.imageSoldOut : ""}`}
             />
           </div>
 

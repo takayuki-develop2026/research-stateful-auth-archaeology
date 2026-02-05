@@ -43,6 +43,7 @@ final class EloquentPublicCatalogQueryService implements PublicCatalogQueryServi
                     'brand',
                     'condition',
                     'item_image',
+                    'remain',        // ✅ 追加（超重要）
                     'published_at',
                 ],
                 pageName: 'page',
@@ -50,21 +51,25 @@ final class EloquentPublicCatalogQueryService implements PublicCatalogQueryServi
             );
 
         /**
-         * 🔑 ここが核心
          * Eloquent Model → ReadModel(array) に正規化
          */
         return $paginator->through(
             fn (Item $item) => [
-                'id'                  => (int) $item->id,
-                'shop_id'             => $item->shop_id !== null ? (int) $item->shop_id : null,
-                'created_by_user_id'  => $item->created_by_user_id !== null ? (int) $item->created_by_user_id : null,
-                'item_origin'         => (string) $item->item_origin,
-                'name'                => (string) $item->name,
-                'price'               => (int) $item->price,
-                'brand'               => $item->brand,
-                'condition'           => $item->condition,
-                'item_image'          => $item->item_image,
-                'published_at'        => $item->published_at, // string のまま
+                'id'                 => (int) $item->id,
+                'shop_id'            => $item->shop_id !== null ? (int) $item->shop_id : null,
+                'created_by_user_id' => $item->created_by_user_id !== null ? (int) $item->created_by_user_id : null,
+                'item_origin'        => (string) $item->item_origin,
+                'name'               => (string) $item->name,
+                'price'              => (int) $item->price,
+                'brand'              => $item->brand,
+                'condition'          => $item->condition,
+                'item_image'         => $item->item_image,
+
+                // ✅ 追加（超重要）
+                'remain'             => (int) $item->remain,
+
+                // ✅ DateTimeInterface に寄せる（CarbonならそのままOK）
+                'published_at'       => $item->published_at,
             ]
         );
     }

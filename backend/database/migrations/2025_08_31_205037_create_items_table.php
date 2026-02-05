@@ -67,7 +67,9 @@ class CreateItemsTable extends Migration
             /**
              * 在庫数
              */
-            $table->integer('remain');
+            $table->unsignedInteger('remain')->default(1);
+
+            $table->index(['shop_id', 'published_at', 'remain']);
 
             /* =========================
              * 公開制御（★今回の核心）

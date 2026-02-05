@@ -19,6 +19,8 @@ use App\Modules\Payment\Application\UseCase\Ledger\PostFeeFromStripeChargeUseCas
 use App\Modules\Payment\Domain\Ledger\Port\PostLedgerPort;
 use App\Modules\Payment\Domain\Ledger\Port\PostLedgerCommand;
 use App\Modules\Order\Application\UseCase\MarkOrderPaidUseCase;
+use App\Modules\Item\Application\UseCase\Item\Command\DecreaseItemStockOnPaidUseCase;
+use App\Modules\Order\Domain\Repository\OrderHistoryRepository;
 
 final class HandlePaymentWebhookUseCase
 {
@@ -33,6 +35,8 @@ final class HandlePaymentWebhookUseCase
         private PostFeeFromStripeChargeUseCase $postFee,
         private MarkOrderPaidUseCase $markOrderPaid,
         private PaymentPreviewRepository $previews, // ✅ Adyen: preview_key 解決に必要
+        private DecreaseItemStockOnPaidUseCase $decreaseStock,
+        private OrderHistoryRepository $orderHistory,
     ) {}
 
     public function handle(HandlePaymentWebhookInput $input): void
@@ -180,6 +184,16 @@ final class HandlePaymentWebhookUseCase
                         orderId: $order->id(),
                         paidAt: $domainEvent->occurredAt,
                     );
+
+                    // ✅ paid遷移が起きた時だけ在庫減算（ここでは payment が無いので order 起点）
+                    if ($orderPaidEvent) {
+                        $this->decreaseStockSafely(
+                            input: $input,
+                            shopId: (int)$order->shopId(),
+                            orderId: (int)$order->id(),
+                            paymentId: null,
+                        );
+                    }
 
                     // Payment不在では台帳は起こさない（現状方針）
                     return;
@@ -364,6 +378,16 @@ final class HandlePaymentWebhookUseCase
                             paidAt: $domainEvent->occurredAt,
                         );
 
+                        // ✅ paid遷移が起きた時だけ在庫減算（payment があるので payment 起点）
+                        if ($orderPaidEvent) {
+                            $this->decreaseStockSafely(
+                                input: $input,
+                                shopId: (int)$payment->shopId(),
+                                orderId: (int)$order->id(),
+                                paymentId: (int)$payment->id(),
+                            );
+                        }
+
                         // ✅ ledger_postings に SALE
                         $pspRef = (string)($input->payload['pspReference'] ?? '');
                         $providerPaymentId = is_string($domainEvent->providerPaymentId) ? $domainEvent->providerPaymentId : '';
@@ -438,6 +462,16 @@ final class HandlePaymentWebhookUseCase
                     paidAt: $domainEvent->occurredAt,
                 );
 
+                // ✅ paid遷移が起きた時だけ在庫減算
+                if ($orderPaidEvent) {
+                    $this->decreaseStockSafely(
+                        input: $input,
+                        shopId: (int)$payment->shopId(),
+                        orderId: (int)$payment->orderId(),
+                        paymentId: (int)$payment->id(),
+                    );
+                }
+
                 // Stripeの売上台帳（shop_ledgers）
                 $this->ledgers->recordSale(
                     shopId: $payment->shopId(),
@@ -461,8 +495,8 @@ final class HandlePaymentWebhookUseCase
                     occurred_at: $domainEvent->occurredAt->format('Y-m-d H:i:s'),
                     meta: [
                         'provider_payment_id' => $domainEvent->providerPaymentId,
-                        'webhook_event_type' => $input->eventType,
-                        'webhook_event_id' => $input->eventId,
+                        'webhook_event_type'  => $input->eventType,
+                        'webhook_event_id'    => $input->eventId,
                     ],
                     replay: false,
                 ));
@@ -474,9 +508,10 @@ final class HandlePaymentWebhookUseCase
             $finalStatus = 'ok';
 
         } catch (\Throwable $e) {
+            // PSP に 500 を返さない方針（swallow）
             $finalStatus = 'error';
             $finalErrorMessage = $e->getMessage();
-            throw $e;
+            return;
 
         } finally {
             // complete（必ず1回だけ）
@@ -651,5 +686,50 @@ final class HandlePaymentWebhookUseCase
                 'webhook_event_id' => $input->eventId,
             ],
         );
+    }
+
+    /**
+     * ✅ 在庫減算は「失敗しても throw しない」＋ order_events に必ず残す
+     * - rows は order_items のスナップショットを唯一の真実として使う
+     */
+    private function decreaseStockSafely(
+        HandlePaymentWebhookInput $input,
+        int $shopId,
+        int $orderId,
+        ?int $paymentId,
+    ): void {
+        $rows = DB::table('order_items')
+            ->where('order_id', $orderId)
+            ->select(['item_id', 'quantity'])
+            ->get()
+            ->map(fn($r) => ['item_id' => (int)$r->item_id, 'quantity' => (int)$r->quantity])
+            ->all();
+
+        try {
+            $this->decreaseStock->handle($shopId, $rows);
+
+            $this->orderHistory->addEvent($orderId, 'inventory_decreased', [
+                'shop_id' => $shopId,
+                'payment_id' => $paymentId,
+                'provider' => $input->provider,
+                'webhook_event_id' => $input->eventId,
+                'webhook_event_type' => $input->eventType,
+                'items' => $rows,
+            ]);
+        } catch (\Throwable $e) {
+            // ★ ここで throw しない（PSPに500返さない / paidは維持）
+            $this->orderHistory->addEvent($orderId, 'inventory_decrease_failed', [
+                'shop_id' => $shopId,
+                'payment_id' => $paymentId,
+                'provider' => $input->provider,
+                'webhook_event_id' => $input->eventId,
+                'webhook_event_type' => $input->eventType,
+                'items' => $rows,
+                'error' => [
+                    'type' => get_class($e),
+                    'message' => $e->getMessage(),
+                ],
+            ]);
+        }
     }
 }
