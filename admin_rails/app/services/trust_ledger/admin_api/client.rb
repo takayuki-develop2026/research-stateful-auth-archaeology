@@ -16,27 +16,50 @@ module TrustLedger
 
     class Client
       class << self
-        # “singleton もどき”
         def instance
           @instance ||= new
         end
 
-        # class methods
+        # Health
         def get_health = instance.get_health
+
+        # Webhook
         def list_webhook_events(params = {}) = instance.list_webhook_events(params)
         def get_webhook_event(event_id) = instance.get_webhook_event(event_id)
         def replay_webhook_event(event_id) = instance.replay_webhook_event(event_id)
+
+        # KPI
         def get_global_kpis(params = {}) = instance.get_global_kpis(params)
         def get_shop_kpis(params = {}) = instance.get_shop_kpis(params)
+
+        # Postings
         def search_postings(params = {}) = instance.search_postings(params)
         def get_posting_detail(posting_id) = instance.get_posting_detail(posting_id)
+
+        # Reconciliation
         def list_missing_sales(params = {}) = instance.list_missing_sales(params)
         def replay_sale(params = {}) = instance.replay_sale(params)
-        def list_shops(params = {}) = instance.list_shops(params)
 
-        # ★ mode を追加（API必須）
+        # Shops
+        def list_shops(params = {}) = instance.list_shops(params)
+        def get_shop(shop_id) = instance.get_shop(shop_id)
         def update_shop_payment_provider(shop_id, provider:, mode: "row") =
           instance.update_shop_payment_provider(shop_id, provider: provider, mode: mode)
+
+        # Review Queue
+        def list_review_queue(params = {}) = instance.list_review_queue(params)
+        def get_review_queue_item(id) = instance.get_review_queue_item(id)
+        def decide_review_queue_item(id, payload = {}) = instance.decide_review_queue_item(id, payload)
+
+        # ProviderIntel (optional: documents/diffs)
+        def get_providerintel_document(id) = instance.get_providerintel_document(id)
+        def get_providerintel_diff(id) = instance.get_providerintel_diff(id)
+
+        # ✅ ProviderIntel: Catalog Sources
+        def list_catalog_sources(params = {}) = instance.list_catalog_sources(params)
+        def get_catalog_source(source_id) = instance.get_catalog_source(source_id)
+        def upsert_catalog_source(payload = {}) = instance.upsert_catalog_source(payload)
+        def run_catalog_source(source_id) = instance.run_catalog_source(source_id)
       end
 
       def initialize(
@@ -47,12 +70,12 @@ module TrustLedger
         @admin_key = admin_key.to_s
       end
 
-      # TrustLedger: Health
+      # Health
       def get_health
         get_json("/api/admin/trustledger/health")
       end
 
-      # Webhook Events
+      # Webhook
       def list_webhook_events(params = {})
         get_json(with_query("/api/admin/trustledger/webhooks/events", params))
       end
@@ -92,24 +115,73 @@ module TrustLedger
         post_json("/api/admin/trustledger/replay/sale", params)
       end
 
-      # Shops (Provider Settings)
+      # Shops
       def list_shops(params = {})
         get_json(with_query("/api/admin/trustledger/shops", params))
       end
-
-      def get_shop(shop_id) = instance.get_shop(shop_id)
 
       def get_shop(shop_id)
         get_json("/api/admin/trustledger/shops/#{shop_id}")
       end
 
-      # ★ mode を追加（API必須）
       def update_shop_payment_provider(shop_id, provider:, mode: "row")
         post_json(
           "/api/admin/trustledger/shops/payment-provider",
           { mode: mode, shop_id: shop_id, provider: provider }
         )
       end
+
+      # Review Queue
+      def review_queue_path
+        ENV.fetch("TRUSTLEDGER_ADMIN_REVIEW_QUEUE_PATH", "/api/admin/review-queue")
+      end
+
+      def list_review_queue(params = {})
+        get_json(with_query(review_queue_path, params))
+      end
+
+      def get_review_queue_item(id)
+        get_json("#{review_queue_path}/#{id}")
+      end
+
+      def decide_review_queue_item(id, payload = {})
+        post_json("#{review_queue_path}/#{id}/decide", payload)
+      end
+
+      # ProviderIntel (Laravel確定ルート)
+def providerintel_path
+  ENV.fetch("TRUSTLEDGER_ADMIN_PROVIDERINTEL_PATH", "/api/admin/providerintel")
+end
+
+def get_providerintel_document(id)
+  get_json("#{providerintel_path}/documents/#{id}")
+end
+
+def get_providerintel_diff(id)
+  get_json("#{providerintel_path}/diffs/#{id}")
+end
+
+      # Catalog Sources (ProviderIntel)
+def providerintel_sources_path
+  ENV.fetch("TRUSTLEDGER_ADMIN_PROVIDERINTEL_SOURCES_PATH", "#{providerintel_path}/sources")
+end
+
+def list_catalog_sources(params = {})
+  get_json(with_query(providerintel_sources_path, params))
+end
+
+def get_catalog_source(source_id)
+  get_json("#{providerintel_sources_path}/#{source_id}")
+end
+
+def upsert_catalog_source(payload = {})
+  post_json(providerintel_sources_path, payload)
+end
+
+def run_catalog_source(source_id)
+  post_json("#{providerintel_sources_path}/#{source_id}/run", {})
+end
+
 
       private
 
@@ -133,7 +205,6 @@ module TrustLedger
         http.read_timeout = 10
         http.use_ssl = (uri.scheme == "https")
 
-        # HTTP 生ログ（1=on）
         http.set_debug_output($stderr) if ENV["TRUSTLEDGER_ADMIN_API_DEBUG"] == "1"
 
         req = klass.new(uri.request_uri)
@@ -152,7 +223,7 @@ module TrustLedger
           raise Error.new("Admin API error", status: res.code.to_i, body: body)
         end
 
-        return {} if body.strip.empty? # 204/empty
+        return {} if body.strip.empty?
 
         JSON.parse(body)
       rescue Error

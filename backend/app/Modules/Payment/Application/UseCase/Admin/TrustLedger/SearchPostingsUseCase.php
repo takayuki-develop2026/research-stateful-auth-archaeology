@@ -18,6 +18,7 @@ final class SearchPostingsUseCase
         string $to,
         string $currency,
         string $postingType,
+        string $sourceProvider, // ✅ 追加
         ?string $q,
         ?int $paymentId,
         ?int $orderId,
@@ -31,6 +32,7 @@ final class SearchPostingsUseCase
             $to,
             $currency,
             $postingType,
+            $sourceProvider,
             $q,
             $paymentId,
             $orderId,

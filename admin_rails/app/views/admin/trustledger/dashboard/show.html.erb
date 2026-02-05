@@ -1,5 +1,9 @@
 <%= render "admin/trustledger/nav" %>
 
+<div style="margin: 8px 0 12px 0;">
+  <a href="/admin/dashboard" style="text-decoration:none;">← Adminダッシュボードへ戻る</a>
+</div>
+
 <h1>TrustLedger Dashboard</h1>
 
 <% if @error %>
@@ -14,6 +18,9 @@
 <div style="display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; margin:12px 0;">
   <div style="padding:12px; border:1px solid #ddd; background:#fff;">
     <div style="color:#666; font-size:12px;">Health</div>
+    <div style="font-size:14px; margin-top:6px;">
+      システムの状態
+    </div>
     <div style="font-size:18px; margin-top:6px;">
       <strong><%= @health ? "OK" : "UNKNOWN" %></strong>
     </div>
@@ -24,6 +31,9 @@
 
   <div style="padding:12px; border:1px solid #ddd; background:#fff;">
     <div style="color:#666; font-size:12px;">Review Queue（pending）</div>
+    <div style="font-size:14px; margin-top:6px;">
+      審査中/保留中の件数
+    </div>
     <div style="font-size:18px; margin-top:6px;">
       <strong><%= @review_pending_total.nil? ? "-" : @review_pending_total %></strong>
     </div>
@@ -86,7 +96,7 @@
       <li><a href="/admin/dashboard/trustledger/kpis/shops">各ショップ売上</a></li>
       <li><a href="/admin/dashboard/trustledger/postings">仕訳一覧</a></li>
       <li><a href="/admin/dashboard/trustledger/reconciliation/missing-sales">欠損検知</a></li>
-      <li><a href="/admin/dashboard/trustledger/providerintel/sources">ProviderIntel Sources</a></li>
+      <li><a href="/admin/dashboard/trustledger/providerintel/sources">PSPプロバイダ情報：カタログ情報ソース</a></li>
     </ul>
   </div>
 </div>

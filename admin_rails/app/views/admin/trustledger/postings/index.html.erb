@@ -2,6 +2,23 @@
 
 <h1>仕訳（Postings）一覧</h1>
 
+<%# =========================
+   Provider label/color map（KPIページと同じ）
+   ========================= %>
+<% def provider_style(p) %>
+  <% key = p.to_s.downcase %>
+  <% case key %>
+  <% when "stripe" %>
+    <% return { label: "Stripe", border: "#7c3aed", bg: "#faf5ff", text: "#5b21b6" } %>
+  <% when "adyen" %>
+    <% return { label: "Adyen", border: "#16a34a", bg: "#f0fdf4", text: "#166534" } %>
+  <% when "paypal" %>
+    <% return { label: "PayPal", border: "#2563eb", bg: "#eff6ff", text: "#1e40af" } %>
+  <% else %>
+    <% return { label: (p.presence || "unknown"), border: "#6b7280", bg: "#f9fafb", text: "#374151" } %>
+  <% end %>
+<% end %>
+
 <form method="get" style="margin-bottom: 16px;">
   <label>開始日:
     <input name="from" value="<%= params[:from] %>" placeholder="YYYY-MM-DD">
@@ -13,6 +30,16 @@
 
   <label style="margin-left:12px;">種別:
     <input name="posting_type" value="<%= params[:posting_type] %>" style="width:120px;">
+  </label>
+
+  <label style="margin-left:12px;">provider:
+    <select name="provider" style="width:140px;">
+      <option value="" <%= params[:provider].blank? ? "selected" : "" %>>all</option>
+      <option value="stripe" <%= params[:provider] == "stripe" ? "selected" : "" %>>stripe</option>
+      <option value="adyen"  <%= params[:provider] == "adyen"  ? "selected" : "" %>>adyen</option>
+      <option value="paypal" <%= params[:provider] == "paypal" ? "selected" : "" %>>paypal</option>
+      <option value="unknown" <%= params[:provider] == "unknown" ? "selected" : "" %>>unknown</option>
+    </select>
   </label>
 
   <label style="margin-left:12px;">shop_id:
@@ -36,13 +63,13 @@
   </label>
 
   <label style="margin-left:12px;">検索(q):
-  <input name="q" value="<%= params[:q] %>" style="width:220px;">
+    <input name="q" value="<%= params[:q] %>" style="width:220px;">
   </label>
 
   <button type="submit" style="margin-left:12px;">検索</button>
 </form>
 
-<% active = request.query_parameters.slice("shop_id","order_id","payment_id","posting_type","source_event_id").reject { |_,v| v.blank? } %>
+<% active = request.query_parameters.slice("provider","shop_id","order_id","payment_id","posting_type","source_event_id").reject { |_,v| v.blank? } %>
 <% if active.any? %>
   <div style="margin:8px 0; color:#333;">
     <strong>適用中フィルタ:</strong>
@@ -57,19 +84,18 @@
   <pre><%= JSON.pretty_generate(@error) %></pre>
 <% else %>
 
-<% def jp_posting_type(t) %>
-  <% return "-" if t.nil? %>
-  <% s = t.to_s %>
-  <% return "売上" if s == "sale" %>
-  <% return "手数料" if s == "fee" %>
-  <% return "返金" if s == "refund" %>
-  <%= s %>
-<% end %>
+  <% def jp_posting_type(t) %>
+    <% return "-" if t.nil? %>
+    <% s = t.to_s %>
+    <% return "売上" if s == "sale" %>
+    <% return "手数料" if s == "fee" %>
+    <% return "返金" if s == "refund" %>
+    <%= s %>
+  <% end %>
 
-<p style="margin:8px 0; color:#555;">
-  表示件数: <strong><%= @items.length %></strong>
-</p>
-
+  <p style="margin:8px 0; color:#555;">
+    表示件数: <strong><%= @items.length %></strong>
+  </p>
 
   <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width: 100%;">
     <thead>
@@ -78,6 +104,7 @@
         <th>occurred_at</th>
         <th>種別</th>
         <th>金額</th>
+        <th>provider</th>
         <th>shop_id</th>
         <th>order_id</th>
         <th>payment_id</th>
@@ -86,14 +113,40 @@
     </thead>
     <tbody>
       <% @items.each do |p| %>
+        <% prov = (p["source_provider"] || "unknown").to_s %>
+        <% st = provider_style(prov) %>
+
         <tr>
-          <td><a href="/admin/trustledger/postings/<%= p["posting_id"] || p["id"] %>"><%= p["posting_id"] || p["id"] %></a></td>
+          <td>
+            <a href="/admin/trustledger/postings/<%= p["posting_id"] || p["id"] %>">
+              <%= p["posting_id"] || p["id"] %>
+            </a>
+          </td>
           <td><%= p["occurred_at"] %></td>
           <td>
-          <div><%= jp_posting_type(p["posting_type"] || p["type"]) %></div>
+            <div><%= jp_posting_type(p["posting_type"] || p["type"]) %></div>
             <div style="color:#666; font-size:12px;"><%= (p["posting_type"] || p["type"]) %></div>
           </td>
           <td><%= p["amount"] %></td>
+
+          <%# ✅ KPIと同じ色で provider 名を表示 %>
+          <td>
+            <span
+              style="
+                color:<%= st[:text] %>;
+                font-weight:800;
+                border:1px solid <%= st[:border] %>;
+                background:<%= st[:bg] %>;
+                border-radius:999px;
+                padding:2px 8px;
+                display:inline-block;
+              "
+              title="<%= prov %>"
+            >
+              <%= st[:label] %>
+            </span>
+          </td>
+
           <td><%= p["shop_id"] %></td>
           <td><%= p["order_id"] %></td>
           <td><%= p["payment_id"] %></td>

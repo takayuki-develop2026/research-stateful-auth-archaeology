@@ -23,6 +23,11 @@
   <% end %>
 
   <% data = @data || {} %>
+
+  <%# 画面パラメータ優先（nullや未設定でも耐える） %>
+  <% from_q = params[:from].presence || data["from"] %>
+  <% to_q   = params[:to].presence   || data["to"] %>
+
   <p style="color:#555;">
     期間：<strong><%= data["from"] %></strong> 〜 <strong><%= data["to"] %></strong>
     ／ 通貨：<strong><%= data["currency"] || "JPY" %></strong>
@@ -37,7 +42,7 @@
     <% when "stripe" %>
       <% return { label: "Stripe", border: "#7c3aed", bg: "#faf5ff", text: "#5b21b6" } %>
     <% when "adyen" %>
-      <% return { label: "Adyen", border: "#16a34a", bg: "#f0fdf4", text: "#166534" } %>
+      <% return { label: "Adyen(テストクレジットカードの為手数料０円)", border: "#16a34a", bg: "#f0fdf4", text: "#166534" } %>
     <% when "paypal" %>
       <% return { label: "PayPal", border: "#2563eb", bg: "#eff6ff", text: "#1e40af" } %>
     <% else %>
@@ -62,7 +67,7 @@
     </div>
 
     <div style="flex: 1 1 220px; border:1px solid #ddd; padding:12px; border-radius:8px; background:#fafafa;">
-      <div style="color:#666;">純額（ネット）</div>
+      <div style="color:#666;">純額（ネット取引差引支給額）</div>
       <div style="font-size:24px; font-weight:700;"><%= jpy(data["net_total"]) %></div>
     </div>
 
@@ -73,13 +78,13 @@
   </div>
 
   <%# =========================
-     PSP別内訳
+     PSP別内訳（カード全体クリック）
      ========================= %>
   <% byp = data["by_provider"] %>
-  <% providers = byp.is_a?(Hash) ? byp.keys.map(&:to_s) : [] %>
-  <% providers = providers.sort %>
+  <% providers = byp.is_a?(Hash) ? byp.keys.map(&:to_s).sort : [] %>
 
   <h2 style="margin-top:18px;">PSP別（Provider別）内訳</h2>
+
   <% if providers.empty? %>
     <p style="color:#666;">この期間の provider 別データはありません（by_provider が空）。</p>
   <% else %>
@@ -88,46 +93,63 @@
         <% row = byp[p] || {} %>
         <% st = provider_style(p) %>
 
-        <div style="flex: 1 1 260px; border:2px solid <%= st[:border] %>; padding:12px; border-radius:10px; background:<%= st[:bg] %>;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-            <div style="font-weight:800; color:<%= st[:text] %>;">
-              <%= st[:label] %>
+        <%# ✅ カード全体をクリック可能にする（文字リンクは出さない） %>
+        <a
+          href="/admin/trustledger/postings?from=<%= from_q %>&to=<%= to_q %>&provider=<%= p %>"
+          style="text-decoration:none; color:inherit; flex: 1 1 260px;"
+          title="postingsへ（provider=<%= p %>）"
+        >
+          <div
+            style="
+              border:2px solid <%= st[:border] %>;
+              padding:12px;
+              border-radius:10px;
+              background:<%= st[:bg] %>;
+              cursor:pointer;
+            "
+            onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)';"
+            onmouseout="this.style.boxShadow='none';"
+          >
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <div style="font-weight:800; color:<%= st[:text] %>;">
+                <%= st[:label] %>
+              </div>
+              <div style="font-size:12px; color:#6b7280;">
+                postings: <strong><%= row["postings_count"] || 0 %></strong>
+              </div>
             </div>
-            <div style="font-size:12px; color:#6b7280;">
-              postings: <strong><%= row["postings_count"] || 0 %></strong>
+
+            <div style="margin-top:10px; display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+              <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
+                <div style="color:#6b7280; font-size:12px;">売上</div>
+                <div style="font-size:18px; font-weight:800;"><%= jpy(row["sales_total"]) %></div>
+              </div>
+
+              <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
+                <div style="color:#6b7280; font-size:12px;">返金</div>
+                <div style="font-size:18px; font-weight:800;"><%= jpy(row["refund_total"]) %></div>
+              </div>
+
+              <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
+                <div style="color:#6b7280; font-size:12px;">手数料</div>
+                <div style="font-size:18px; font-weight:800;"><%= jpy(row["fee_total"]) %></div>
+              </div>
+
+              <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
+                <div style="color:#6b7280; font-size:12px;">ネット取引差引支給額</div>
+                <div style="font-size:18px; font-weight:900;"><%= jpy(row["net_total"]) %></div>
+              </div>
             </div>
           </div>
-
-          <div style="margin-top:10px; display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-            <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
-              <div style="color:#6b7280; font-size:12px;">売上</div>
-              <div style="font-size:18px; font-weight:800;"><%= jpy(row["sales_total"]) %></div>
-            </div>
-
-            <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
-              <div style="color:#6b7280; font-size:12px;">返金</div>
-              <div style="font-size:18px; font-weight:800;"><%= jpy(row["refund_total"]) %></div>
-            </div>
-
-            <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
-              <div style="color:#6b7280; font-size:12px;">手数料</div>
-              <div style="font-size:18px; font-weight:800;"><%= jpy(row["fee_total"]) %></div>
-            </div>
-
-            <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;">
-              <div style="color:#6b7280; font-size:12px;">ネット</div>
-              <div style="font-size:18px; font-weight:900;"><%= jpy(row["net_total"]) %></div>
-            </div>
-          </div>
-        </div>
+        </a>
       <% end %>
     </div>
   <% end %>
 
   <p style="margin-top:12px;">
-    <a href="/admin/trustledger/reconciliation/missing-sales">→ 欠損検知（Reconciliation）へ</a>
+    <a href="/admin/trustledger/reconciliation/missing-sales?from=<%= from_q %>&to=<%= to_q %>">→ 欠損検知（Reconciliation）へ</a>
     <span style="margin:0 8px;">|</span>
-    <a href="/admin/trustledger/postings">→ 仕訳（Postings）で監査</a>
+    <a href="/admin/trustledger/postings?from=<%= from_q %>&to=<%= to_q %>">→ 仕訳（Postings）で監査</a>
   </p>
 
   <details style="margin-top: 12px;">
