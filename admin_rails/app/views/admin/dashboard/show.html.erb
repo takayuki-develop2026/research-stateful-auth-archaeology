@@ -94,10 +94,28 @@
       </div>
 
       <% unless enabled[:atlaskernel_occ] %>
-        <div class="card__stamp">Coming soon</div>
+        <div
+  class="card__stamp"
+  style="
+    position:absolute;
+    inset: 12px 12px auto 12px; /* top/left/right を強制 */
+    background:#222;
+    color:#fff;
+    font-weight:900;
+    font-size:14px;
+    line-height:1.3;
+    padding:10px 12px;
+    border-radius:14px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+    text-align:center;
+    z-index:50;
+    letter-spacing:.02em;
+  "
+>
+  ✅ ショップ管理（owner管理）の方にあるのでとりあえずそれで機能確認
+</div>
       <% end %>
     </div>
-
     <!-- =============== TrustLedger =============== -->
     <div class="card <%= enabled[:trustledger] ? "" : "card--disabled" %>" <%= tag.attributes(dash_card_link(enabled: enabled[:trustledger], href: "/admin/trustledger")) %>>
       <div class="card__top">

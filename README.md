@@ -1,4 +1,4 @@
-# アプリケーション名： Stateful　からAWS+AuthO認証　DDD　マルチテナント　AI 決済マルチゲートウェイ<br>
+# アプリケーション名： (OmniCommerceCore)Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、システム<br>
 
 リポジトリ名：<br>
 research-stateful-auth-archaeology<br>
@@ -14,13 +14,13 @@ Dockerビルド
 　1\. 　git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki2025/research-stateful-auth-archaeology.git  の実行
 
 <br>
- 　3\.   　ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
+ 　2\.   　ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
 　　　（ターミナルコマンド）cd backend (実行後) mkdir storage/app/public/item_images　の実行<br>
 　　　　　　　　　　　cp -r public/pictures/* storage/app/public/item_images　の実行<br>
- 　4\.　　ダミーデーターのユーザー初期画像ファイルをstrageディレクトリーの中にimagesディレクトリーを作成して初期画像ファイルをコピーする<br>
+ 　3\.　　ダミーデーターのユーザー初期画像ファイルをstrageディレクトリーの中にimagesディレクトリーを作成して初期画像ファイルをコピーする<br>
  　　　（ターミナルコマンド）mkdir storage/app/public/images　の実行<br>
 　　　　　　　　　　　cp -r public/pictures_user/* storage/app/public/images　の実行<br>
-　5\. Docker Desktopを立ち上げて（ターミナルコマンド）docker-compose up -d --build　の実行
+　4\. Docker Desktopを立ち上げて（ターミナルコマンド）docker-compose up -d --build　の実行
 <br>
 　
   <br>
@@ -54,24 +54,28 @@ laravel環境構築
 　（mysqlコンテナー）mysql -u root -p   の実行後パスワード　root　と入力して実行<br>
 　（mysql接続後）CREATE DATABASE coachtech1_test;　を実行 (実行後exitコマンドでターミナルまで戻る)<br>
 （ターミナルで　docker-compose exec php bash を実行した後のPHPコンテナーで）php artisan test　を実行してテストをしてください。<br>
-<br>
+<br><br>
 
 -  ダミーのユーザーデーターと出品商品データーのシーダーファイルで作りましたので、PHPコンテナーで上記の通り　php artisan db:seed　を実行してください。<br>
    ダミーのユーザー情報です。'　'は削除してください。<br>
    １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'Testtest1'　出品数：'２品'　ロール：Shop Owner（Shop Ownerはそれぞれのショップのダッシュボードにログイン後移動します。）<br>
    ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
    ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
-   ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br>
+   ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br><br>
 
 
-ストライプ決済実行時
-stripe listen --forward-to http://localhost/api/webhooks/stripe 
+ストライプ決済実行時<br>
+stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
+カード番号：4242 4242 4242 4242<br>
+有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br><br>
 
-アディエン決済実行時
-ngrok http 80  
+アディエン決済実行時<br>
+ngrok http 80  (ターミナルで実行のまま)<br>
+カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
+有効期限（未来）・名前、は決まりなし。<br><br>
 
-出品時解析システム実行時
-docker compose exec php php artisan queue:work
+出品時解析システム (ターミナルで実行のまま)<br>
+docker compose exec php php artisan queue:work<br><br>
 
 
 # 次のステップ提案<br>
