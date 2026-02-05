@@ -23,17 +23,46 @@ final class GetShopKpisUseCase
 
         $items = [];
         foreach ($map as $row) {
+            $sales = (int)($row['sales'] ?? 0);
+            $refund = (int)($row['refund'] ?? 0);
+            $fee = (int)($row['fee'] ?? 0);
+            $count = (int)($row['postings_count'] ?? 0);
+
+            $byProvider = [];
+            $byProviderRaw = $row['by_provider'] ?? [];
+
+            if (is_array($byProviderRaw)) {
+                foreach ($byProviderRaw as $provider => $pRow) {
+                    if (!is_array($pRow)) continue;
+
+                    $ps = (int)($pRow['sales'] ?? 0);
+                    $pr = (int)($pRow['refund'] ?? 0);
+                    $pf = (int)($pRow['fee'] ?? 0);
+                    $pc = (int)($pRow['postings_count'] ?? 0);
+
+                    $byProvider[(string)$provider] = [
+                        'sales_total' => $ps,
+                        'refund_total' => $pr,
+                        'fee_total' => $pf,
+                        'net_total' => $ps - $pr - $pf,
+                        'postings_count' => $pc,
+                    ];
+                }
+            }
+
             $dto = new AdminShopKpiRowDto(
                 shop_id: (int)$row['shop_id'],
                 from: $from,
                 to: $to,
                 currency: $currency,
-                sales_total: (int)$row['sales'],
-                refund_total: (int)$row['refund'],
-                fee_total: (int)$row['fee'],
-                net_total: (int)$row['sales'] - (int)$row['refund'] - (int)$row['fee'],
-                postings_count: (int)$row['postings_count'],
+                sales_total: $sales,
+                refund_total: $refund,
+                fee_total: $fee,
+                net_total: $sales - $refund - $fee,
+                postings_count: $count,
+                by_provider: $byProvider,
             );
+
             $items[] = $dto->toArray();
         }
 

@@ -3,7 +3,6 @@
 namespace App\Modules\Payment\Application\UseCase;
 
 use App\Modules\Payment\Application\Dto\HandlePaymentWebhookInput;
-use App\Modules\Payment\Domain\Enum\PaymentStatus;
 use App\Modules\Payment\Domain\Event\DomainPaymentEventType;
 use App\Modules\Payment\Domain\Repository\PaymentQueryRepository;
 use App\Modules\Payment\Domain\Repository\PaymentRepository;
@@ -93,8 +92,10 @@ final class HandlePaymentWebhookUseCase
                 $domainEvent,
                 $orderIdFromMeta,
                 $paymentIdFromMeta,
+                &$finalStatus,
                 &$finalPaymentId,
                 &$finalOrderId,
+                &$finalErrorMessage,
                 &$orderPaidEvent
             ) {
                 $isStripe = ($input->provider === 'stripe');
@@ -107,7 +108,6 @@ final class HandlePaymentWebhookUseCase
                 // -----------------------------------------
                 $payment = null;
 
-                // providerPaymentId は providerごとに意味が違うが、まずは共通で引く
                 if (is_string($domainEvent->providerPaymentId) && $domainEvent->providerPaymentId !== '') {
                     $payment = $this->payments->findByProviderPaymentId($domainEvent->providerPaymentId);
                 }
@@ -121,7 +121,6 @@ final class HandlePaymentWebhookUseCase
                     $finalPaymentId = $payment->id();
                     $finalOrderId = $payment->orderId();
                 } else {
-                    // Payment が無い場合でも、メタから取れるなら監査紐付け
                     $finalPaymentId = is_int($paymentIdFromMeta) ? $paymentIdFromMeta : null;
                     $finalOrderId = is_int($orderIdFromMeta) ? $orderIdFromMeta : null;
                 }
@@ -152,16 +151,14 @@ final class HandlePaymentWebhookUseCase
 
                 // -----------------------------------------
                 // 4-2) Payment が無い救済ルート（Stripeのみ）
-                //  - Adyenは 4-5 で処理する（merchantReference起点）
+                //  - Adyenは merchantReference 起点で処理する
                 // -----------------------------------------
                 if (!$payment && !$isAdyen) {
 
-                    // SUCCEEDED 以外は何もしない（監査ログは complete で残る）
                     if ($domainEvent->type !== DomainPaymentEventType::SUCCEEDED) {
                         return;
                     }
 
-                    // order_id が取れないなら何もしない
                     if (!is_int($orderIdFromMeta)) {
                         return;
                     }
@@ -173,18 +170,16 @@ final class HandlePaymentWebhookUseCase
 
                     $finalOrderId = $order->id();
 
-                    // すでに paid なら何もしない（冪等）
                     if ($order->isPaid()) {
                         return;
                     }
 
-                    // ✅ Order を paid に進める（occurredAt を正）
                     $orderPaidEvent = $this->markOrderPaid->handle(
                         orderId: $order->id(),
                         paidAt: $domainEvent->occurredAt,
                     );
 
-                    // Ledger は “Payment不在” では原則記録しない（現状方針のまま）
+                    // Payment不在では台帳は起こさない（現状方針）
                     return;
                 }
 
@@ -192,7 +187,6 @@ final class HandlePaymentWebhookUseCase
                 // 4-3) 安全装置：metadata.order_id と Payment.orderId の一致（Stripe寄り）
                 // -----------------------------------------
                 if ($payment && is_int($orderIdFromMeta) && $orderIdFromMeta !== $payment->orderId()) {
-                    // 別注文への誤紐付け可能性 => 触らない（監査ログだけ残す）
                     return;
                 }
 
@@ -222,7 +216,6 @@ final class HandlePaymentWebhookUseCase
                         ? $refundCurrency
                         : $payment->currency();
 
-                    // 冪等（shop_ledgers側）
                     if ($this->ledgers->existsRefundByProviderRefundId('stripe', $refundId)) {
                         return;
                     }
@@ -264,86 +257,6 @@ final class HandlePaymentWebhookUseCase
                     return;
                 }
 
-
-                // ===== Adyen (MVP) =====
-if ($isAdyen) {
-
-    if ($input->eventType !== 'AUTHORISATION') {
-        return;
-    }
-
-    if (!is_int($orderIdFromMeta)) {
-        return;
-    }
-
-    if (!$payment) {
-        $payment = $this->payments->findLatestByOrderId($orderIdFromMeta);
-    }
-
-    $order = $this->orders->findById($orderIdFromMeta);
-    if (!$order) {
-        return;
-    }
-
-
-    $finalOrderId = $order->id();
-if ($payment) {
-    $finalPaymentId = $payment->id();
-}
-
-// ✅ amount/currency チェック
-$nriAmount   = $input->payload['amount']['value'] ?? null;
-$nriCurrency = $input->payload['amount']['currency'] ?? null;
-
-$webhookAmount   = is_numeric($nriAmount) ? (int)$nriAmount : null;
-$webhookCurrency = is_string($nriCurrency) ? strtoupper($nriCurrency) : null;
-
-$expectedAmount   = $payment ? $payment->amount() : $order->totalAmount();
-$expectedCurrency = $payment ? strtoupper($payment->currency()) : strtoupper($order->currency());
-
-// 欠落 or 不一致なら “絶対に paid にしない”
-if ($webhookAmount === null || $webhookCurrency === null) {
-    $finalStatus = 'error';
-    $finalErrorMessage = 'adyen_amount_currency_missing';
-    return;
-}
-if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency) {
-    $finalStatus = 'error';
-    $finalErrorMessage = 'adyen_amount_currency_mismatch';
-    return;
-}
-
-    // ==========================================
-    // 以降はあなたの既存ロジックそのまま
-    // ==========================================
-    if ($domainEvent->type === DomainPaymentEventType::FAILED) {
-        if ($payment) {
-            $this->payments->save(
-                $payment->markFailed([
-                    'reason' => $domainEvent->reason ?? 'adyen_failed'
-                ])
-            );
-        }
-        return;
-    }
-
-    if ($domainEvent->type === DomainPaymentEventType::SUCCEEDED) {
-        if ($payment) {
-            $payment = $payment->withProviderPayment($domainEvent->providerPaymentId)
-                               ->markSucceeded();
-            $this->payments->save($payment);
-        }
-
-        $orderPaidEvent = $this->markOrderPaid->handle(
-            orderId: $order->id(),
-            paidAt: $domainEvent->occurredAt,
-        );
-        return;
-    }
-
-    return;
-}
-
                 // -----------------------------------------
                 // 4-5) SUCCEEDED / FAILED / REQUIRES_ACTION
                 // -----------------------------------------
@@ -351,6 +264,7 @@ if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency
                 // ===== Adyen (MVP) =====
                 if ($isAdyen) {
 
+                    // 現状MVPでは AUTHORISATION を最初の確定イベントとして扱う
                     if ($input->eventType !== 'AUTHORISATION') {
                         return;
                     }
@@ -375,6 +289,28 @@ if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency
                         $finalPaymentId = $payment->id();
                     }
 
+                    // ✅ amount/currency チェック（不一致なら絶対に paid にしない）
+                    $nriAmount   = $input->payload['amount']['value'] ?? null;
+                    $nriCurrency = $input->payload['amount']['currency'] ?? null;
+
+                    $webhookAmount   = is_numeric($nriAmount) ? (int)$nriAmount : null;
+                    $webhookCurrency = is_string($nriCurrency) ? strtoupper($nriCurrency) : null;
+
+                    $expectedAmount   = $payment ? $payment->amount() : $order->totalAmount();
+                    $expectedCurrency = $payment ? strtoupper($payment->currency()) : strtoupper($order->currency());
+
+                    if ($webhookAmount === null || $webhookCurrency === null) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'adyen_amount_currency_missing';
+                        return;
+                    }
+
+                    if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'adyen_amount_currency_mismatch';
+                        return;
+                    }
+
                     if ($domainEvent->type === DomainPaymentEventType::FAILED) {
                         if ($payment) {
                             $this->payments->save(
@@ -387,16 +323,58 @@ if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency
                     }
 
                     if ($domainEvent->type === DomainPaymentEventType::SUCCEEDED) {
+
+                        // Payment succeeded
                         if ($payment) {
-                            $payment = $payment->withProviderPayment($domainEvent->providerPaymentId)
-                                               ->markSucceeded();
+                            $payment = $payment
+                                ->withProviderPayment($domainEvent->providerPaymentId)
+                                ->markSucceeded();
                             $this->payments->save($payment);
                         }
 
+                        // Order paid（冪等は MarkOrderPaidUseCase で担保）
                         $orderPaidEvent = $this->markOrderPaid->handle(
                             orderId: $order->id(),
                             paidAt: $domainEvent->occurredAt,
                         );
+
+                        // ✅ KPI/台帳反映の本体：ledger_postings に SALE を起こす
+                        // idempotency: pspReference を最優先（無ければ mapperの providerPaymentId）
+                        $pspRef = (string)($input->payload['pspReference'] ?? '');
+                        $providerPaymentId = is_string($domainEvent->providerPaymentId) ? $domainEvent->providerPaymentId : '';
+
+                        $sourceEventIdBase = $pspRef !== '' ? $pspRef : $providerPaymentId;
+                        if ($sourceEventIdBase === '') {
+                            // 最悪ケース：eventId（hash）でフォールバック
+                            $sourceEventIdBase = $input->eventId;
+                        }
+
+                        // Payment不在なら台帳は起こさない（現状方針に合わせる）
+                        if (!$payment) {
+                            return;
+                        }
+
+                        $this->port->post(new PostLedgerCommand(
+                            source_provider: 'adyen',
+                            source_event_id: $sourceEventIdBase . ':' . PostingType::SALE,
+                            shop_id: $payment->shopId(),
+                            order_id: $order->id(),
+                            payment_id: $payment->id(),
+                            posting_type: PostingType::SALE,
+                            amount: $webhookAmount,
+                            currency: $webhookCurrency,
+                            occurred_at: $domainEvent->occurredAt->format('Y-m-d H:i:s'),
+                            meta: [
+                                'provider_payment_id' => $providerPaymentId !== '' ? $providerPaymentId : null,
+                                'psp_reference'       => $pspRef !== '' ? $pspRef : null,
+                                'merchant_reference'  => $input->payload['merchantReference'] ?? null,
+                                'webhook_event_type'  => $input->eventType,
+                                'webhook_event_id'    => $input->eventId,
+                                'success'             => $input->payload['success'] ?? null,
+                            ],
+                            replay: false,
+                        ));
+
                         return;
                     }
 
@@ -441,7 +419,7 @@ if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency
                     paidAt: $domainEvent->occurredAt,
                 );
 
-                // Stripeの売上台帳
+                // Stripeの売上台帳（shop_ledgers）
                 $this->ledgers->recordSale(
                     shopId: $payment->shopId(),
                     amount: $payment->amount(),
@@ -451,6 +429,7 @@ if ($webhookAmount !== $expectedAmount || $webhookCurrency !== $expectedCurrency
                     occurredAt: $domainEvent->occurredAt,
                 );
 
+                // Stripeの売上posting（ledger_postings）
                 $this->port->post(new PostLedgerCommand(
                     source_provider: 'stripe',
                     source_event_id: $domainEvent->providerPaymentId . ':' . PostingType::SALE,

@@ -21,6 +21,28 @@ final class GetGlobalKpiUseCase
         $fee = (int)$r['fee'];
         $count = (int)$r['postings_count'];
 
+        $byProviderRaw = $r['by_provider'] ?? [];
+        $byProvider = [];
+
+        if (is_array($byProviderRaw)) {
+            foreach ($byProviderRaw as $provider => $row) {
+                if (!is_array($row)) continue;
+
+                $ps = (int)($row['sales'] ?? 0);
+                $pr = (int)($row['refund'] ?? 0);
+                $pf = (int)($row['fee'] ?? 0);
+                $pc = (int)($row['postings_count'] ?? 0);
+
+                $byProvider[(string)$provider] = [
+                    'sales_total' => $ps,
+                    'refund_total' => $pr,
+                    'fee_total' => $pf,
+                    'net_total' => $ps - $pr - $pf,
+                    'postings_count' => $pc,
+                ];
+            }
+        }
+
         return new AdminKpiDto(
             from: $from,
             to: $to,
@@ -30,6 +52,7 @@ final class GetGlobalKpiUseCase
             fee_total: $fee,
             net_total: $sales - $refund - $fee,
             postings_count: $count,
+            by_provider: $byProvider,
         );
     }
 }

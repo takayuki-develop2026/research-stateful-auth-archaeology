@@ -19,12 +19,27 @@
     <%= n.to_i.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\1,').reverse %>
   <% end %>
 
+  <%# provider style %>
+  <% def provider_style(p) %>
+    <% key = p.to_s.downcase %>
+    <% case key %>
+    <% when "stripe" %>
+      <% return { label: "Stripe", border: "#7c3aed", bg: "#faf5ff", text: "#5b21b6" } %>
+    <% when "adyen" %>
+      <% return { label: "Adyen", border: "#16a34a", bg: "#f0fdf4", text: "#166534" } %>
+    <% when "paypal" %>
+      <% return { label: "PayPal", border: "#2563eb", bg: "#eff6ff", text: "#1e40af" } %>
+    <% else %>
+      <% return { label: (p.presence || "unknown"), border: "#6b7280", bg: "#f9fafb", text: "#374151" } %>
+    <% end %>
+  <% end %>
+
   <% data = @data || {} %>
   <% items = data["items"] || [] %>
 
   <p style="color:#555;">
     期間：<strong><%= items.first && items.first["from"] %></strong> 〜 <strong><%= items.first && items.first["to"] %></strong>
-    ／ 通貨：<strong><%= items.first && items.first["currency"] || "JPY" %></strong>
+    ／ 通貨：<strong><%= (items.first && items.first["currency"]) || "JPY" %></strong>
   </p>
 
   <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width: 100%;">
@@ -39,33 +54,62 @@
         <th>手数料</th>
         <th>純額</th>
         <th>仕訳件数</th>
+        <th>PSP別</th>
         <th>監査</th>
       </tr>
     </thead>
     <tbody>
-  <% items.each do |s| %>
-    <% type_label =
-      case s["shop_type"]
-      when "personal" then "個人"
-      when "business" then "法人"
-      else "-"
-      end
-    %>
+      <% items.each do |s| %>
+        <% type_label =
+          case s["shop_type"]
+          when "personal" then "個人"
+          when "business" then "法人"
+          else "-"
+          end
+        %>
 
-    <tr>
-      <td><%= s["shop_id"] %></td>
-      <td><%= s["shop_name"] || "-" %></td>
-      <td><%= type_label %></td>
-      <td><%= s["owner_name"] || "-" %></td>
-      <td><%= jpy(s["sales_total"]) %></td>
-      <td><%= jpy(s["refund_total"]) %></td>
-      <td><%= jpy(s["fee_total"]) %></td>
-      <td><%= jpy(s["net_total"]) %></td>
-      <td><%= s["postings_count"] || "-" %></td>
-      <td><a href="/admin/trustledger/postings?shop_id=<%= s["shop_id"] %>">仕訳を見る</a></td>
-    </tr>
-  <% end %>
-</tbody>
+        <% byp = s["by_provider"] %>
+        <% providers = byp.is_a?(Hash) ? byp.keys.map(&:to_s).sort : [] %>
+
+        <tr>
+          <td><%= s["shop_id"] %></td>
+          <td><%= s["shop_name"] || "-" %></td>
+          <td><%= type_label %></td>
+          <td><%= s["owner_name"] || "-" %></td>
+          <td><%= jpy(s["sales_total"]) %></td>
+          <td><%= jpy(s["refund_total"]) %></td>
+          <td><%= jpy(s["fee_total"]) %></td>
+          <td><%= jpy(s["net_total"]) %></td>
+          <td><%= s["postings_count"] || "-" %></td>
+
+          <td style="min-width:260px;">
+            <% if providers.empty? %>
+              <span style="color:#666;">-</span>
+            <% else %>
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                <% providers.each do |p| %>
+                  <% row = byp[p] || {} %>
+                  <% st = provider_style(p) %>
+                  <div style="border:1.5px solid <%= st[:border] %>; background:<%= st[:bg] %>; border-radius:999px; padding:4px 8px;">
+                    <span style="font-weight:700; color:<%= st[:text] %>;"><%= st[:label] %></span>
+                    <span style="color:#374151; margin-left:6px;">
+                      net: <strong><%= jpy(row["net_total"]) %></strong>
+                    </span>
+                    <span style="color:#6b7280; margin-left:6px; font-size:12px;">
+                      (n=<%= row["postings_count"] || 0 %>)
+                    </span>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          </td>
+
+          <td>
+            <a href="/admin/trustledger/postings?shop_id=<%= s["shop_id"] %>">仕訳を見る</a>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
   </table>
 
   <p style="margin-top:12px;">
