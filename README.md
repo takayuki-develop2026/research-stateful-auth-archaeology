@@ -1,27 +1,38 @@
-# アプリケーション名： (OmniCommerceCore)Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、（自動出荷なども計画）システム<br>
+# アプリケーション名： (OmniCommerceCore)<br>
+Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、（自動フルフィルメントなども計画）システム<br>
 
 リポジトリ名: - research-stateful-auth-archaeology<br>
-ブランチ名: - main<br>
+ブランチ名:　 - main<br>
 
 それぞれのブランチのREADMEを参照してセットアップ<br>
 
 # 環境構築
+<br>
 Dockerビルド
 <br>
 <br>
-　1\. 　git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行
+　1\. git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行<br>
 
-<br>
- 　2\.   　ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
+　2\. cd research-stateful-auth-archaeology  の実行<br><br>
+
+　3\. ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
 　　　（ターミナルコマンド）cd backend (実行後) mkdir storage/app/public/item_images　の実行<br>
 　　　　　　　　　　　cp -r public/pictures/* storage/app/public/item_images　の実行<br>
- 　3\.　　ダミーデーターのユーザー初期画像ファイルをstrageディレクトリーの中にimagesディレクトリーを作成して初期画像ファイルをコピーする<br>
- 　　　（ターミナルコマンド）mkdir storage/app/public/images　の実行<br>
-　　　　　　　　　　　cp -r public/pictures_user/* storage/app/public/images　の実行<br>
-　4\. Docker Desktopを立ち上げて（ターミナルコマンド）docker-compose up -d --build　の実行
-<br>
-　
-  <br>
+　4\. ダミーデーターのユーザー初期画像ファイルをstrageディレクトリーの中にimagesディレクトリーを作成して初期画像ファイルをコピーする<br>
+　　　（ターミナルコマンド）mkdir storage/app/public/images　の実行<br>
+　　　　　　　　　　　cp -r public/pictures_user/* storage/app/public/images　の実行<br><br>
+
+　5\. env.exampleファイルから.envを作成し、.envファイルの環境変数を変更(backend+frontend+admin_rails)<br>
+　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
+　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
+　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行後<br>
+　・stripeの公開キーなどは個人情報保護のためgitで追跡していません。必要でしたらコード伝えます。<br>
+　・firebaseのAPIキーなど６項目（frontend .env　追記用）、firebaseのサービスアカウントキー（新規ファイル作成用）などは個人情報保護のためgitで追跡していません。（画面表示、新規登録もログインもできない状態です。）
+  必要でしたら　frontend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
+
+　6\. Docker Desktopを立ち上げて（ターミナルコマンド）docker-compose up -d --build　の実行
+<br><br>
+
 laravel環境構築
 <br>
 <br>
@@ -29,32 +40,16 @@ laravel環境構築
 <br>
 　2\. （PHPコンテナー）composer install　の実行
 <br>
-　3\. 　env.exampleファイルから.envを作成し、.envファイルの環境変数を変更<br>
-　(PHPコンテナー)  cp .env.example .env　の実行後.envの環境変数の変更<br>
-
-　・stripeの公開キーなどは個人情報保護のためgitで追跡していません。必要でしたらコード伝えます。<br>
-
-  ・firebaseのAPIキーなど６項目（frontend .env　追記用）、firebaseのサービスアカウントキー（新規ファイル作成用）などは個人情報保護のためgitで追跡していません。（画面表示、新規登録もログインもできない状態です。）
-  必要でしたら　frontend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br>
-
-  (.env修正後反映させるため　カレントディレクトリーに戻り)　docker compose restart　の実行   <br>
-
-<br>
-<br>
-　4\. アプリケーションキーの作成<br>
+　3\. アプリケーションキーの作成<br>
 　　（PHPコンテナー）php artisan key:generate
 <br>
-　5\. マイグレーションの実行・シーディング実行<br>
-　　php artisan migrate:fresh --seed
+　4\. マイグレーションの実行・シーディング実行<br>
+　　（PHPコンテナー）php artisan migrate:fresh --seed
 <br>
-　6\. シンボリックリンクの作成<br>
-　　php artisan storage:link
+　5\. シンボリックリンクの作成<br>
+　　（PHPコンテナー）php artisan storage:link
 <br>
-　6\.(API ベース開発に変更したため全てのテストコードは使えない状態です。) テスト用のデーターベース作成からPHPUnitテスト実行まで。<br>
-　（exitでターミナルに戻ってから）docker-compose exec mysql bash　を実行<br>
-　（mysqlコンテナー）mysql -u root -p   の実行後パスワード　root　と入力して実行<br>
-　（mysql接続後）CREATE DATABASE coachtech1_test;　を実行 (実行後exitコマンドでターミナルまで戻る)<br>
-（ターミナルで　docker-compose exec php bash を実行した後のPHPコンテナーで）php artisan test　を実行してテストをしてください。<br>
+
 <br><br>
 
 -  ダミーのユーザーデーターと出品商品データーのシーダーファイルで作りましたので、PHPコンテナーで上記の通り　php artisan db:seed　を実行してください。<br>
@@ -63,7 +58,6 @@ laravel環境構築
    ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
    ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
    ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br><br>
-
 
 - Stripe決済実行時<br>
 （ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
