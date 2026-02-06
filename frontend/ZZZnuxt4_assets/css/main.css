@@ -1,9 +1,0 @@
-/* Tailwind CSS のベース、コンポーネント、ユーティリティをインポート */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* カスタムスタイルがあればここに追加 */
-body {
-  font-family: 'Inter', sans-serif;
-}

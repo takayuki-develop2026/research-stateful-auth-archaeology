@@ -11,24 +11,25 @@
 Dockerビルド
 <br>
 <br>
-　1\. git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行<br>
+　1\. git cloneリンク（ターミナルコマンド）<br>
+ git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行<br>
 
 　2\. cd research-stateful-auth-archaeology  の実行<br><br>
 
 　3\. ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
-　　　（ターミナルコマンド）cd backend (実行後) mkdir storage/app/public/item_images　の実行<br>
+　　（ターミナルコマンド）cd backend (実行後) mkdir storage/app/public/item_images　の実行<br>
 　　　　　　　　　　　cp -r public/pictures/* storage/app/public/item_images　の実行<br>
 　4\. ダミーデーターのユーザー初期画像ファイルをstrageディレクトリーの中にimagesディレクトリーを作成して初期画像ファイルをコピーする<br>
-　　　（ターミナルコマンド）mkdir storage/app/public/images　の実行<br>
+　（ターミナルコマンド）mkdir storage/app/public/images　の実行<br>
 　　　　　　　　　　　cp -r public/pictures_user/* storage/app/public/images　の実行<br><br>
 
 　5\. env.exampleファイルから.envを作成し、.envファイルの環境変数を変更(backend+frontend+admin_rails)<br>
-　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
-　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
-　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行<br>
+　　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
+　　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
+　　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行<br>
 
-　・ シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
-(backend)
+　 シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
+(backend)<br>
 DB_PASSWORD=,JWT_SECRET=,<br>
 FIREBASE_CREDENTIALS=(現段階では使っていない。jsonファイルなし位置表示のみ),<br>
 STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
@@ -56,21 +57,22 @@ laravel環境構築
 <br><br>
 
 
--  ダミーのユーザーデーターと出品商品データーのシーダーファイルで作りましたので、PHPコンテナーで上記の通り　php artisan db:seed　を実行してください。<br>
-   ダミーのユーザー情報です。'　'は削除してください。<br>
+-  シーダーファイルでユーザーデーターと出品商品データーを作成しました。<br>
+   ユーザー情報です。メールの'　'は削除してください。<br>
    １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'Testtest1'　出品数：'２品'<br>
-   ロール：Shop Owner（各Shop Owner(manager、staff)はそれぞれのショップのダッシュボードにログイン後移動できます。）<br>
-   (各テストショップのトップページから管理画面ボタンで各ショップのダッシュボードに入れます。)<br>
+   ロール：Shop Owner（各Shop Owner(manager、staff)は<br>
+   ログイン後それぞれのショップのダッシュボードに移動します。）<br>
+   (各 テストショップのトップページから管理画面ボタンで各ショップのダッシュボードに入れます。)<br>
    ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
    ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
    ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br><br>
 
-- Stripe決済実行時<br>
+- Stripe決済実行前<br>
 （ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
 カード番号：4242 4242 4242 4242<br>
 有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br><br>
 
-- Adyen決済実行時<br>
+- Adyen決済実行前<br>
 （ターミナルコマンド）ngrok http 80  (ターミナルで実行のまま)<br>
 カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
 有効期限（未来）・名前、は決まりなし。<br><br>
@@ -153,7 +155,7 @@ WEBサイトにも良く反映されて景気の波にも負けないような�
 <br>
 
 # URL<br>
-  - フリマアプリトップページ： http://localhost/
+  - Eコマースアプリトップページ： http://localhost/
   - ユーザー登録： http://localhost/register
   - phpMyAdmin:http://localhost:8080/index.php
   - meilhog： http://localhost:8025/

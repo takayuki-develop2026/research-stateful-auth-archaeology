@@ -1,9 +1,0 @@
-/* frontend/resources/css/app.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-body {
-    background-color: #1a202c;
-    color: white;
-}
