@@ -282,11 +282,11 @@ export default function ItemDetailPage() {
           verticalAlign: "middle",
         }}
       >
-        AI解析 → 管理手動確定
+        　AI解析 → 管理手動確定
         <br />
-        （ブランド名・カラー・コンディション、
+        　(ブランド名・カラー・コンディション)
         <br />
-        開発計画中:画像解析など）
+      (開発計画中:画像解析で商品名や状態の数値化など)
       </span>
     ) : displayBrand?.source === "ai_provisional" ? (
       <span
@@ -300,9 +300,8 @@ export default function ItemDetailPage() {
       >
         AI解析
         <br />
-        （ブランド名・カラー・コンディション、
+        (ブランド名・カラー・コンディション)
         <br />
-        開発計画中:画像解析など）
       </span>
     ) : null;
 

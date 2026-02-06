@@ -26,7 +26,8 @@ Dockerビルド
 　5\. env.exampleファイルから.envを作成し、.envファイルの環境変数を変更(backend+frontend+admin_rails)<br>
 　　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
 　　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
-　　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行<br>
+　　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env<br>
+　の実行<br>
 
 　 シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
 (backend)<br>
@@ -36,13 +37,14 @@ STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
 ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
   必要でしたら　backend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
 
-　6\. Docker Desktopを立ち上げて（ターミナルコマンド）docker-compose up -d --build　の実行
+　6\. Docker Desktopを立ち上げて
+（カレントディレクトリー）docker-compose up -d --build　の実行
 <br><br>
 
 laravel環境構築
 <br>
 <br>
-　1\. （ターミナルコマンド）docker-compose exec php bash　の実行
+　1\. (カレントディレクトリー)docker-compose exec php bash　の実行
 <br>
 　2\. （PHPコンテナー）composer install　の実行
 <br>
@@ -54,8 +56,10 @@ laravel環境構築
 <br>
 　5\. シンボリックリンクの作成<br>
 　　（PHPコンテナー）php artisan storage:link
+<br>
+　6\. フロントエンドのセットアップ。<br>
+　　 (frontendディレクトリー)npm i　の実行
 <br><br>
-
 
 -  シーダーファイルでユーザーデーターと出品商品データーを作成しました。<br>
    ユーザー情報です。メールの'　'は削除してください。<br>
@@ -70,7 +74,8 @@ laravel環境構築
 - Stripe決済実行前<br>
 （ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
 カード番号：4242 4242 4242 4242<br>
-有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br><br>
+有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br>
+コンビニ払いは現在Stripeのみで決済後3分ほどでダッシュボードに反映<br><br>
 
 - Adyen決済実行前<br>
 （ターミナルコマンド）ngrok http 80  (ターミナルで実行のまま)<br>

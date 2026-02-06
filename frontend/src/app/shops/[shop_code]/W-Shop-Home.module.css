@@ -8,6 +8,16 @@
 }
 
 /* =========================
+   Header
+========================= */
+.shopHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+/* =========================
    Title
 ========================= */
 .title {
@@ -15,6 +25,22 @@
   font-weight: 600;
   margin-bottom: 24px;
   color: #222;
+}
+
+/* =========================
+   Dashboard button
+========================= */
+.dashboardButton {
+  padding: 8px 14px;
+  background-color: #111;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.dashboardButton:hover {
+  background-color: #333;
 }
 
 /* =========================
@@ -63,9 +89,18 @@
   color: inherit;
 }
 
+/* ✅ 売り切れ時の非活性 */
+.cardLinkDisabled {
+  cursor: not-allowed;
+}
+
 /* =========================
-   Image
+   Image wrapper (SOLD OUT overlay)
 ========================= */
+.imageWrap {
+  position: relative;
+}
+
 .cardLink img {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -73,27 +108,55 @@
   background: #f5f5f5;
 }
 
+/* ✅ 売り切れ時：画像をグレー＆薄く */
+.imageWrapSoldOut img {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+/* ✅ SOLD OUT バッジ */
+.soldOutBadge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+}
+
 /* =========================
    Item Info
 ========================= */
-.cardLink > div {
+.cardBody {
   padding: 12px;
 }
 
-.cardLink p {
-  margin: 0;
-}
-
-.cardLink p:first-child {
+.itemName {
+  margin: 0 0 4px 0;
   font-size: 0.95rem;
   font-weight: 500;
   color: #333;
-  margin-bottom: 4px;
 }
 
-.cardLink p:last-child {
+.itemPrice {
+  margin: 0;
   font-size: 0.9rem;
   color: #666;
+}
+
+/* =========================
+   No items
+========================= */
+.no_items {
+  padding: 18px;
+  color: #666;
+  background: #fafafa;
+  border: 1px dashed #ddd;
+  border-radius: 8px;
+  text-align: center;
 }
 
 /* =========================
@@ -121,24 +184,4 @@
   .items_select {
     gap: 12px;
   }
-}
-
-.shopHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.dashboardButton {
-  padding: 8px 14px;
-  background-color: #111;
-  color: #fff;
-  border-radius: 6px;
-  font-size: 14px;
-  text-decoration: none;
-}
-
-.dashboardButton:hover {
-  background-color: #333;
 }

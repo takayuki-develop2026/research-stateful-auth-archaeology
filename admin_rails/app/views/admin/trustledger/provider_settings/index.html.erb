@@ -19,24 +19,24 @@
 
     <label>status:
       <select name="status">
-        <option value="">all</option>
-        <option value="active"   <%= "selected" if @status=="active" %>>active</option>
-        <option value="inactive" <%= "selected" if @status=="inactive" %>>inactive</option>
+        <option value="" <%= "selected" if @status.blank? %>>all</option>
+        <option value="active"   <%= "selected" if @status == "active" %>>active</option>
+        <option value="inactive" <%= "selected" if @status == "inactive" %>>inactive</option>
       </select>
     </label>
 
     <label>provider:
       <select name="provider">
-        <option value="">all</option>
-        <option value="stripe" <%= "selected" if @provider=="stripe" %>>stripe</option>
-        <option value="adyen"  <%= "selected" if @provider=="adyen" %>>adyen</option>
+        <option value="" <%= "selected" if @provider.blank? %>>all</option>
+        <option value="stripe" <%= "selected" if @provider == "stripe" %>>stripe</option>
+        <option value="adyen"  <%= "selected" if @provider == "adyen" %>>adyen</option>
       </select>
     </label>
 
     <label>limit:
       <select name="limit">
         <% [25,50,100,200].each do |n| %>
-          <option value="<%= n %>" <%= "selected" if @limit==n %>><%= n %></option>
+          <option value="<%= n %>" <%= "selected" if @limit == n %>><%= n %></option>
         <% end %>
       </select>
     </label>
@@ -54,8 +54,11 @@
 <!-- ✅ Bulk update -->
 <div style="margin:12px 0; padding:12px; border:1px solid #ddd; background:#fff;">
   <h3 style="margin:0 0 8px 0;">一括更新</h3>
+
   <form method="post" action="/admin/dashboard/trustledger/provider-settings/update">
-    <%= csrf_meta_tags %>
+    <!-- ✅ Rails CSRF: form には authenticity_token を入れる -->
+    <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+
     <input type="hidden" name="mode" value="bulk" />
 
     <label>provider:
@@ -106,13 +109,15 @@
 
         <td style="padding:8px; border:1px solid #ddd;">
           <form method="post" action="/admin/dashboard/trustledger/provider-settings/update" style="display:flex; gap:8px; align-items:center;">
-            <%= csrf_meta_tags %>
+            <!-- ✅ Rails CSRF: form には authenticity_token を入れる -->
+            <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+
             <input type="hidden" name="mode" value="row" />
             <input type="hidden" name="shop_id" value="<%= s["id"] %>" />
 
             <select name="provider">
-              <option value="stripe" <%= "selected" if s["payment_provider"]=="stripe" %>>stripe</option>
-              <option value="adyen"  <%= "selected" if s["payment_provider"]=="adyen" %>>adyen</option>
+              <option value="stripe" <%= "selected" if s["payment_provider"] == "stripe" %>>stripe</option>
+              <option value="adyen"  <%= "selected" if s["payment_provider"] == "adyen" %>>adyen</option>
             </select>
 
             <button type="submit">更新</button>
@@ -130,12 +135,12 @@
 <!-- pagination -->
 <div style="margin:16px 0; display:flex; gap:12px; align-items:center;">
   <% if @page > 1 %>
-    <a href="/admin/dashboard/trustledger/provider-settings?<%= URI.encode_www_form({ q:@q, status:@status, provider:@provider, limit:@limit, page:@page-1 }.compact) %>">← Prev</a>
+    <a href="/admin/dashboard/trustledger/provider-settings?<%= URI.encode_www_form({ q: @q, status: @status, provider: @provider, limit: @limit, page: @page - 1 }.compact) %>">← Prev</a>
   <% end %>
 
   <span>page <%= @page %> / <%= @pages %></span>
 
   <% if @page < @pages %>
-    <a href="/admin/dashboard/trustledger/provider-settings?<%= URI.encode_www_form({ q:@q, status:@status, provider:@provider, limit:@limit, page:@page+1 }.compact) %>">Next →</a>
+    <a href="/admin/dashboard/trustledger/provider-settings?<%= URI.encode_www_form({ q: @q, status: @status, provider: @provider, limit: @limit, page: @page + 1 }.compact) %>">Next →</a>
   <% end %>
 </div>

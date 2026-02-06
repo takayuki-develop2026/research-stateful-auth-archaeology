@@ -23,7 +23,7 @@ export default function ShopHomePage() {
 
   const currentSearchQuery = useMemo(
     () => searchParams.get("q") || "",
-    [searchParams]
+    [searchParams],
   );
 
   const isSearch = currentSearchQuery.trim().length > 0;
@@ -60,22 +60,55 @@ export default function ShopHomePage() {
 
       <div className={styles.items_select}>
         {items.length > 0 ? (
-          items.map((item) => (
-            <div key={item.id} className={styles.items_select_all}>
-              <Link href={`/item/${item.id}`} className={styles.cardLink}>
-                <img src={getImageUrl(item.item_image)} alt={item.name} />
-                <div>
-                  <p>{item.name}</p>
-                  <p>
+          items.map((item) => {
+            // ✅ 売り切れ判定（remain==0）
+            const isSoldOut = Number((item as any).remain ?? 0) === 0;
+
+            const CardInner = (
+              <>
+                <div
+                  className={`${styles.imageWrap} ${
+                    isSoldOut ? styles.imageWrapSoldOut : ""
+                  }`}
+                >
+                  <img src={getImageUrl(item.item_image)} alt={item.name} />
+
+                  {isSoldOut && (
+                    <div className={styles.soldOutBadge}>完売</div>
+                  )}
+                </div>
+
+                <div className={styles.cardBody}>
+                  <p className={styles.itemName}>{item.name}</p>
+                  <p className={styles.itemPrice}>
                     ¥
                     {typeof item.price === "number"
                       ? item.price.toLocaleString()
                       : "-"}
                   </p>
                 </div>
-              </Link>
-            </div>
-          ))
+              </>
+            );
+
+            return (
+              <div key={item.id} className={styles.items_select_all}>
+                {isSoldOut ? (
+                  // ✅ 売り切れはクリック不可（表示だけAの最小安全運用）
+                  <div
+                    className={`${styles.cardLink} ${styles.cardLinkDisabled}`}
+                    aria-disabled="true"
+                    title="売り切れ"
+                  >
+                    {CardInner}
+                  </div>
+                ) : (
+                  <Link href={`/item/${item.id}`} className={styles.cardLink}>
+                    {CardInner}
+                  </Link>
+                )}
+              </div>
+            );
+          })
         ) : (
           <div className={styles.no_items}>商品がありません。</div>
         )}

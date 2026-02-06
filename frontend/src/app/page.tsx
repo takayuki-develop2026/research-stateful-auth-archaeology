@@ -81,7 +81,9 @@ export default function Home() {
         : isSearch
           ? searchResult.items
           : listResult.items;
-
+    console.log("❤️‍🔥home raw sample", raw?.[0]);
+    console.log("raw keys", Object.keys(raw?.[0] ?? {}));
+    console.log("raw full", raw?.[0]);
     return raw.map((item: any) => {
       // price: number or {amount}
       const price =
