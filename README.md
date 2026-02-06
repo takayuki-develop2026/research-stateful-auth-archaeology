@@ -26,9 +26,13 @@ Dockerビルド
 　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
 　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
 　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行後<br>
+
 　・stripeの公開キーなどは個人情報保護のためgitで追跡していません。必要でしたらコード伝えます。<br>
-　・firebaseのAPIキーなど６項目（frontend .env　追記用）、firebaseのサービスアカウントキー（新規ファイル作成用）などは個人情報保護のためgitで追跡していません。（画面表示、新規登録もログインもできない状態です。）
-  必要でしたら　frontend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
+(backend)
+DB_PASSWORD=,JWT_SECRET=,FIREBASE_CREDENTIALS=(jsonファイルなし位置表示のみ),<br>
+STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
+ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
+  必要でしたら　backend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
 
 　6\. Docker Desktopを立ち上げて（ターミナルコマンド）docker-compose up -d --build　の実行
 <br><br>
