@@ -9,7 +9,7 @@
 Dockerビルド
 <br>
 <br>
-　1\. 　git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki2025/research-stateful-auth-archaeology.git  の実行
+　1\. 　git cloneリンク（ターミナルコマンド） git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行
 
 <br>
  　2\.   　ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
@@ -46,6 +46,9 @@ laravel環境構築
 <br>
 　5\. マイグレーションの実行・シーディング実行<br>
 　　php artisan migrate:fresh --seed
+<br>
+  6\. シンボリックリンクの作成<br>
+php artisan storage:link
 <br>
 　6\.(API ベース開発に変更したため全てのテストコードは使えない状態です。) テスト用のデーターベース作成からPHPUnitテスト実行まで。<br>
 　（exitでターミナルに戻ってから）docker-compose exec mysql bash　を実行<br>
