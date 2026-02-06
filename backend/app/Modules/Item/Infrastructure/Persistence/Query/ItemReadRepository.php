@@ -88,22 +88,22 @@ final class ItemReadRepository
         if ($entity !== null) {
             // ✅ entity 採用（color はスキーマ不確定なので NULL固定）
             $display = [
-                'brand' => [
-                    'name' => $entity->brand_name ?? null,
-                    'source' => $entity->source,
-                    'is_latest' => true,
-                ],
-                'condition' => [
-                    'name' => $entity->condition_name ?? null,
-                    'source' => $entity->source,
-                    'is_latest' => true,
-                ],
-                'color' => [
-                    'name' => null, // ✅ fixed（後で color_entity_id が確定したら復活）
-                    'source' => $entity->source,
-                    'is_latest' => true,
-                ],
-            ];
+  'brand' => [
+    'name' => $entity->brand_name ?? null,
+    'source' => $entity->source,
+    'is_latest' => true,
+  ],
+  'condition' => [
+    'name' => $entity->condition_name ?? null,
+    'source' => $entity->source,
+    'is_latest' => true,
+  ],
+  'color' => [
+    'name' => $entity->color_name ?? null, // ★復活
+    'source' => $entity->source,
+    'is_latest' => true,
+  ],
+];
         } elseif ($analysis = $this->analysisRepo->findLatestActiveByItemId((int) $row->id)) {
             // ✅ analysis_results（あれば color も反映できる）
             $display = [
@@ -169,49 +169,49 @@ final class ItemReadRepository
      * - item_entities.color_entity_id が無い可能性があるため、color_entities join はしない（NULL固定）
      */
     private function pickBestEntityRow(int $itemId): ?object
-    {
-        // A) human_confirmed を最優先（is_latest が壊れてても拾う）
-        $human = DB::table('item_entities as ie')
-            ->leftJoin('brand_entities as be', 'ie.brand_entity_id', '=', 'be.id')
-            ->leftJoin('condition_entities as ce', 'ie.condition_entity_id', '=', 'ce.id')
-            ->where('ie.item_id', $itemId)
-            ->where('ie.source', 'human_confirmed')
-            ->orderByDesc('ie.id')
-            ->select([
-                'ie.id',
-                'ie.source',
-                'be.canonical_name as brand_name',
-                'ce.canonical_name as condition_name',
-                DB::raw('NULL as color_name'),
-            ])
-            ->first();
+{
+    $human = DB::table('item_entities as ie')
+        ->leftJoin('brand_entities as be', 'ie.brand_entity_id', '=', 'be.id')
+        ->leftJoin('condition_entities as cde', 'ie.condition_entity_id', '=', 'cde.id')
+        ->leftJoin('color_entities as cle', 'ie.color_entity_id', '=', 'cle.id') // ★追加
+        ->where('ie.item_id', $itemId)
+        ->where('ie.source', 'human_confirmed')
+        ->orderByDesc('ie.id')
+        ->select([
+            'ie.id',
+            'ie.source',
+            'be.canonical_name as brand_name',
+            'cde.canonical_name as condition_name',
+            'cle.canonical_name as color_name', // ★NULL固定をやめる
+        ])
+        ->first();
 
-        if ($human !== null) {
-            return $human;
-        }
-
-        // B) human_confirmed が無い時だけ is_latest を採用
-        return DB::table('item_entities as ie')
-            ->leftJoin('brand_entities as be', 'ie.brand_entity_id', '=', 'be.id')
-            ->leftJoin('condition_entities as ce', 'ie.condition_entity_id', '=', 'ce.id')
-            ->where('ie.item_id', $itemId)
-            ->where('ie.is_latest', true)
-            ->orderByRaw("
-                CASE ie.source
-                    WHEN 'ai_provisional' THEN 1
-                    ELSE 2
-                END
-            ")
-            ->orderByDesc('ie.id')
-            ->select([
-                'ie.id',
-                'ie.source',
-                'be.canonical_name as brand_name',
-                'ce.canonical_name as condition_name',
-                DB::raw('NULL as color_name'),
-            ])
-            ->first();
+    if ($human !== null) {
+        return $human;
     }
+
+    return DB::table('item_entities as ie')
+        ->leftJoin('brand_entities as be', 'ie.brand_entity_id', '=', 'be.id')
+        ->leftJoin('condition_entities as cde', 'ie.condition_entity_id', '=', 'cde.id')
+        ->leftJoin('color_entities as cle', 'ie.color_entity_id', '=', 'cle.id') // ★追加
+        ->where('ie.item_id', $itemId)
+        ->where('ie.is_latest', true)
+        ->orderByRaw("
+            CASE ie.source
+                WHEN 'ai_provisional' THEN 1
+                ELSE 2
+            END
+        ")
+        ->orderByDesc('ie.id')
+        ->select([
+            'ie.id',
+            'ie.source',
+            'be.canonical_name as brand_name',
+            'cde.canonical_name as condition_name',
+            'cle.canonical_name as color_name', // ★追加
+        ])
+        ->first();
+}
 
     /**
      * 一覧（軽量 / "落ちない" 確定版）

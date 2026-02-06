@@ -47,8 +47,8 @@ laravel環境構築
 　5\. マイグレーションの実行・シーディング実行<br>
 　　php artisan migrate:fresh --seed
 <br>
-  6\. シンボリックリンクの作成<br>
-php artisan storage:link
+　6\. シンボリックリンクの作成<br>
+　　php artisan storage:link
 <br>
 　6\.(API ベース開発に変更したため全てのテストコードは使えない状態です。) テスト用のデーターベース作成からPHPUnitテスト実行まで。<br>
 　（exitでターミナルに戻ってから）docker-compose exec mysql bash　を実行<br>
