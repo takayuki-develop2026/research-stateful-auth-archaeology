@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///app/src/app/providers.tsx"],"sourcesContent":["\"use client\";\n\nimport { SWRConfig } from \"swr\";\nimport { AuthProvider } from \"@/ui/auth/AuthProvider\";\nimport type { ReactNode } from \"react\";\n\nexport function AppProviders({ children }: { children: ReactNode }) {\n  return (\n    <SWRConfig\n      value={{\n        revalidateOnFocus: false,\n      }}\n    >\n      <AuthProvider>{children}</AuthProvider>\n    </SWRConfig>\n  );\n}\n"],"names":[],"mappings":";;;;;AAEA;;;;;;AAFA;;;;AAMO,SAAS,aAAa,EAAE,QAAQ,EAA2B;IAChE,qBACE,6LAAC,8KAAS;QACR,OAAO;YACL,mBAAmB;QACrB;kBAEA,cAAA,6LAAC;sBAAc;;;;;;;;;;;AAGrB;KAVgB"}}]
-}

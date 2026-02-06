@@ -1,70 +1,83 @@
-# =====================================
 # OS / Editor
-# =====================================
 .DS_Store
-.idea
-.vscode
-.fleet
-.zed
+.idea/
+.vscode/
+.fleet/
+.zed/
 
-# =====================================
 # Secrets / Env
-# =====================================
-.env
-.env.*
+**/.env
+**/.env.*
 !.env.example
 
-# =====================================
-# Backend (Laravel)
-# =====================================
-backend/vendor
-backend/storage/*.key
-backend/storage/pail
-backend/bootstrap/cache/*.php
-backend/.phpunit.cache
-backend/.phpunit.result.cache
-
-# =====================================
-# Frontend (Nuxt / Next)
-# =====================================
-frontend/node_modules
-frontend/.nuxt
-frontend/.output
-frontend/.nitro
-frontend/.cache
-frontend/dist
-
-
-# =====================================
-# payment_core (Spring Boot / Gradle)
-# =====================================
-payment_core/.gradle/
-payment_core/build/
-
-# Spring Boot logs (local)
-payment_core/paymentcore.log
-
-
-# admin_rails secrets
-admin_rails/.kamal/secrets
-admin_rails/config/master.key
-# =====================================
 # Logs
-# =====================================
 *.log
 npm-debug.log*
 yarn-error.log*
 
-# =====================================
-# Docker
-# =====================================
-docker/**/.envbackend/config/firebase-service-account.json
+# Node / Next / Nuxt
+**/node_modules/
+**/.next/
+**/.nuxt/
+**/.output/
+**/.nitro/
+**/.turbo/
+**/.cache/
+**/dist/
 
+# PHP / Laravel
+vendor/
+backend/vendor/
+backend/storage/*.key
+backend/storage/pail
+backend/bootstrap/cache/*
+!backend/bootstrap/cache/.gitignore
+backend/.phpunit.cache
+backend/.phpunit.result.cache
 
-.git
-node_modules
-vendor
-storage/logs
-storage/framework/cache
-storage/framework/sessions
-storage/framework/views
+# Storage runtime (if you want repo-wide)
+storage/logs/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+
+# Java / Gradle
+payment_core/.gradle/
+payment_core/build/
+payment_core/paymentcore.log
+
+# Rails secrets
+admin_rails/.kamal/secrets
+admin_rails/config/master.key
+
+# Firebase Admin SDK key (DO NOT COMMIT)
+backend/config/firebase-service-account.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# DB / Docker runtime data
+docker/mysql/data/
+**/*.ibd
+**/ibdata1
+**/undo_*
+**/binlog.*
+**/binlog.index
+**/ib_buffer_pool
+
+# TLS / keys / certs
+**/*-key.pem
+**/*private*.pem
+**/private_key.pem
+**/server-key.pem
+**/ca-key.pem
+**/client-key.pem
+
+# Backups
+docker__broken_backup/

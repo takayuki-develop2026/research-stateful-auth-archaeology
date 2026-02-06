@@ -25,11 +25,12 @@ Dockerビルド
 　5\. env.exampleファイルから.envを作成し、.envファイルの環境変数を変更(backend+frontend+admin_rails)<br>
 　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
 　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
-　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行後<br>
+　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行<br>
 
 　・ シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
 (backend)
-DB_PASSWORD=,JWT_SECRET=,FIREBASE_CREDENTIALS=(jsonファイルなし位置表示のみ),<br>
+DB_PASSWORD=,JWT_SECRET=,<br>
+FIREBASE_CREDENTIALS=(現段階では使っていない。jsonファイルなし位置表示のみ),<br>
 STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
 ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
   必要でしたら　backend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
