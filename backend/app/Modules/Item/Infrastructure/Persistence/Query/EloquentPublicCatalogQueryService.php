@@ -14,7 +14,6 @@ final class EloquentPublicCatalogQueryService implements PublicCatalogQueryServi
         ?string $keyword,
         array $excludeShopIds = []
     ): LengthAwarePaginator {
-
         $query = Item::query()
             ->whereNotNull('published_at');
 
@@ -25,7 +24,7 @@ final class EloquentPublicCatalogQueryService implements PublicCatalogQueryServi
         if (!empty($excludeShopIds)) {
             $query->where(function ($q) use ($excludeShopIds) {
                 $q->whereNull('shop_id')
-                  ->orWhereNotIn('shop_id', $excludeShopIds);
+                    ->orWhereNotIn('shop_id', $excludeShopIds);
             });
         }
 
@@ -43,7 +42,7 @@ final class EloquentPublicCatalogQueryService implements PublicCatalogQueryServi
                     'brand',
                     'condition',
                     'item_image',
-                    'remain',        // ✅ 追加（超重要）
+                    'remain',        // ✅ remain を必ず返す（超重要）
                     'published_at',
                 ],
                 pageName: 'page',
@@ -65,10 +64,10 @@ final class EloquentPublicCatalogQueryService implements PublicCatalogQueryServi
                 'condition'          => $item->condition,
                 'item_image'         => $item->item_image,
 
-                // ✅ 追加（超重要）
-                'remain'             => (int) $item->remain,
+                // ✅ remain
+                'remain'             => (int) ($item->remain ?? 0),
 
-                // ✅ DateTimeInterface に寄せる（CarbonならそのままOK）
+                // ✅ DateTimeInterface（Carbon）で保持（AssemblerでDATE_ATOM文字列へ）
                 'published_at'       => $item->published_at,
             ]
         );

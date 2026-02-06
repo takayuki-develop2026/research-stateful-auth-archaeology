@@ -1,4 +1,5 @@
 import type { AuthUser } from "@/domain/auth/AuthUser";
+
 /* =========================
    API Client Contract
 ========================= */
@@ -10,6 +11,22 @@ export interface ApiClient {
 }
 
 /* =========================
+   Login Payload (multi-mode)
+========================= */
+export type PasswordLoginPayload = {
+  type: "password";
+  email: string;
+  password: string;
+};
+
+export type OidcLoginPayload = {
+  type: "oidc";
+  returnTo?: string; // 例: "/mypage/profile"
+};
+
+export type LoginPayload = PasswordLoginPayload | OidcLoginPayload;
+
+/* =========================
    Auth Context
 ========================= */
 export type AuthContext = {
@@ -19,9 +36,9 @@ export type AuthContext = {
   user: AuthUser | null;
   apiClient: ApiClient;
 
-  login(payload: { email: string; password: string }): Promise<void>;
+  login(payload: LoginPayload): Promise<void>;
   logout(): Promise<void>;
-  refresh: () => Promise<void>;
+  refresh(): Promise<void>;
 };
 
 /* =========================
@@ -29,7 +46,7 @@ export type AuthContext = {
 ========================= */
 export interface AuthAdapter {
   init(): Promise<AuthUser | null>;
-  login(payload: { email: string; password: string }): Promise<void>;
+  login(payload: LoginPayload): Promise<void>;
   logout(): Promise<void>;
   getApiClient(): ApiClient;
 }

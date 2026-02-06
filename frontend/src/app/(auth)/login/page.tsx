@@ -36,12 +36,12 @@ export default function LoginPage() {
     try {
       // Idaas(Auth0) は PKCE リダイレクトが本体なので、email/passwordは使わない
       if (isIdaas) {
-        await login({ email: "", password: "" });
+        await login({ kind: "idaas", returnTo: "/mypage/profile" });
         return;
       }
 
       // Sanctum / firebase_jwt
-      await login({ email, password });
+      await login({ kind: "password", email, password });
 
       // AuthProvider 側で user 確定を揃える（互換alias）
       if (typeof refresh === "function") {

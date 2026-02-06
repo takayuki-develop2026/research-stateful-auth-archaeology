@@ -14,7 +14,6 @@ final class PublicItemAssembler
         bool $isFavorited,
         int $favoritesCount,
     ): PublicItemDto {
-
         $itemId = (int) ($row['id'] ?? 0);
 
         $shopIdRaw = $row['shop_id'] ?? null;
@@ -41,16 +40,13 @@ final class PublicItemAssembler
         // =========================
         $displayType = null;
 
-        // ⭐️ ショップ所属ユーザーの個人出品（shop_id=null かつ owner かつ viewer が shop所属）
-        if ($shopId === null && $isOwner && $belongsToAnyShop) {
-            $displayType = 'STAR';
-        }
-        // 💫 一般ユーザーの個人出品（shop_id=null かつ owner かつ viewer は shop非所属）
-        elseif ($shopId === null && $isOwner && !$belongsToAnyShop) {
-            $displayType = 'OWN';
+        // 💫 個人出品（shop_id=null）は誰が見ても💫
+        // ※ viewer ではなく item の属性で決める
+        if ($shopId === null) {
+            $displayType = 'OWN'; // フロント側が 💫 として扱う値に合わせる
         }
 
-        // ❤️ FAVORITE 最優先
+        // ❤️ FAVORITE 最優先（既存ロジック維持）
         if ($isFavorited) {
             $displayType = 'FAVORITE';
         }
@@ -62,19 +58,28 @@ final class PublicItemAssembler
             ?? $row['itemImagePath']
             ?? null;
 
-        $itemImagePath = is_string($rawImage) && $rawImage !== ''
-            ? '/storage/' . ltrim($rawImage, '/')
-            : null;
+        // ここは現行方針に合わせて強制 /storage プレフィックス
+        // item_image が "item_images/xxx.png" の場合 → "/storage/item_images/xxx.png"
+        // すでに "/storage/..." が入ってきても二重にならないようガード
+        $itemImagePath = null;
+        if (is_string($rawImage) && $rawImage !== '') {
+            $normalized = '/' . ltrim($rawImage, '/');
+            if (str_starts_with($normalized, '/storage/')) {
+                $itemImagePath = $normalized;
+            } else {
+                $itemImagePath = '/storage/' . ltrim($rawImage, '/');
+            }
+        }
 
         // publishedAt（string: DATE_ATOM）
-$publishedAtRaw = $row['published_at'] ?? null;
-$publishedAt = null;
+        $publishedAtRaw = $row['published_at'] ?? null;
+        $publishedAt = null;
 
-if ($publishedAtRaw instanceof \DateTimeInterface) {
-    $publishedAt = $publishedAtRaw->format(DATE_ATOM);
-} elseif (is_string($publishedAtRaw) && $publishedAtRaw !== '') {
-    $publishedAt = Carbon::parse($publishedAtRaw)->format(DATE_ATOM);
-}
+        if ($publishedAtRaw instanceof \DateTimeInterface) {
+            $publishedAt = $publishedAtRaw->format(DATE_ATOM);
+        } elseif (is_string($publishedAtRaw) && $publishedAtRaw !== '') {
+            $publishedAt = Carbon::parse($publishedAtRaw)->format(DATE_ATOM);
+        }
 
         return new PublicItemDto(
             id: $itemId,
@@ -88,9 +93,9 @@ if ($publishedAtRaw instanceof \DateTimeInterface) {
 
             brandPrimary: $row['brand'] ?? null,
             conditionName: $row['condition'] ?? null,
-            colorName: $row['color'] ?? null, // 今 null 固定なら null のままでOK
+            colorName: $row['color'] ?? null,
 
-            publishedAt: $publishedAt, // ✅ DateTimeInterface
+            publishedAt: $publishedAt,
             displayType: $displayType,
 
             isOwner: $isOwner,

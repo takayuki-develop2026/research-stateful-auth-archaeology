@@ -8,17 +8,14 @@ use Illuminate\Auth\Events\Verified;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
-class VerifyEmailController extends Controller
+final class VerifyEmailController extends Controller
 {
     public function __invoke(Request $request, int $id, string $hash)
     {
         $user = User::findOrFail($id);
 
         // ハッシュ検証（重要）
-        if (! hash_equals(
-            sha1($user->getEmailForVerification()),
-            $hash
-        )) {
+        if (! hash_equals(sha1($user->getEmailForVerification()), $hash)) {
             abort(403, 'Invalid verification link.');
         }
 
@@ -26,14 +23,16 @@ class VerifyEmailController extends Controller
             $user->markEmailAsVerified();
             event(new Verified($user));
 
-            Log::info('[VerifyEmail] verified', [
-                'user_id' => $user->id,
-            ]);
+            Log::info('[VerifyEmail] verified', ['user_id' => $user->id]);
         }
 
-        // 👉 UI を出さないなら直接プロフィールへ
+        // ✅ ここが本丸：verify後は Next の「Auth0ログイン開始」へ飛ばす
+        // そこで Auth0 authorize → /auth/callback → returnTo へ確実に戻す
+        $frontend = rtrim((string) config('app.frontend_url'), '/');
+        $returnTo = '/mypage/profile';
+
         return redirect()->away(
-            config('app.frontend_url') . '/mypage/profile'
+            $frontend . '/auth/login?returnTo=' . urlencode($returnTo)
         );
     }
 }
