@@ -1,5 +1,5 @@
 # アプリケーション名： (OmniCommerceCore)<br>
-Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、（自動フルフィルメントなども計画）システム<br>
+# Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、（自動フルフィルメントなども計画）システム<br>
 
 リポジトリ名: - research-stateful-auth-archaeology<br>
 ブランチ名:　 - main<br>
@@ -27,7 +27,7 @@ Dockerビルド
 　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
 　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env　の実行後<br>
 
-　・stripeの公開キーなどは個人情報保護のためgitで追跡していません。必要でしたらコード伝えます。<br>
+　・ シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
 (backend)
 DB_PASSWORD=,JWT_SECRET=,FIREBASE_CREDENTIALS=(jsonファイルなし位置表示のみ),<br>
 STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
@@ -52,13 +52,14 @@ laravel環境構築
 <br>
 　5\. シンボリックリンクの作成<br>
 　　（PHPコンテナー）php artisan storage:link
-<br>
-
 <br><br>
+
 
 -  ダミーのユーザーデーターと出品商品データーのシーダーファイルで作りましたので、PHPコンテナーで上記の通り　php artisan db:seed　を実行してください。<br>
    ダミーのユーザー情報です。'　'は削除してください。<br>
-   １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'Testtest1'　出品数：'２品'　ロール：Shop Owner（Shop Ownerはそれぞれのショップのダッシュボードにログイン後移動します。）<br>
+   １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'Testtest1'　出品数：'２品'<br>
+   ロール：Shop Owner（各Shop Owner(manager、staff)はそれぞれのショップのダッシュボードにログイン後移動できます。）<br>
+   (各テストショップのトップページから管理画面ボタンで各ショップのダッシュボードに入れます。)<br>
    ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
    ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
    ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br><br>
@@ -84,7 +85,6 @@ laravel環境構築
 
 
 # 伝えること<br>
--  （応用）のstripe決済機能、メール認証機能、PHPUnitでのテストファイルの作成はできています。<br>stripe決済のクレジットカード番号は、4242 4242 4242 4242　で有効期限日は未来の日にち、セキュリティー番号とメールアドレス(メール形式で)、名前はなんでも大丈夫です。<br>
 -  stripe決済の都合上最低決済金額が50円なので少し余裕を持たせて出品商品の最低金額を100円以上(変更)にして設定しました。（バリデーション、テスト含む）<br>
 -  カード支払いで商品購入処理完了後に登録したstripeのdashboardを参照すれば処理が成功しているのが分かります。必要があれば伝えます。<br><br>
 -  COACHTECHのロゴをクリックするとトップページに、ログインユーザーが商品詳細画面で自分が出品した商品の購入手続きをクリックするとプロフィールページに、ゲストユーザーが購入手続きへ・ヘッダーのマイページ・出品・コメントを送信するをクリックするとログインページに移動するようになっています。<br><br>
@@ -93,11 +93,6 @@ laravel環境構築
 -  PHPUnitのテストファイルはスプレットシートのテストケース一覧のID番号に沿ってtests/Featureディレクトリーに保存してあります。上記に記したテスト用のデーターベースを作成した後phpコンテナーで php artisan test を実行してテストをしてください。 <br><br>
 -  Route,Controllerは基本設計書に沿ってファイルの中に基本並び替えしています。<br><br>
 -  ダミーのユーザーデーターと出品商品データーのシーダーファイルで作りましたので、PHPコンテナーで上記の通り　php artisan db:seed　を実行してください。<br>
-   ダミーのユーザー情報です。'　'は削除してください。<br>
-   １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'testtest1'　出品数：'２品'<br>
-   ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'testtest2'　出品数：'２品'<br>
-   ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'testtest3'　出品数：'３品'<br>
-   ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'testtest4'　出品数：'３品'　　です。メール認証は登録済みでログイン後トップページに移動します。<br><br>
 -  プロフィールのユーザー画像を登録していない場合は初期画面として、default-profile２.jpgファイルの画像を使っています。それからユーザー、商品画像を登録した際は同じファイル名にならないよう頭文字以外はランダムで生成するようにしました。<br><br>
 -  スプレットシートの機能要件一覧（US006 FN022.4）の商品を購入した後の還移先は商品一覧画面のところを一つ挟んで購入完了画面を追加しました。その後ページのトップページに戻るを押すと商品一覧画面に移動します。商品を出品した後は出品完了画面に移動してトップページに戻るを押すと商品一覧画面に移動します。<br><br>
 -  出品商品の商品名,ブランド名の文字数は２０文字以内、金額は２０億円以内（バリデーション、テスト含む）に設定しました。<br><br>
@@ -136,17 +131,24 @@ WEBサイトにも良く反映されて景気の波にも負けないような�
 
 
 # ER図<br>
-<img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/77cc71be-eb73-4a46-9a28-6dada2c46e4b" />
+
 
 # 使用技術<br>
-  - PHP: 8.4
-  - Laravel: 11.31
+  - PHP: 8.4.17
+  - Laravel: 11.47.0
+  - Python: 3.14
+  - Ruby: 4.0.1
+  - Rails: 8.1.2
+  - Java: toolchain 25
+  - Spring Boot: 4.0.1
+  - Gradle: 9.3.0
+  - Gradle Kotlin: 2.2.21
   - MySql: 8.3
-  - nginx: 1.21.1
-  - firebase: 10.12.2
+  - Nginx: 1.21.1
+  - Firebase: 10.12.2
   - React: 19.0.0
   - Next.js: 16.0.0
-  - node: 22-bullseye
+  - Node: 22-bullseye
 <br>
 
 # URL<br>
