@@ -46,31 +46,44 @@ final class AdyenWebhookController extends Controller
                 continue;
             }
 
-            $eventCode = (string)($nri['eventCode'] ?? '');
-            $success   = (string)($nri['success'] ?? '');
-            $pspRef    = (string)($nri['pspReference'] ?? '');
-            $eventDate = (string)($nri['eventDate'] ?? '');
-            $merchantRef = (string)($nri['merchantReference'] ?? '');
 
-            // ✅ eventId: 安定キー（pspRef + eventCode + success + merchantReference）
-            $eventId = hash('sha256', 'adyen|' . $pspRef . '|' . $eventCode . '|' . $success . '|' . $merchantRef);
+            $eventCode   = (string)($nri['eventCode'] ?? '');
+$success     = (string)($nri['success'] ?? '');
+$pspRef      = (string)($nri['pspReference'] ?? '');
+$merchantRef = (string)($nri['merchantReference'] ?? '');
 
-            // ✅ payloadHash: NRI単位（items複数に対応）
-            $payloadHash = hash('sha256', json_encode($nri, JSON_UNESCAPED_UNICODE));
+// ✅ 追加：eventDate を安全に取得（無ければ null）
+$eventDate = isset($nri['eventDate']) && is_string($nri['eventDate']) && $nri['eventDate'] !== ''
+    ? $nri['eventDate']
+    : null;
 
-            $occurredAt = new \DateTimeImmutable(
-                $eventDate ?: 'now',
-                new \DateTimeZone((string) config('app.timezone'))
-            );
+// ✅ eventId / payloadHash
+$eventId = hash('sha256', 'adyen|' . $pspRef . '|' . $eventCode . '|' . $success . '|' . $merchantRef);
+$payloadHash = hash('sha256', json_encode($nri, JSON_UNESCAPED_UNICODE));
 
-            $input = new HandlePaymentWebhookInput(
-                provider: 'adyen',
-                eventId: $eventId,
-                eventType: $eventCode,
-                payload: $nri,
-                payloadHash: $payloadHash,
-                occurredAt: $occurredAt,
-            );
+try {
+    $occurredAt = new \DateTimeImmutable(
+        $eventDate ?? 'now',
+        new \DateTimeZone((string) config('app.timezone'))
+    );
+} catch (\Throwable $e) {
+    // ✅ eventDate が壊れてても落とさない
+    \Log::warning('[AdyenWebhook] invalid eventDate fallback now', [
+        'eventDate' => $eventDate,
+        'message' => $e->getMessage(),
+    ]);
+    $occurredAt = new \DateTimeImmutable('now', new \DateTimeZone((string) config('app.timezone')));
+}
+
+$input = new HandlePaymentWebhookInput(
+    provider: 'adyen',
+    eventId: $eventId,               // ✅ sha256 hex64
+    providerEventId: $pspRef,        // ✅ pspReference
+    eventType: $eventCode,
+    payload: $nri,
+    payloadHash: $payloadHash,
+    occurredAt: $occurredAt,
+);
 
             try {
                 $this->paymentUseCase->handle($input);

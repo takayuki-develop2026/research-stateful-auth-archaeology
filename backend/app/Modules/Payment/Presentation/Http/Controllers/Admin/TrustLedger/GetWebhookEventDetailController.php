@@ -12,18 +12,22 @@ final class GetWebhookEventDetailController
     ) {
     }
 
-    public function __invoke(string $eventId): JsonResponse
-    {
-        $row = $this->webhookEvents->findWebhookEventByEventId($eventId);
+    public function __invoke(string $id): JsonResponse
+{
+    $isHex64 = (bool) preg_match('/\A[a-f0-9]{64}\z/i', $id);
 
-        if (!$row) {
-            return response()->json([
-                'error_type' => 'NotFound',
-                'message' => 'Webhook event not found.',
-                'event_id' => $eventId,
-            ], 404);
-        }
+    $row = $isHex64
+        ? $this->webhookEvents->findWebhookEventByIdempotencyKey($id)  // sha256
+        : $this->webhookEvents->findWebhookEventByEventId($id);        // evt_...
 
-        return response()->json($row);
+    if (!$row) {
+        return response()->json([
+            'error_type' => 'NotFound',
+            'message' => 'Webhook event not found.',
+            'id' => $id,
+        ], 404);
     }
+
+    return response()->json($row);
+}
 }

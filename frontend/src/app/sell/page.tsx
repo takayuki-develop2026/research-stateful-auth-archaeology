@@ -286,7 +286,7 @@ export default function ItemSellPage() {
           </label>
           <input
             type="text"
-            placeholder="例：Apple ほぼ新品 黒（スペース、コンマなど有無でも可能）"
+            placeholder="例：Appleほぼ新品黒など(スペース,コンマなど有無でも可能+ひらがな,カタカナ,英語混合可能)"
             value={form.attributes}
             onChange={(e) =>
               setForm((v) => ({

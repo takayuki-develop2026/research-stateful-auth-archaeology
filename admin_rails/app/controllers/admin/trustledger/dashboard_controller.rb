@@ -9,21 +9,21 @@ module Admin
         # Health
         @health = client.get_health
 
-        # Recent webhook events (last 7d, top 10)
-from = (Date.today - 7).strftime("%Y-%m-%d")
-to   = Date.today.strftime("%Y-%m-%d")
+        # Recent failed webhook events (last 7d, top 10)
+        from = (Date.today - 7).strftime("%Y-%m-%d")
+        to   = Date.today.strftime("%Y-%m-%d")
 
-@recent_failed_webhooks =
-  client.list_webhook_events({
-    from: from,
-    to: to,
-    per_page: "10",
-    # status: "failed",  # ← ここを消す（Laravel側が受けないため）
-  })["items"] || []
+        @recent_failed_webhooks =
+          client.list_webhook_events(
+            from: from,
+            to: to,
+            limit: "10",       # ✅ per_page ではなく limit
+            status: "error",   # ✅ failed ではなく error
+          )["items"] || []
 
-        # ReviewQueue pending count (defensive; API仕様に合わせて後で調整)
+        # ReviewQueue pending count
         begin
-          rq = client.list_review_queue({ status: "pending", limit: "1", offset: "0" })
+          rq = client.list_review_queue(status: "pending", limit: "1", offset: "0")
           @review_pending_total = (rq["total"] || rq.dig("page","total") || 0).to_i
         rescue
           @review_pending_total = nil

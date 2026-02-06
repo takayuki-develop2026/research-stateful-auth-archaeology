@@ -42,7 +42,30 @@ module TrustLedger
 
         # Shops
         def list_shops(params = {}) = instance.list_shops(params)
-        def get_shop(shop_id) = instance.get_shop(shop_id)
+        def get_shop(shop_id)
+  # 1) shops一覧から該当shopを探す
+  shops_res = list_shops
+  shops =
+    if shops_res.is_a?(Hash)
+      shops_res["shops"] || shops_res["items"] || shops_res["data"] || []
+    else
+      shops_res
+    end
+
+  shop = shops.find { |s| s["id"].to_i == shop_id.to_i }
+
+  # 2) payment-provider を別APIで取得
+  provider = get_shop_payment_provider(shop_id)
+
+  # 3) まとめて返す（画面側は @data["shop"], @data["payment_provider"] を見る）
+  {
+    "shop" => shop,
+    "payment_provider" => provider,
+  }
+end
+def get_shop_payment_provider(shop_id)
+  get_json("/api/admin/trustledger/shops/#{shop_id}/payment-provider")
+end
         def update_shop_payment_provider(shop_id, provider:, mode: "row") =
           instance.update_shop_payment_provider(shop_id, provider: provider, mode: mode)
 

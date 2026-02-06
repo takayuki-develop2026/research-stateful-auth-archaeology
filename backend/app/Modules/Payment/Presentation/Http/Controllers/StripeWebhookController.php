@@ -22,30 +22,36 @@ final class StripeWebhookController extends Controller
     public function __invoke(Request $request): Response
     {
         $payload = $request->getContent();
-        $sig     = $request->header('Stripe-Signature');
-        $secret  = config('services.stripe.webhook_secret');
+$sig     = $request->header('Stripe-Signature');
+$secret  = config('services.stripe.webhook_secret');
 
-        try {
-            $event = Webhook::constructEvent($payload, $sig, $secret);
-        } catch (\Throwable $e) {
-            \Log::warning('[Stripe Webhook Invalid Signature]', [
-                'message' => $e->getMessage(),
-            ]);
-            return response('Invalid signature', 400);
-        }
+try {
+    $event = Webhook::constructEvent($payload, $sig, $secret);
+} catch (\Throwable $e) {
+    \Log::warning('[Stripe Webhook Invalid Signature]', [
+        'message' => $e->getMessage(),
+    ]);
+    return response('Invalid signature', 400);
+}
 
-        // JSTで統一（あなたの方針）
-        $occurredAt = (new \DateTimeImmutable('@' . $event->created))
-            ->setTimezone(new \DateTimeZone(config('app.timezone')));
+$occurredAt = (new \DateTimeImmutable('@' . $event->created))
+    ->setTimezone(new \DateTimeZone(config('app.timezone')));
 
-        $input = new HandlePaymentWebhookInput(
-            provider: 'stripe',
-            eventId: $event->id,
-            eventType: $event->type,
-            payload: $event->toArray(),
-            payloadHash: hash('sha256', $payload),
-            occurredAt: $occurredAt,
-        );
+// ✅ provider event id（Stripeの一意ID）
+$providerEventId = (string) $event->id; // evt_...
+
+// ✅ internal stable event id（hex64）
+$eventId = hash('sha256', 'stripe|' . $providerEventId . '|' . (string) $event->type);
+
+$input = new HandlePaymentWebhookInput(
+    provider: 'stripe',
+    eventId: $eventId,                     // ✅ sha256 hex64
+    providerEventId: $providerEventId,      // ✅ evt_...
+    eventType: (string) $event->type,
+    payload: $event->toArray(),
+    payloadHash: hash('sha256', $payload),
+    occurredAt: $occurredAt,
+);
 \Log::info('[StripeWebhook] payload saved', [
     'event_id' => $input->eventId,
     'event_type' => $input->eventType,
@@ -76,6 +82,7 @@ if ($existing) {
             // ✅ 既存がNULLなら埋める（上書きしない）
             'payment_id'   => $existing->payment_id ?? $ids['payment_id'],
             'order_id'     => $existing->order_id ?? $ids['order_id'],
+            'provider_event_id' => $existing->provider_event_id ?? $input->providerEventId,
 
             // statusは受信時点ではreceivedでOK（reserve/completeで更新される想定）
             'status'       => $existing->status ?? 'received',
@@ -86,6 +93,7 @@ if ($existing) {
     DB::table('payment_webhook_events')->insert([
         'provider'      => 'stripe',
         'event_id'      => $input->eventId,
+        'provider_event_id' => $input->providerEventId,   // evt_
         'event_type'    => $input->eventType,
         'payload_hash'  => $hash,
         'payload'       => $raw,

@@ -4,20 +4,14 @@ namespace App\Modules\Payment\Domain\Repository;
 
 interface PaymentQueryRepository
 {
-    /**
-     * Reserve webhook event (idempotency lock)
-     * @return bool true if reserved, false if already processed
-     */
     public function reserve(
         string $provider,
-        string $eventId,
+        string $eventId,          // sha256 hex64 (internal idempotency key)
+        string $providerEventId,  // evt_... / pspReference
         string $eventType,
         string $payloadHash
     ): bool;
 
-    /**
-     * Mark final processing result
-     */
     public function complete(
         string $provider,
         string $eventId,
@@ -25,7 +19,12 @@ interface PaymentQueryRepository
         ?int $paymentId = null,
         ?int $orderId = null,
         ?string $errorMessage = null,
+        ?string $errorCode = null,
     ): void;
 
+    public function findWebhookEventByEventId(string $providerEventId): ?array;
+
     public function findWebhookEvent(string $provider, string $eventId): ?array;
+
+    public function findWebhookEventByIdempotencyKey(string $eventId): ?array;
 }

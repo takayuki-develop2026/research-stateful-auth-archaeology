@@ -11,66 +11,85 @@ final class ReplayWebhookEventUseCase
 {
     public function __construct(
         private HandlePaymentWebhookUseCase $handler,
-    ) {
-    }
+    ) {}
 
-    public function handle(string $eventId): array
+    /**
+     * @param string $providerEventId Stripe: evt_... / Adyen: pspReference...
+     */
+    public function handle(string $providerEventId): array
     {
-        return DB::transaction(function () use ($eventId) {
+        return DB::transaction(function () use ($providerEventId) {
 
-            // 1) 保存済みの受信イベントを取得（payload必須）
+            // 1) 保存済み受信イベント取得（payload必須）
             $event = DB::table('payment_webhook_events')
-                ->where('event_id', $eventId)
+                ->where('provider_event_id', $providerEventId) // ✅ 主語
+                ->orWhere('event_id', $providerEventId)        // 保険（過去の揺れ救済）
+                ->orderByDesc('id')
                 ->first();
 
             if (!$event) {
-                abort(404, 'Webhook event not found.');
+                return response()->json([
+                    'error_type' => 'NotFound',
+                    'message' => 'Webhook event not found.',
+                    'provider_event_id' => $providerEventId,
+                ], 404)->throwResponse();
             }
 
             if (!$event->payload) {
-                abort(409, 'Payload not stored. Cannot replay.');
+                return response()->json([
+                    'error_type' => 'Conflict',
+                    'message' => 'Payload not stored. Cannot replay.',
+                    'provider_event_id' => $providerEventId,
+                ], 409)->throwResponse();
             }
 
-            // 2) payload を配列として復元（DBのJSON型は環境で string/object になることがあるので強制整形）
-            $payloadArr = is_array($event->payload)
+            // 2) raw JSON 文字列として正規化
+            $raw = is_string($event->payload)
                 ? $event->payload
-                : json_decode((string) $event->payload, true);
+                : json_encode($event->payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-            if (!is_array($payloadArr)) {
-                abort(409, 'Stored payload is not valid JSON.');
+            if (!is_string($raw) || $raw === '') {
+                return response()->json([
+                    'error_type' => 'Conflict',
+                    'message' => 'Stored payload is empty.',
+                    'provider_event_id' => $providerEventId,
+                ], 409)->throwResponse();
             }
 
-            // 3) payload_hash 整合性チェック（改ざん/不整合防止）
-            //    ※ “受信時と同じルール” に必ず揃える：ここでは raw JSON を sha256
-            $raw = (string) $event->payload;
+            // 3) payload_hash 整合性チェック（受信時ルールと一致させる）
+            $computedHash = hash('sha256', $raw);
+            if ((string)$computedHash !== (string)$event->payload_hash) {
+                return response()->json([
+                    'error_type' => 'Conflict',
+                    'message' => 'Payload hash mismatch. Refuse replay.',
+                    'provider_event_id' => $providerEventId,
+                ], 409)->throwResponse();
+            }
 
-$computedHash = hash('sha256', $raw);
-if ($computedHash !== (string) $event->payload_hash) {
-    abort(409, 'Payload hash mismatch. Refuse replay.');
-}
+            $payloadArr = json_decode($raw, true);
+            if (!is_array($payloadArr)) {
+                return response()->json([
+                    'error_type' => 'Conflict',
+                    'message' => 'Stored payload is not valid JSON.',
+                    'provider_event_id' => $providerEventId,
+                ], 409)->throwResponse();
+            }
 
-$payloadArr = json_decode($raw, true);
-if (!is_array($payloadArr)) {
-    abort(409, 'Stored payload is not valid JSON.');
-}
-
-            // 4) occurredAt を Stripe payload から確定（Stripe event: created は UNIX seconds）
-            //    無ければ DB created_at を使う（最後の保険）
+            // 4) occurredAt（Stripe: created unix seconds）
             $createdUnix = $payloadArr['created'] ?? null;
-
             if (is_int($createdUnix) || (is_string($createdUnix) && ctype_digit($createdUnix))) {
-                $occurredAt = (new DateTimeImmutable())->setTimestamp((int) $createdUnix);
+                $occurredAt = (new DateTimeImmutable())->setTimestamp((int)$createdUnix);
             } else {
-                // created_at が null の可能性もあるので fallback
                 $occurredAt = $event->created_at
-                    ? new DateTimeImmutable((string) $event->created_at)
+                    ? new DateTimeImmutable((string)$event->created_at)
                     : new DateTimeImmutable();
             }
 
-            // 5) 冪等テーブルを “replay 用にリセット”
-            //    UNIQUE 制約で insert が死ぬのを回避しつつ、handler が「未処理」に見える状態に戻す
+            // 5) 冪等テーブルを replay 用に “見かけ上未処理” に戻す
+            // ✅ ここも主語は provider_event_id
             DB::table('processed_webhook_events')
-                ->where('event_id', $eventId)
+                ->where('provider', (string)$event->provider)
+                ->where('provider_event_id', $providerEventId)
                 ->update([
                     'status' => 'reserved',
                     'error_code' => null,
@@ -79,13 +98,13 @@ if (!is_array($payloadArr)) {
                     'updated_at' => now(),
                 ]);
 
-            // 6) ✅ HandlePaymentWebhookInput を「完全一致」で生成
+            // 6) HandlePaymentWebhookInput
             $input = new HandlePaymentWebhookInput(
-                provider: (string) $event->provider,                       // "stripe"
-                eventId: (string) ($payloadArr['id'] ?? $eventId),         // evt_...
-                eventType: (string) ($payloadArr['type'] ?? $event->event_type),
+                provider: (string)$event->provider,
+                eventId: (string)($payloadArr['id'] ?? $providerEventId), // ✅ evt_...
+                eventType: (string)($payloadArr['type'] ?? $event->event_type),
                 payload: $payloadArr,
-                payloadHash: (string) $event->payload_hash,
+                payloadHash: (string)$event->payload_hash,
                 occurredAt: $occurredAt,
             );
 
@@ -94,7 +113,7 @@ if (!is_array($payloadArr)) {
 
             return [
                 'status' => 'replayed',
-                'event_id' => $eventId,
+                'provider_event_id' => $providerEventId,
                 'occurred_at' => $occurredAt->format(DATE_ATOM),
             ];
         });

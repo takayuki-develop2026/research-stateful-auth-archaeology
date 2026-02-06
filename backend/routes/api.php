@@ -203,19 +203,42 @@ Route::middleware('auth.occ')->group(function () {
 
 
 
-    /*
+
+
+/*
 |--------------------------------------------------------------------------
-| ⑧ Reaction / Comment
+| ⑧ Reaction / Comment (v3 fixed favorites)
 |--------------------------------------------------------------------------
 */
 use App\Modules\Reaction\Presentation\Http\Controllers\FavoriteController;
 use App\Modules\Comment\Presentation\Http\Controllers\PostCommentController;
 
+// ✅ v3固定：favorites
+Route::middleware('auth.occ')->group(function () {
+    Route::get('/favorites', [FavoriteController::class, 'index']);
+
+    Route::post('/favorites/{itemId}', [FavoriteController::class, 'add'])
+        ->whereNumber('itemId');
+
+    Route::delete('/favorites/{itemId}', [FavoriteController::class, 'remove'])
+        ->whereNumber('itemId');
+
+    Route::post('/comment', PostCommentController::class);
+});
+    /*
+|--------------------------------------------------------------------------
+| 旧　⑧ Reaction / Comment
+|--------------------------------------------------------------------------
+*/
+// ✅ 互換（古いURLをまだ叩いても動く）
 Route::middleware('auth.occ')->group(function () {
     Route::get('/items/favorite', [FavoriteController::class, 'index']);
-    Route::post('/reactions/items/{itemId}/favorite', [FavoriteController::class, 'add']);
-    Route::delete('/reactions/items/{itemId}/favorite', [FavoriteController::class, 'remove']);
-    Route::post('/comment', PostCommentController::class);
+
+    Route::post('/reactions/items/{itemId}/favorite', [FavoriteController::class, 'add'])
+        ->whereNumber('itemId');
+
+    Route::delete('/reactions/items/{itemId}/favorite', [FavoriteController::class, 'remove'])
+        ->whereNumber('itemId');
 });
 
 

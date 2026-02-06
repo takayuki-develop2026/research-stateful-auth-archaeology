@@ -45,7 +45,22 @@ final class HandlePaymentWebhookUseCase
         // 0) 冪等ロック（reserve）
         // =========================
         $reserved = $this->safeReserve($input);
+
+        // ✅ reserve=true 以外は「闇に落とさない」
         if ($reserved !== true) {
+            // reserve=false（既に処理済み）なら何もしない（静かに終了）
+            if ($reserved === false) {
+                return;
+            }
+
+            // reserve=null（例外など）なら、errorとして記録だけ残す
+            $this->safeComplete(
+                $input,
+                'error',
+                null,
+                null,
+                'reserve_failed'
+            );
             return;
         }
 
@@ -84,6 +99,7 @@ final class HandlePaymentWebhookUseCase
                     $this->handleFeeOnlyIfPossible($input, $domainEvent, $paymentIdFromMeta, $orderIdFromMeta);
                 }
 
+                // ✅ 何も処理しないなら ok ではなく ignored
                 $finalStatus = 'ignored';
                 $finalPaymentId = is_int($paymentIdFromMeta) ? $paymentIdFromMeta : null;
                 $finalOrderId = is_int($orderIdFromMeta) ? $orderIdFromMeta : null;
@@ -146,10 +162,13 @@ final class HandlePaymentWebhookUseCase
                             paymentId: $payment->id(),
                             occurredAt: $domainEvent->occurredAt,
                             meta: [
+                                // ✅ 命名固定
+                                'idempotency_key'     => $input->eventId,          // sha256
+                                'provider_event_id'   => $input->providerEventId,  // evt_... / pspRef
+                                'webhook_event_type'  => $input->eventType,
+
                                 'provider_payment_id' => $domainEvent->providerPaymentId,
-                                'charge_id' => $charge['id'] ?? null,
-                                'webhook_event_type' => $input->eventType,
-                                'webhook_event_id' => $input->eventId,
+                                'charge_id'           => $charge['id'] ?? null,
                             ],
                         );
                     }
@@ -162,21 +181,28 @@ final class HandlePaymentWebhookUseCase
                 if (!$payment && !$isAdyen) {
 
                     if ($domainEvent->type !== DomainPaymentEventType::SUCCEEDED) {
+                        // ✅ 何も処理しないなら ignored に寄せる（ok禁止）
+                        $finalStatus = 'ignored';
                         return;
                     }
 
                     if (!is_int($orderIdFromMeta)) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'stripe_order_id_missing_in_metadata';
                         return;
                     }
 
                     $order = $this->orders->findById($orderIdFromMeta);
                     if (!$order) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'stripe_order_not_found';
                         return;
                     }
 
                     $finalOrderId = $order->id();
 
                     if ($order->isPaid()) {
+                        $finalStatus = 'ignored';
                         return;
                     }
 
@@ -196,6 +222,7 @@ final class HandlePaymentWebhookUseCase
                     }
 
                     // Payment不在では台帳は起こさない（現状方針）
+                    $finalStatus = 'ok';
                     return;
                 }
 
@@ -203,6 +230,8 @@ final class HandlePaymentWebhookUseCase
                 // 4-3) 安全装置：metadata.order_id と Payment.orderId の一致（Stripe寄り）
                 // -----------------------------------------
                 if ($payment && is_int($orderIdFromMeta) && $orderIdFromMeta !== $payment->orderId()) {
+                    $finalStatus = 'error';
+                    $finalErrorMessage = 'metadata_order_id_mismatch';
                     return;
                 }
 
@@ -215,15 +244,21 @@ final class HandlePaymentWebhookUseCase
                     $refundId = $meta['provider_refund_id'] ?? null;
 
                     if (!is_string($refundId) || $refundId === '') {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'stripe_refund_id_missing';
                         return;
                     }
 
                     $refundAmount = $meta['refund_amount'] ?? null;
                     if (!is_numeric($refundAmount)) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'stripe_refund_amount_invalid';
                         return;
                     }
                     $refundAmount = (int)$refundAmount;
                     if ($refundAmount <= 0) {
+                        $finalStatus = 'error';
+                        $finalErrorMessage = 'stripe_refund_amount_non_positive';
                         return;
                     }
 
@@ -233,6 +268,7 @@ final class HandlePaymentWebhookUseCase
                         : $payment->currency();
 
                     if ($this->ledgers->existsRefundByProviderRefundId('stripe', $refundId)) {
+                        $finalStatus = 'ignored';
                         return;
                     }
 
@@ -261,15 +297,19 @@ final class HandlePaymentWebhookUseCase
                         currency: $refundCurrency,
                         occurred_at: $domainEvent->occurredAt->format('Y-m-d H:i:s'),
                         meta: [
+                            // ✅ 命名固定
+                            'idempotency_key'     => $input->eventId,
+                            'provider_event_id'   => $input->providerEventId,
+                            'webhook_event_type'  => $input->eventType,
+
                             'provider_payment_id' => $domainEvent->providerPaymentId,
                             'provider_refund_id'  => $refundId,
                             'refund_amount'       => $refundAmount,
-                            'webhook_event_type'  => $input->eventType,
-                            'webhook_event_id'    => $input->eventId,
                         ],
                         replay: false,
                     ));
 
+                    $finalStatus = 'ok';
                     return;
                 }
 
@@ -282,6 +322,8 @@ final class HandlePaymentWebhookUseCase
 
                     // 現状MVPでは AUTHORISATION を最初の確定イベントとして扱う
                     if ($input->eventType !== 'AUTHORISATION') {
+                        // ✅ ok にしない
+                        $finalStatus = 'ignored';
                         return;
                     }
 
@@ -360,6 +402,8 @@ final class HandlePaymentWebhookUseCase
                                 'reason' => $domainEvent->reason ?? 'adyen_failed'
                             ])
                         );
+
+                        $finalStatus = 'ok';
                         return;
                     }
 
@@ -408,24 +452,31 @@ final class HandlePaymentWebhookUseCase
                             currency: $webhookCurrency,
                             occurred_at: $domainEvent->occurredAt->format('Y-m-d H:i:s'),
                             meta: [
+                                // ✅ 命名固定
+                                'idempotency_key'     => $input->eventId,
+                                'provider_event_id'   => $input->providerEventId, // pspReference
+                                'webhook_event_type'  => $input->eventType,
+
                                 'provider_payment_id' => $providerPaymentId !== '' ? $providerPaymentId : null,
                                 'psp_reference'       => $pspRef !== '' ? $pspRef : null,
                                 'merchant_reference'  => $previewKey, // ✅ preview_key
-                                'webhook_event_type'  => $input->eventType,
-                                'webhook_event_id'    => $input->eventId,
                                 'success'             => $input->payload['success'] ?? null,
                             ],
                             replay: false,
                         ));
 
+                        $finalStatus = 'ok';
                         return;
                     }
 
+                    // SUCCEEDED/FAILED 以外でここまで来たら ignored
+                    $finalStatus = 'ignored';
                     return;
                 }
 
                 // ===== Stripe existing logic =====
                 if ($input->eventType !== 'payment_intent.succeeded') {
+                    $finalStatus = 'ignored';
                     return;
                 }
 
@@ -433,6 +484,7 @@ final class HandlePaymentWebhookUseCase
                     if ($payment) {
                         $this->payments->save($payment->markFailed(['reason' => $domainEvent->reason]));
                     }
+                    $finalStatus = 'ok';
                     return;
                 }
 
@@ -440,15 +492,19 @@ final class HandlePaymentWebhookUseCase
                     if ($payment) {
                         $this->payments->save($payment->markRequiresAction());
                     }
+                    $finalStatus = 'ok';
                     return;
                 }
 
                 if ($domainEvent->type !== DomainPaymentEventType::SUCCEEDED) {
+                    $finalStatus = 'ignored';
                     return;
                 }
 
                 // SUCCEEDED ここから先で台帳を起こす
                 if (!$payment) {
+                    $finalStatus = 'error';
+                    $finalErrorMessage = 'stripe_payment_not_found';
                     return;
                 }
 
@@ -494,18 +550,25 @@ final class HandlePaymentWebhookUseCase
                     currency: $payment->currency(),
                     occurred_at: $domainEvent->occurredAt->format('Y-m-d H:i:s'),
                     meta: [
-                        'provider_payment_id' => $domainEvent->providerPaymentId,
+                        // ✅ 命名固定
+                        'idempotency_key'     => $input->eventId,
+                        'provider_event_id'   => $input->providerEventId, // evt_...
                         'webhook_event_type'  => $input->eventType,
-                        'webhook_event_id'    => $input->eventId,
+
+                        'provider_payment_id' => $domainEvent->providerPaymentId,
                     ],
                     replay: false,
                 ));
 
+                $finalStatus = 'ok';
                 return;
             });
 
-            // 正常終了
-            $finalStatus = 'ok';
+            // ✅ transaction が無事に完走した時だけ ok
+            // （中で ignored/error に落としている場合はそれを尊重する）
+            if ($finalStatus !== 'ignored' && $finalStatus !== 'error') {
+                $finalStatus = 'ok';
+            }
 
         } catch (\Throwable $e) {
             // PSP に 500 を返さない方針（swallow）
@@ -599,7 +662,8 @@ final class HandlePaymentWebhookUseCase
         try {
             return $this->webhookEvents->reserve(
                 $input->provider,
-                $input->eventId,
+                $input->eventId,         // sha256 hex64（冪等キー）
+                $input->providerEventId, // evt_... / pspReference（外部ID）
                 $input->eventType,
                 $input->payloadHash
             );
@@ -618,11 +682,12 @@ final class HandlePaymentWebhookUseCase
         try {
             $this->webhookEvents->complete(
                 $input->provider,
-                $input->eventId,
+                $input->eventId,  // sha256 hex64（冪等キー）
                 $status,
                 $paymentId,
                 $orderId,
                 $errorMessage,
+                null // errorCode（必要ならここに入れる）
             );
         } catch (\Throwable) {
             // swallow
@@ -680,10 +745,13 @@ final class HandlePaymentWebhookUseCase
             paymentId: $payment->id(),
             occurredAt: $domainEvent->occurredAt,
             meta: [
+                // ✅ 命名固定
+                'idempotency_key'     => $input->eventId,
+                'provider_event_id'   => $input->providerEventId,
+                'webhook_event_type'  => $input->eventType,
+
                 'provider_payment_id' => $domainEvent->providerPaymentId,
-                'charge_id' => $charge['id'] ?? null,
-                'webhook_event_type' => $input->eventType,
-                'webhook_event_id' => $input->eventId,
+                'charge_id'           => $charge['id'] ?? null,
             ],
         );
     }
@@ -712,8 +780,12 @@ final class HandlePaymentWebhookUseCase
                 'shop_id' => $shopId,
                 'payment_id' => $paymentId,
                 'provider' => $input->provider,
-                'webhook_event_id' => $input->eventId,
-                'webhook_event_type' => $input->eventType,
+
+                // ✅ 命名固定
+                'idempotency_key'     => $input->eventId,
+                'provider_event_id'   => $input->providerEventId,
+                'webhook_event_type'  => $input->eventType,
+
                 'items' => $rows,
             ]);
         } catch (\Throwable $e) {
@@ -722,8 +794,12 @@ final class HandlePaymentWebhookUseCase
                 'shop_id' => $shopId,
                 'payment_id' => $paymentId,
                 'provider' => $input->provider,
-                'webhook_event_id' => $input->eventId,
-                'webhook_event_type' => $input->eventType,
+
+                // ✅ 命名固定
+                'idempotency_key'     => $input->eventId,
+                'provider_event_id'   => $input->providerEventId,
+                'webhook_event_type'  => $input->eventType,
+
                 'items' => $rows,
                 'error' => [
                     'type' => get_class($e),
@@ -731,5 +807,10 @@ final class HandlePaymentWebhookUseCase
                 ],
             ]);
         }
+    }
+
+    private function buildEventId(string $provider, string $providerEventId, string $eventType): string
+    {
+        return hash('sha256', $provider . '|' . $providerEventId . '|' . $eventType);
     }
 }

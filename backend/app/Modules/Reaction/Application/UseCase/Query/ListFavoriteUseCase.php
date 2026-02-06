@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Modules\Reaction\Application\UseCase\Query;
-
 
 use App\Modules\Reaction\Domain\Repository\FavoriteRepository;
 use App\Modules\Item\Application\Assembler\PublicItemAssembler;
@@ -13,29 +11,37 @@ final class ListFavoriteUseCase
 {
     public function __construct(
         private FavoriteRepository $favoriteRepository,
-        private FavoriteItemReadPort $favoriteItems, // ★ Item側Port
+        private FavoriteItemReadPort $favoriteItems,
     ) {
     }
 
+    /**
+     * @return array<int, array<string,mixed>> 返却は API DTO(toArray) を固定
+     */
     public function execute(int $viewerUserId): array
     {
         $rows = $this->favoriteItems->listByUserId($viewerUserId);
 
-        return collect($rows)->map(function (array $row) use ($viewerUserId) {
+        return collect($rows)
+            ->map(function (array $row) use ($viewerUserId) {
 
-            $itemId = (int) ($row['id'] ?? 0);
+                $itemId = (int) ($row['id'] ?? 0);
 
-            $favoritesCount = $this->favoriteRepository->countByTarget(
-                new FavoriteTargetId($itemId)
-            );
+                $favoritesCount = $this->favoriteRepository->countByTarget(
+                    new FavoriteTargetId($itemId)
+                );
 
-            return PublicItemAssembler::fromReadModel(
-                row: $row,
-                viewerUserId: $viewerUserId,
-                viewerShopIds: [],
-                isFavorited: true,
-                favoritesCount: $favoritesCount,
-            );
-        })->values()->all();
+                $dto = PublicItemAssembler::fromReadModel(
+                    row: $row,
+                    viewerUserId: $viewerUserId,
+                    viewerShopIds: [],
+                    isFavorited: true,
+                    favoritesCount: $favoritesCount,
+                );
+
+                return $dto->toArray(); // ✅ ここが核心
+            })
+            ->values()
+            ->all();
     }
 }

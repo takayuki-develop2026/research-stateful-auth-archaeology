@@ -14,7 +14,11 @@ final class AdyenEventMapper
         $nri = $input->payload; // NRI array
 
         $eventCode = (string)($nri['eventCode'] ?? '');
-        $success = (string)($nri['success'] ?? 'false');
+        $rawSuccess = $nri['success'] ?? 'false';
+
+        // ✅ success 正規化（"true"/"false"想定だが、想定外でも落とさない）
+        $success = is_string($rawSuccess) ? strtolower($rawSuccess) : (is_bool($rawSuccess) ? ($rawSuccess ? 'true' : 'false') : 'false');
+
         $pspRef = (string)($nri['pspReference'] ?? '');
         $merchantRef = (string)($nri['merchantReference'] ?? '');
 

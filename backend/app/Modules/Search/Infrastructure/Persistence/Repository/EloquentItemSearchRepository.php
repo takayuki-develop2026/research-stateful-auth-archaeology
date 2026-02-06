@@ -48,7 +48,7 @@ final class EloquentItemSearchRepository implements ItemSearchRepository
             $q->orderBy('items.created_at', 'desc');
         }
 
-        // select
+        // select（✅ remain を含める）
         $q->select([
             'items.id',
             'items.shop_id',
@@ -56,6 +56,7 @@ final class EloquentItemSearchRepository implements ItemSearchRepository
             'items.price',
             'items.price_currency',
             'items.item_image',
+            'items.remain',
             'items.created_at',
         ]);
 
@@ -67,15 +68,35 @@ final class EloquentItemSearchRepository implements ItemSearchRepository
 
         $rows = $q->get();
 
-        $items = $rows->map(fn ($r) => [
-            'id'             => (int) $r->id,
-            'shop_id'        => (int) $r->shop_id,
-            'name'           => (string) $r->name,
-            'price_amount'   => (int) $r->price,
-            'price_currency' => (string) $r->price_currency,
-            'item_image_path' => $r->item_image,
-            'created_at'     => $r->created_at,
-        ])->all();
+        $items = $rows->map(function ($r) {
+
+            $shopId = $r->shop_id !== null ? (int) $r->shop_id : null;
+
+            $rawImage = $r->item_image ?? null;
+            $itemImagePath = (is_string($rawImage) && $rawImage !== '')
+                ? '/storage/' . ltrim($rawImage, '/')
+                : null;
+
+            $remain = isset($r->remain) ? (int) $r->remain : 0;
+
+            return [
+                'id'              => (int) $r->id,
+                'shop_id'         => $shopId,
+                'name'            => (string) $r->name,
+
+                // 既存互換（price object）
+                'price_amount'    => (int) $r->price,
+                'price_currency'  => (string) $r->price_currency,
+
+                // 既存互換（snake）
+                'item_image_path' => $itemImagePath,
+                'created_at'      => $r->created_at,
+
+                // ✅ v3契約の核心
+                'remain'          => $remain,
+                'is_sold_out'     => $remain <= 0,
+            ];
+        })->all();
 
         return new SearchResultItems($items, $total);
     }

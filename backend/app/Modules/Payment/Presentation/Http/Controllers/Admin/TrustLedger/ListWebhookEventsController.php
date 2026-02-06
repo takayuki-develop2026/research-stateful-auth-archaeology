@@ -35,6 +35,7 @@ final class ListWebhookEventsController extends Controller
             cursor: $data['cursor'] ?? null,
         );
 
+
         return response()->json($page->toArray(), 200);
     }
 }

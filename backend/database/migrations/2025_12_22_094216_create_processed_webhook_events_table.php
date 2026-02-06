@@ -17,6 +17,8 @@ return new class () extends Migration {
     $table->string('status', 32)->index();          // reserved|ok|ignored|error など
     $table->unsignedBigInteger('payment_id')->nullable()->index();
     $table->unsignedBigInteger('order_id')->nullable()->index();
+    $table->string('provider_event_id', 191)->nullable()->index();
+    $table->index(['provider', 'provider_event_id'], 'ix_processed_provider_provider_event');
     $table->string('error_code', 64)->nullable();
     $table->string('error_message', 255)->nullable();
 

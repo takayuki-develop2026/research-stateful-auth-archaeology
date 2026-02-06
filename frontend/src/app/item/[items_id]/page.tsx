@@ -124,18 +124,20 @@ export default function ItemDetailPage() {
   const resolvedItem = item;
 
   // ✅ is_sold_out 優先（APIのSoT）＋後方互換(remain)
+  const remainRaw = (resolvedItem as any).remain;
   const remainNum =
-    typeof (resolvedItem as any).remain === "number"
-      ? (resolvedItem as any).remain
-      : null;
+    typeof remainRaw === "number"
+      ? remainRaw
+      : typeof remainRaw === "string"
+        ? Number(remainRaw)
+        : null;
 
   const isSoldOut =
     typeof (resolvedItem as any).is_sold_out === "boolean"
       ? (resolvedItem as any).is_sold_out
-      : remainNum !== null
+      : typeof remainNum === "number" && Number.isFinite(remainNum)
         ? remainNum <= 0
         : false;
-
   /* =========================
      ここから下は item が必ず存在
   ========================= */

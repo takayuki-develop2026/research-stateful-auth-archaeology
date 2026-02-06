@@ -6,30 +6,43 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 final class SearchItemResource extends JsonResource
 {
-    /**
-     * @param array|object $resource
-     */
     public function toArray($request): array
     {
-        // $this は配列もオブジェクトも来得る（念のため両対応）
-        $id = is_array($this->resource) ? ($this->resource['id'] ?? null) : ($this->resource->id ?? null);
+        $r = $this->resource;
 
-        $shopId = is_array($this->resource) ? ($this->resource['shop_id'] ?? null) : ($this->resource->shop_id ?? null);
-        $name = is_array($this->resource) ? ($this->resource['name'] ?? null) : ($this->resource->name ?? null);
-        $priceAmount = is_array($this->resource) ? ($this->resource['price_amount'] ?? null) : ($this->resource->price_amount ?? null);
-        $priceCurrency = is_array($this->resource) ? ($this->resource['price_currency'] ?? null) : ($this->resource->price_currency ?? null);
-        $createdAt = is_array($this->resource) ? ($this->resource['created_at'] ?? null) : ($this->resource->created_at ?? null);
+        // array/object 両対応 getter
+        $get = function (string $key, $default = null) use ($r) {
+            if (is_array($r)) return $r[$key] ?? $default;
+            if (is_object($r)) return $r->{$key} ?? $default;
+            return $default;
+        };
+
+        $remain = $get('remain', null);
+        $remain = is_numeric($remain) ? (int) $remain : null;
+
+        $isSoldOut = $get('is_sold_out', null);
+        if (!is_bool($isSoldOut)) {
+            $isSoldOut = ($remain !== null) ? ($remain <= 0) : false;
+        }
 
         return [
-            'id' => $id,
-            'shop_id' => $shopId,
-            'name' => $name,
-            'item_image_path' => $this->resource['item_image_path'],
+            'id'      => $get('id'),
+            'shop_id' => $get('shop_id'),
+            'name'    => $get('name'),
+
+            // 既存互換：snake のまま返す（フロントが吸収できてる）
+            'item_image_path' => $get('item_image_path'),
+
             'price' => [
-                'amount' => $priceAmount,
-                'currency' => $priceCurrency,
+                'amount'   => $get('price_amount'),
+                'currency' => $get('price_currency'),
             ],
-            'created_at' => $createdAt,
+
+            'created_at' => $get('created_at'),
+
+            // ✅ 追加（超重要）
+            'remain'      => $remain,
+            'is_sold_out' => (bool) $isSoldOut,
         ];
     }
 }

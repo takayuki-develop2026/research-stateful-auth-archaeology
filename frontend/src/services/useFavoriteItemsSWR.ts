@@ -7,13 +7,13 @@ type Response = {
   items: PublicItemSummary[];
 };
 
-export const FAVORITE_ITEMS_SWR_KEY = "/items/favorite";
+export const FAVORITE_ITEMS_SWR_KEY = "/favorites"; // ✅ v3 fixed
 
 export const useFavoriteItemsSWR = () => {
-  const { authReady, isAuthenticated } = useAuth(); // ★authReady を使う
+  const { authReady, isAuthenticated } = useAuth();
   const fetcher = useAuthedFetcher();
 
-  const swrKey = authReady && isAuthenticated ? FAVORITE_ITEMS_SWR_KEY : null; // ★ここが本体
+  const swrKey = authReady && isAuthenticated ? FAVORITE_ITEMS_SWR_KEY : null;
 
   const { data, error, mutate } = useSWR<Response>(
     swrKey,
@@ -22,12 +22,11 @@ export const useFavoriteItemsSWR = () => {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       revalidateIfStale: false,
-    }
+    },
   );
 
   return {
     items: data?.items ?? [],
-    // ★「Auth判定中」はローディング扱い
     isLoading: !authReady,
     error,
     refetchFavorites: () => mutate(),

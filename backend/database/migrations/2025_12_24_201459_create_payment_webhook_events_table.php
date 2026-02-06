@@ -18,6 +18,8 @@ return new class () extends Migration {
             $table->string('status', 50);
             $table->unsignedBigInteger('payment_id')->nullable();
             $table->unsignedBigInteger('order_id')->nullable();
+            $table->string('provider_event_id', 191)->nullable()->index();
+            $table->index(['provider', 'provider_event_id'], 'ix_processed_provider_provider_event');
             $table->text('error_message')->nullable();
 
             $table->timestamps();
