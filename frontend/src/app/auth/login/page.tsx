@@ -11,15 +11,17 @@ export default function AuthLoginPage() {
   useEffect(() => {
     const returnTo = sp.get("returnTo") ?? "/";
 
-    login({ kind: "idaas", returnTo }).catch(() => {
-      // 失敗時は login 側で /login?oidc_error=... へ飛ばす想定
+    // IdaasProvider 側は payload.type === "oidc" を見ている想定
+    login({ type: "oidc", returnTo }).catch(() => {
+      // 失敗時は IdaasProvider.login 内で state/lock cleanup 済みで例外になる
+      // 必要ならここで /login?oidc_error=... に飛ばしても良い
     });
   }, [sp, login]);
 
   return (
     <div style={{ padding: 24 }}>
       <h1>Signing in…</h1>
-      <p>認証を開始しています。</p>
+      <p>SSO認証を開始しています。</p>
     </div>
   );
 }

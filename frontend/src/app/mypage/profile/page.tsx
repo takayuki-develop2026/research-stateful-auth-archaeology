@@ -217,6 +217,7 @@ export default function ProfilePage() {
     return (
       <div className={`${styles.login_page} max-w-[1400px] mx-auto pt-5 pb-10`}>
         <h2 className={styles.title}>プロフィール設定</h2>
+        <h4 className={styles.title_sub}>(プロフィール登録後ご利用になれます。)</h4>
         <div className="text-center p-8">
           <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-red-500 mx-auto"></div>
           <p className="text-gray-500 mt-3">読み込み中...</p>

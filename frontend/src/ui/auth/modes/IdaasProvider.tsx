@@ -174,34 +174,26 @@ function removeSessionItem(key: string): void {
   }
 }
 
+/**
+ * ✅ PKCE/state/verifier は sessionStorage に統一（localStorage禁止）
+ * - state_mismatch の主因（storage混在）を潰す
+ */
 function getPkceItem(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
+  return getSessionItem(key);
 }
 function setPkceItem(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // ignore
-  }
+  setSessionItem(key, value);
 }
 function removePkceItem(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
+  removeSessionItem(key);
 }
 
+/**
+ * ✅ OIDC/PKCE 一時状態をまとめて消す（sessionStorageのみ）
+ */
 function clearOidcSessionState() {
-  // PKCE（localStorage）
-  removePkceItem(PKCE_VERIFIER_KEY);
-  removePkceItem(OIDC_STATE_KEY);
-
-  // sessionStorage 側
+  removeSessionItem(PKCE_VERIFIER_KEY);
+  removeSessionItem(OIDC_STATE_KEY);
   removeSessionItem(OIDC_RETURN_TO_KEY);
   removeSessionItem(EXCHANGE_LOCK_KEY);
 }
@@ -341,17 +333,17 @@ export default function IdaasProvider({
 
           if (!auth0Domain || !clientId || !audience) {
             TokenStorage.clear();
-            removeSessionItem(EXCHANGE_LOCK_KEY);
+            clearOidcSessionState();
             releaseGlobalLock();
             router.replace("/login?oidc_error=env_missing");
             return;
           }
 
-          // ✅ state/verifier は localStorage
+          // ✅ state/verifier は sessionStorage（統一）
           const expectedState = getPkceItem(OIDC_STATE_KEY);
           if (!expectedState || state !== expectedState) {
             TokenStorage.clear();
-            removeSessionItem(EXCHANGE_LOCK_KEY);
+            clearOidcSessionState();
             releaseGlobalLock();
             router.replace("/login?oidc_error=state_mismatch");
             return;
@@ -360,7 +352,7 @@ export default function IdaasProvider({
           const verifier = getPkceItem(PKCE_VERIFIER_KEY);
           if (!verifier) {
             TokenStorage.clear();
-            removeSessionItem(EXCHANGE_LOCK_KEY);
+            clearOidcSessionState();
             releaseGlobalLock();
             router.replace("/login?oidc_error=missing_verifier");
             return;
@@ -387,7 +379,7 @@ export default function IdaasProvider({
           if (!res.ok) {
             const text = await res.text().catch(() => "");
             TokenStorage.clear();
-            removeSessionItem(EXCHANGE_LOCK_KEY);
+            clearOidcSessionState();
             releaseGlobalLock();
             router.replace(
               `/login?oidc_error=token_exchange_failed&status=${res.status}${
@@ -405,7 +397,7 @@ export default function IdaasProvider({
 
           if (!accessToken) {
             TokenStorage.clear();
-            removeSessionItem(EXCHANGE_LOCK_KEY);
+            clearOidcSessionState();
             releaseGlobalLock();
             router.replace("/login?oidc_error=missing_access_token");
             return;
@@ -413,21 +405,16 @@ export default function IdaasProvider({
 
           TokenStorage.save({ accessToken, refreshToken });
 
-          // ✅ PKCEを消す
-          removePkceItem(OIDC_STATE_KEY);
-          removePkceItem(PKCE_VERIFIER_KEY);
-
-          // ✅ lock解除
-          removeSessionItem(EXCHANGE_LOCK_KEY);
-          releaseGlobalLock();
-
           // ✅ me を取得
           const me = await fetchMe();
 
           // ✅ returnTo 最優先（verify→profile を保証）
           const returnToRaw = getSessionItem(OIDC_RETURN_TO_KEY);
-          removeSessionItem(OIDC_RETURN_TO_KEY);
           const returnTo = safeReturnTo(returnToRaw);
+
+          // ✅ 成功したので最後に “一括クリア”
+          clearOidcSessionState();
+          releaseGlobalLock();
 
           if (returnTo && returnTo !== "/") {
             navOnce(router, returnTo);
@@ -503,7 +490,12 @@ export default function IdaasProvider({
         removeSessionItem(OWNER_REDIRECT_KEY);
         removeSessionItem(JUST_LOGGED_IN_KEY);
 
-        // ✅ PKCE (localStorage)
+        // ✅ OIDC/PKCE残骸も掃除（中途半端な前回セッション対策）
+        removeSessionItem(OIDC_RETURN_TO_KEY);
+        removeSessionItem(OIDC_STATE_KEY);
+        removeSessionItem(PKCE_VERIFIER_KEY);
+
+        // ✅ PKCE (sessionStorage)
         setPkceItem(PKCE_VERIFIER_KEY, verifier);
 
         const s = randomString(32);

@@ -8,7 +8,6 @@ import { useAuth } from "@/ui/auth/AuthProvider";
 export default function RegisterPage() {
   const router = useRouter();
   const { isLoading, user } = useAuth();
-  // const { user } = useAuth();
 
   const [name, setName] = useState(user?.display_name ?? "");
   const [email, setEmail] = useState("");
@@ -60,6 +59,12 @@ export default function RegisterPage() {
        * - register → login 済み
        * - email_verified_at = null
        */
+
+      // ✅ 追加：VerifyEmailPage で「入力したメール」を必ず表示できるように保存
+      localStorage.setItem("pending_email", email);
+      // 任意：必要なら表示名も保存
+      localStorage.setItem("pending_display_name", name);
+
       router.replace("/email/verify?from=register");
     } catch (e: any) {
       setApiError(e.message || "登録に失敗しました。");

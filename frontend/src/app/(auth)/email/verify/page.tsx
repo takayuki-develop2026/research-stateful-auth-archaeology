@@ -1,12 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/ui/auth/AuthProvider";
 
 export default function VerifyEmailPage() {
-  const { user, apiClient, isLoading, } = useAuth();
+  const { user, apiClient, isLoading } = useAuth();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isResending, setIsResending] = useState(false);
+
+  // ✅ 入力メール（登録時に保存したもの）を表示するための受け皿
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    // 登録フォーム側で localStorage.setItem("pending_email", email) しておく前提
+    const v = localStorage.getItem("pending_email");
+    if (v) setPendingEmail(v);
+  }, []);
+
+  // ✅ 表示だけ差し替え（機能はそのまま）
+  const displayEmail = useMemo(() => {
+    return user?.email ?? pendingEmail ?? "";
+  }, [user?.email, pendingEmail]);
 
   const handleResend = async () => {
     if (!apiClient) return;
@@ -36,12 +50,40 @@ export default function VerifyEmailPage() {
         </h2>
 
         <p className="text-center text-gray-700">
-          <strong>{user?.email}</strong> 宛に認証メールを送信しました。
+          <strong>{displayEmail}様</strong>
+          <br />
+          meilhogのダッシュボード宛に登録した認証メールを送信しました。
         </p>
 
         <p className="mt-3 text-center text-gray-600">
-          メール内のリンクをクリックして認証を完了してください。
+          登録メール宛のリンクをクリックして認証を完了してください。
+          <br />
+          <br />
+          その後Auth OのログインページのSign upを押して
+          <br />
+          メールとパスワードを入力してAuth Oに登録してください。
+          <br />
+          <br />
+          その後登録メール宛にAuth Oから
+          <br />
+          ”Verify your email”が届くのでAccountを確認して、
+          <br />
+          ”Verify Link” or ”Verify Your Account”を押して
+          <br />
+          認証を完了してログインしてください。
         </p>
+
+        {/* MailHog link */}
+        <div className="mt-4 text-center">
+          <a
+            href="http://localhost:8025/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-indigo-600 font-semibold underline"
+          >
+            MailHogを開く（http://localhost:8025/）
+          </a>
+        </div>
 
         {statusMessage && (
           <div className="mt-6 p-3 bg-blue-50 text-blue-700 rounded text-center">
@@ -52,7 +94,7 @@ export default function VerifyEmailPage() {
         <button
           onClick={handleResend}
           disabled={isResending || !user}
-          className="mt-6 w-full bg-indigo-600 text-white py-3 rounded font-bold"
+          className="mt-6 w-full bg-indigo-600 text-white py-3 rounded font-bold disabled:opacity-60"
         >
           認証メールを再送
         </button>

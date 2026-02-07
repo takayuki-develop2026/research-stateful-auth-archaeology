@@ -51,6 +51,9 @@ export function AuthContextCoreProvider(props: {
   });
 
   useEffect(() => {
+    const base: any = value;
+    const userEmail = base?.user?.email; // ← AuthContext の実態に合わせる
+
     const wasReady = prev.current.ready;
     const wasAuthed = prev.current.authed;
 
@@ -58,8 +61,17 @@ export function AuthContextCoreProvider(props: {
       touchLastLoginAt();
     }
 
+    // ✅ user が確定したら pending_* を掃除（これが一番事故らない）
+    if (authReady && isAuthenticated && userEmail) {
+      try {
+        localStorage.removeItem("pending_email");
+        localStorage.removeItem("pending_display_name");
+        localStorage.removeItem("pending_email_expires_at"); // TTL入れてるなら
+      } catch {}
+    }
+
     prev.current = { ready: authReady, authed: isAuthenticated };
-  }, [authReady, isAuthenticated]);
+  }, [authReady, isAuthenticated, value]);
 
   // ✅ logout だけ共通処理を差し込む（その他は素通し）
   const wrapped = useMemo<AuthContext>(() => {

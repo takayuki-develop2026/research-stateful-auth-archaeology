@@ -36,7 +36,7 @@ export default function LoginPage() {
     try {
       // Idaas(Auth0) は PKCE リダイレクトが本体なので、email/passwordは使わない
       if (isIdaas) {
-        await login({ kind: "idaas", returnTo: "/mypage/profile" });
+        await login({ type: "oidc", returnTo: "/mypage/profile" });
         return;
       }
 
