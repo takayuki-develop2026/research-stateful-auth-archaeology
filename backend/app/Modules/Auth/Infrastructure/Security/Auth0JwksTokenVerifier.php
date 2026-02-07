@@ -19,12 +19,15 @@ final class Auth0JwksTokenVerifier implements TokenVerifierPort
     private const MAX_JWKS_TTL = 86400;
 
     public function __construct(
-        private readonly string $domain,      // ex: "xxxx.jp.auth0.com"
-        private readonly string $audience,    // ex: "https://api.occore.example"
-        private readonly ?string $issuer = null, // null なら "https://{domain}/"
-    ) {
-        $this->jwksUrl = 'https://' . $this->domain . '/.well-known/jwks.json';
+    private readonly string $domain,
+    private readonly string $audience,
+    private readonly ?string $issuer = null,
+) {
+    if (trim($this->domain) === '' || trim($this->audience) === '') {
+        throw new \RuntimeException('Auth0JwksTokenVerifier: domain/audience required');
     }
+    $this->jwksUrl = 'https://' . $this->domain . '/.well-known/jwks.json';
+}
 
     public function decode(string $jwt): DecodedToken
     {

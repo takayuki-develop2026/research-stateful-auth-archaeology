@@ -31,6 +31,7 @@ class DatabaseSeeder extends Seeder
             ItemDraftSeeder::class,
             AnalysisRequestSeeder::class,
             ProviderSeeder::class,
+            BackfillLegacyIdentitySeeder::class,
         ]);
     }
 }

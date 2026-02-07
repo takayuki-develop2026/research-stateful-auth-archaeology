@@ -410,7 +410,15 @@ export default function IdaasProvider({
 
           // ✅ returnTo 最優先（verify→profile を保証）
           const returnToRaw = getSessionItem(OIDC_RETURN_TO_KEY);
-          const returnTo = safeReturnTo(returnToRaw);
+          let returnTo = safeReturnTo(returnToRaw);
+
+          // ✅ 追加：profile_completed 済みなら profile への強制 returnTo を無効化
+          const completed =
+            !!(me as any)?.profile_completed || !!(me as any)?.profileCompleted;
+
+          if (completed && returnTo === "/mypage/profile") {
+            returnTo = "/";
+          }
 
           // ✅ 成功したので最後に “一括クリア”
           clearOidcSessionState();

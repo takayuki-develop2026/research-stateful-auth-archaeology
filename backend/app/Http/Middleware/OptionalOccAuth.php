@@ -20,18 +20,47 @@ final class OptionalOccAuth
     {
         $this->authContext->clear();
 
+        // 1) JWT
         $resolved = $this->jwt->resolve($request);
         if ($resolved) {
             Auth::setUser($resolved['user']);
             $request->setUserResolver(fn () => $resolved['user']);
-            $this->authContext->setPrincipal($resolved['principal']);
+
+            $principal = $resolved['principal'];
+            $this->authContext->setPrincipal($principal);
+
+            // ✅ 追加
+            $request->attributes->set('auth_principal', $principal);
+
             return $next($request);
         }
 
-        $user = Auth::guard('sanctum')->user();
+        // 2) ✅ web（stateful本命）
+        $user = Auth::guard('web')->user();
         if ($user) {
+            Auth::setUser($user);
+            $request->setUserResolver(fn () => $user);
+
             $principal = AuthPrincipal::fromSanctumUser($user);
             $this->authContext->setPrincipal($principal);
+
+            // ✅ 追加
+            $request->attributes->set('auth_principal', $principal);
+
+            return $next($request);
+        }
+
+        // 3) optional fallback: sanctum
+        $user = Auth::guard('sanctum')->user();
+        if ($user) {
+            Auth::setUser($user);
+            $request->setUserResolver(fn () => $user);
+
+            $principal = AuthPrincipal::fromSanctumUser($user);
+            $this->authContext->setPrincipal($principal);
+
+            // ✅ 追加
+            $request->attributes->set('auth_principal', $principal);
         }
 
         return $next($request);

@@ -160,6 +160,11 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->bind(
+    \App\Modules\Auth\Domain\Port\UserProvisioningPort::class,
+    \App\Modules\Auth\Infrastructure\Provisioning\EloquentUserProvisioningService::class,
+);
+
         // Stripe Payment
         $this->app->bind(StripePaymentPort::class, StripePaymentAdapter::class);
 

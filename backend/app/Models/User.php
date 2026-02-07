@@ -201,4 +201,8 @@ class User extends Authenticatable implements MustVerifyEmail
         $this->notify(new CustomVerifyEmail());
     }
 
+    public function identities()
+{
+    return $this->hasMany(\App\Models\UserIdentity::class);
+}
 }

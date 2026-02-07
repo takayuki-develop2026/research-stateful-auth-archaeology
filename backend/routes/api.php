@@ -718,3 +718,10 @@ Route::middleware('auth.occ')->group(function () {
     Route::post('/payments/adyen/session/preview', AdyenPreviewController::class);
     Route::post('/payments/adyen/commit', [AdyenCommitController::class, 'commit']);
 });
+
+
+
+use App\Modules\Auth\Presentation\Http\Controllers\SendEmailVerificationTicketController;
+
+Route::middleware(['auth.occ'])
+  ->post('/auth/send-email-verification', SendEmailVerificationTicketController::class);
