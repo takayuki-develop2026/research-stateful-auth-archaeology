@@ -26,13 +26,8 @@ final class UserProvisioningService implements UserProvisioningPort
             throw new \DomainException('Email is required for user provisioning.');
         }
 
-        return DB::transaction(function () use (
-            $firebaseUid,
-            $email,
-            $emailVerified,
-            $displayName
-        ) {
-            // 既存互換：users.firebase_uid を維持
+        return DB::transaction(function () use ($firebaseUid, $email, $emailVerified, $displayName) {
+
             $user = User::where('firebase_uid', $firebaseUid)->first()
                 ?? User::where('email', $email)->first();
 
@@ -43,7 +38,7 @@ final class UserProvisioningService implements UserProvisioningPort
                     'firebase_uid'      => $firebaseUid,
                     'name'              => $displayName ?? 'User',
                     'email'             => $email,
-                    'email_verified_at' => $emailVerified ? now() : null,
+                    'email_verified_at' => null, // ✅ 分離SoT
                     'first_login_at'    => now(),
                 ]);
                 $isFirstLogin = true;
@@ -56,10 +51,6 @@ final class UserProvisioningService implements UserProvisioningPort
                     throw new \DomainException('Firebase UID mismatch.');
                 }
 
-                if ($emailVerified && ! $user->email_verified_at) {
-                    $updates['email_verified_at'] = now();
-                }
-
                 if (! $user->first_login_at) {
                     $updates['first_login_at'] = now();
                 }
@@ -69,23 +60,32 @@ final class UserProvisioningService implements UserProvisioningPort
                 }
             }
 
-            // ✅ 汎用ID（user_identities）にも保存（将来IdaaSでも参照できる）
-            $this->upsertUserIdentity(
+            $identityId = $this->upsertUserIdentity(
                 userId: $user->id,
                 provider: 'firebase',
                 providerUid: $firebaseUid,
                 email: $email,
-                emailVerified: $emailVerified,
                 displayName: $displayName,
-                claims: []
+                claims: [],
             );
 
-            $this->ensureProfileExists(
+            // ✅ verified true の時だけ verified_at をセット（falseでは消さない）
+            if ($emailVerified === true) {
+                $this->upsertEmailVerificationVerified(
+                    identityId: $identityId,
+                    verifiedProvider: 'firebase',
+                    verifiedSubject: $firebaseUid,
+                    evidence: [],
+                );
+            }
+
+            $this->ensureProfileExists($user->id, $displayName ?? $user->name);
+
+            return $this->buildProvisionedUserFromIdentityId(
                 userId: $user->id,
-                displayName: $displayName ?? $user->name
+                identityId: $identityId,
+                isFirstLogin: $isFirstLogin
             );
-
-            return $this->buildProvisionedUser($user->id, $isFirstLogin);
         });
     }
 
@@ -97,15 +97,8 @@ final class UserProvisioningService implements UserProvisioningPort
         ?string $displayName = null,
         array $claims = [],
     ): ProvisionedUser {
-        return DB::transaction(function () use (
-            $provider,
-            $providerUid,
-            $email,
-            $emailVerified,
-            $displayName,
-            $claims
-        ) {
-            // 1) まず user_identities から紐付けを探す（最優先）
+        return DB::transaction(function () use ($provider, $providerUid, $email, $emailVerified, $displayName, $claims) {
+
             $identity = DB::table('user_identities')
                 ->where('provider', $provider)
                 ->where('provider_uid', $providerUid)
@@ -118,69 +111,57 @@ final class UserProvisioningService implements UserProvisioningPort
                 $user = User::find($identity->user_id);
             }
 
-            // 2) identity が無い場合、email があれば email で既存 User を拾う（任意）
-            //    ※ ここは運用ポリシー次第だが、移行・統合の観点では有効
-            if (! $user && $email) {
-                $user = User::where('email', $email)->first();
-            }
+            // ✅ Emailでの既存User探索は「emailVerified === true」のときのみ
+if (! $user && $email && $emailVerified === true) {
+    $user = User::where('email', $email)->first();
+}
 
-            // 3) それでも無ければ作成（IdaaS/JWT でも新規登録成立）
             if (! $user) {
                 if (! $email) {
-                    // email が取れないIdPもあるため、ここは要件次第
-                    // ただ、OCCはemail前提が強いので例外にして安全側
                     throw new \DomainException('Email is required for external identity provisioning.');
                 }
 
                 $user = User::create([
                     'name'              => $displayName ?? 'User',
                     'email'             => $email,
-                    'email_verified_at' => ($emailVerified === true) ? now() : null,
+                    'email_verified_at' => null, // ✅ 分離SoT
                     'first_login_at'    => now(),
                 ]);
-
                 $isFirstLogin = true;
             } else {
-                // 既存ユーザー更新（email verified / first_login）
-                $updates = [];
-
-                if ($email && $user->email !== $email) {
-                    // 運用上ここを許容するかは要件次第。
-                    // 安全側：email が変わっている場合は更新しない（別途運用対応）
-                    // $updates['email'] = $email;
-                }
-
-                if ($emailVerified === true && ! $user->email_verified_at) {
-                    $updates['email_verified_at'] = now();
-                }
-
                 if (! $user->first_login_at) {
-                    $updates['first_login_at'] = now();
-                }
-
-                if ($updates) {
-                    $user->update($updates);
+                    $user->update(['first_login_at' => now()]);
                 }
             }
 
-            // 4) identity を upsert（これが “全方式対応” の核）
-            $this->upsertUserIdentity(
+            $identityId = $this->upsertUserIdentity(
                 userId: $user->id,
                 provider: $provider,
                 providerUid: $providerUid,
                 email: $email,
-                emailVerified: $emailVerified,
                 displayName: $displayName,
                 claims: $claims,
             );
 
-            // 5) Profile は必ず存在
-            $this->ensureProfileExists(
-                userId: $user->id,
-                displayName: $displayName ?? $user->name
-            );
+            // ✅ null: 不明 -> 触らない
+            // ✅ false: “未認証” -> 既存verifiedを消さない（安全側）
+            // ✅ true: verified_at をセット
+            if ($emailVerified === true) {
+                $this->upsertEmailVerificationVerified(
+                    identityId: $identityId,
+                    verifiedProvider: $provider,
+                    verifiedSubject: $providerUid,
+                    evidence: $claims,
+                );
+            }
 
-            return $this->buildProvisionedUser($user->id, $isFirstLogin);
+            $this->ensureProfileExists($user->id, $displayName ?? $user->name);
+
+            return $this->buildProvisionedUserFromIdentityId(
+                userId: $user->id,
+                identityId: $identityId,
+                isFirstLogin: $isFirstLogin
+            );
         });
     }
 
@@ -193,9 +174,26 @@ final class UserProvisioningService implements UserProvisioningPort
                 throw new \DomainException('User not found for JWT provisioning.');
             }
 
-            // 互換：既存JWT（sub=内部user_id）を想定
-            return $this->buildProvisionedUser($user->id, false);
+            // ✅ 互換: provider不明なので users.email_verified_at を参照（legacyのみ）
+            return $this->buildProvisionedUserLegacyUserTable($user->id, false);
         });
+    }
+
+    public function provisionFromAuth0(
+        string $auth0Sub,
+        ?string $email,
+        bool $emailVerified,
+        ?string $displayName,
+        array $claims = [],
+    ): ProvisionedUser {
+        return $this->provisionFromExternalIdentity(
+            provider: 'auth0',
+            providerUid: $auth0Sub,
+            email: $email,
+            emailVerified: $emailVerified,
+            displayName: $displayName,
+            claims: $claims,
+        );
     }
 
     /* =========================================================
@@ -207,16 +205,65 @@ final class UserProvisioningService implements UserProvisioningPort
         $profile = $this->profiles->findByUserId($userId);
 
         if (! $profile) {
-            $this->profiles->save(
-                Profile::createEmpty(
-                    userId: $userId,
-                    displayName: $displayName
-                )
-            );
+            $this->profiles->save(Profile::createEmpty(
+                userId: $userId,
+                displayName: $displayName
+            ));
         }
     }
 
-    private function buildProvisionedUser(int $userId, bool $isFirstLogin): ProvisionedUser
+    /**
+     * ✅ 分離SoTから確定する（identityId で一意に引く）
+     */
+    private function buildProvisionedUserFromIdentityId(
+        int $userId,
+        int $identityId,
+        bool $isFirstLogin
+    ): ProvisionedUser {
+        $user = User::find($userId);
+
+        $identity = DB::table('user_identities')->where('id', $identityId)->first();
+        $email = $identity?->email ?? $user?->email;
+
+        $ver = DB::table('user_identity_verifications')
+            ->where('user_identity_id', $identityId)
+            ->where('type', 'email')
+            ->first();
+
+        $emailVerifiedAt = $ver?->verified_at ? (string) $ver->verified_at : null;
+        $emailVerified = $emailVerifiedAt !== null;
+
+        $shopIds = DB::table('role_user')
+            ->where('user_id', $userId)
+            ->pluck('shop_id')
+            ->filter()
+            ->values()
+            ->all();
+
+        // ✅ roles は slug に統一（AuthPrincipal と一致させる）
+        $roles = DB::table('role_user')
+            ->join('roles', 'roles.id', '=', 'role_user.role_id')
+            ->where('role_user.user_id', $userId)
+            ->pluck('roles.slug')
+            ->values()
+            ->all();
+
+        return new ProvisionedUser(
+            userId: $userId,
+            email: is_string($email) ? $email : null,
+            emailVerified: $emailVerified,
+            emailVerifiedAt: $emailVerifiedAt,
+            isFirstLogin: $isFirstLogin,
+            shopIds: $shopIds,
+            roles: $roles,
+            tenantId: $shopIds[0] ?? null,
+        );
+    }
+
+    /**
+     * ✅ 互換用（sub=内部user_id の時だけ）
+     */
+    private function buildProvisionedUserLegacyUserTable(int $userId, bool $isFirstLogin): ProvisionedUser
     {
         $user = User::find($userId);
 
@@ -228,8 +275,9 @@ final class UserProvisioningService implements UserProvisioningPort
             ->all();
 
         $roles = DB::table('role_user')
-            ->where('user_id', $userId)
-            ->pluck('role_id')
+            ->join('roles', 'roles.id', '=', 'role_user.role_id')
+            ->where('role_user.user_id', $userId)
+            ->pluck('roles.slug')
             ->values()
             ->all();
 
@@ -237,53 +285,98 @@ final class UserProvisioningService implements UserProvisioningPort
             userId: $userId,
             email: $user?->email,
             emailVerified: (bool) ($user?->email_verified_at),
-            roles: $roles,
-            shopIds: $shopIds,
-            tenantId: $shopIds[0] ?? null,
+            emailVerifiedAt: $user?->email_verified_at ? $user->email_verified_at->toISOString() : null,
             isFirstLogin: $isFirstLogin,
+            shopIds: $shopIds,
+            roles: $roles,
+            tenantId: $shopIds[0] ?? null,
         );
     }
 
+    /**
+     * ✅ identity link upsert（id を返す）
+     */
     private function upsertUserIdentity(
         int $userId,
         string $provider,
         string $providerUid,
         ?string $email,
-        ?bool $emailVerified,
         ?string $displayName,
         array $claims,
-    ): void {
-        DB::table('user_identities')->updateOrInsert(
-            [
-                'provider' => $provider,
-                'provider_uid' => $providerUid,
-            ],
-            [
-                'user_id' => $userId,
-                'email' => $email,
-                'email_verified' => $emailVerified,
-                'display_name' => $displayName,
-                'claims_json' => $claims ? json_encode($claims, JSON_UNESCAPED_UNICODE) : null,
-                'updated_at' => now(),
-                'created_at' => now(),
-            ]
-        );
+    ): int {
+        $now = now();
+
+        $existing = DB::table('user_identities')
+            ->where('provider', $provider)
+            ->where('provider_uid', $providerUid)
+            ->first();
+
+        if ($existing) {
+            DB::table('user_identities')
+                ->where('id', $existing->id)
+                ->update([
+                    'user_id' => $userId,
+                    'email' => $email,
+                    'display_name' => $displayName,
+                    'claims_json' => $claims ? json_encode($claims, JSON_UNESCAPED_UNICODE) : null,
+                    'updated_at' => $now,
+                ]);
+
+            return (int) $existing->id;
+        }
+
+        $id = DB::table('user_identities')->insertGetId([
+            'user_id' => $userId,
+            'provider' => $provider,
+            'provider_uid' => $providerUid,
+            'email' => $email,
+            'display_name' => $displayName,
+            'claims_json' => $claims ? json_encode($claims, JSON_UNESCAPED_UNICODE) : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return (int) $id;
     }
 
-    public function provisionFromAuth0(
-    string $auth0Sub,
-    ?string $email,
-    bool $emailVerified,
-    ?string $displayName,
-    array $claims = [],
-): ProvisionedUser {
-    return $this->provisionFromExternalIdentity(
-        provider: 'auth0',
-        providerUid: $auth0Sub,
-        email: $email,
-        emailVerified: $emailVerified,
-        displayName: $displayName,
-        claims: $claims,
-    );
-}
+    /**
+     * ✅ verified SoT（安全側：verified=true の時だけ verified_at をセット）
+     */
+    private function upsertEmailVerificationVerified(
+        int $identityId,
+        ?string $verifiedProvider,
+        ?string $verifiedSubject,
+        array $evidence
+    ): void {
+        $now = now();
+
+        $existing = DB::table('user_identity_verifications')
+            ->where('user_identity_id', $identityId)
+            ->where('type', 'email')
+            ->first();
+
+        if ($existing) {
+            DB::table('user_identity_verifications')
+                ->where('id', $existing->id)
+                ->update([
+                    'verified_at' => $existing->verified_at ?: $now, // ✅ 既にあるなら保持
+                    'verified_provider' => $verifiedProvider,
+                    'verified_subject' => $verifiedSubject,
+                    'evidence_json' => $evidence ? json_encode($evidence, JSON_UNESCAPED_UNICODE) : null,
+                    'updated_at' => $now,
+                ]);
+            return;
+        }
+
+        DB::table('user_identity_verifications')->insert([
+            'user_identity_id' => $identityId,
+            'type' => 'email',
+            'verified_at' => $now,
+            'verified_provider' => $verifiedProvider,
+            'verified_subject' => $verifiedSubject,
+            'evidence_json' => $evidence ? json_encode($evidence, JSON_UNESCAPED_UNICODE) : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
 }

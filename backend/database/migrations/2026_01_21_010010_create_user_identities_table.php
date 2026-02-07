@@ -15,7 +15,7 @@ return new class extends Migration {
             $table->string('provider_uid', 255); // sub / uid
 
             $table->string('email')->nullable();
-            $table->boolean('email_verified')->nullable();
+            // $table->boolean('email_verified')->nullable();
             $table->string('display_name')->nullable();
 
             $table->longText('claims_json')->nullable();

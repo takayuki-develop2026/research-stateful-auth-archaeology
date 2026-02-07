@@ -20,21 +20,32 @@ final class TokenIssuerService
     }
 
     /**
-     * ✅ Access JWT 発行専用
+     * ✅ Access JWT 発行専用（principal を真実にする）
      */
     public function issue(ProvisionedUser $user, AuthPrincipal $principal): string
     {
         $now = time();
 
         $payload = [
-            'iss'      => $this->issuer,
-            'iat'      => $now,
-            'exp'      => $now + $this->ttl,
+            'iss' => $this->issuer,
+            'iat' => $now,
+            'exp' => $now + $this->ttl,
 
-            'sub'      => $user->userId,
-            'roles'    => $user->roles ?? [],
+            // 内部主語（OCC）
+            'sub' => $user->userId,
+
+            // 外部主語（差し替えの核）
+            'pid' => $principal->provider(),
+            'puid' => $principal->providerUid(),
+
+            // 認証状態（principal SoT）
+            'email' => $principal->email(),
+            'email_verified' => $principal->isEmailVerified(),
+
+            // テナント/権限
+            'roles' => $user->roles ?? [],
             'shop_ids' => $user->shopIds ?? [],
-            'shop_id'  => $user->tenantId,
+            'shop_id' => $user->tenantId,
         ];
 
         return JWT::encode($payload, $this->secret, 'HS256');

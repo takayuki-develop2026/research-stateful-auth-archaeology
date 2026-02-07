@@ -14,14 +14,12 @@ final class JwtUserResolver
     public function __construct(
         private TokenVerifierPort $verifier,
         private UserProvisioningPort $provisioning,
-    ) {
-    }
+    ) {}
 
     public function resolve(Request $request): ?array
     {
         $authHeader = $request->header('Authorization');
-
-        if (! $authHeader || ! str_starts_with($authHeader, 'Bearer ')) {
+        if (!is_string($authHeader) || !str_starts_with($authHeader, 'Bearer ')) {
             return null;
         }
 
@@ -29,7 +27,7 @@ final class JwtUserResolver
 
         try {
             $decoded  = $this->verifier->decode($token); // DecodedToken
-            $payload  = $decoded->payload;               // object
+            $payload  = $decoded->payload;               // object(stdClass)
             $provider = $decoded->provider;              // string
         } catch (\Throwable $e) {
             Log::warning('[JwtUserResolver] token verification failed', [
@@ -38,60 +36,58 @@ final class JwtUserResolver
             return null;
         }
 
-        if (! isset($payload->sub)) {
-            return null;
-        }
+        if (!isset($payload->sub)) return null;
 
         $sub = (string) $payload->sub;
 
-        // ------------------------------------------------------------
-        // ✅ providerごとに「email等の取り出し」を正規化する
-        // ------------------------------------------------------------
-        $email = $payload->email ?? null;
-        $emailVerified = $payload->email_verified ?? null;
-        $displayName = $payload->name ?? null;
+        $email       = $this->stringClaim($payload, 'email');
+        $displayName = $this->stringClaim($payload, 'name');
+        $emailVerified = $this->boolClaim($payload, 'email_verified'); // ✅ strict
 
         if ($provider === 'auth0') {
-            // Action で入れている namespace（audience をそのまま namespace にする運用）
-            // 例: AUTH0_AUDIENCE=https://api.occore.local
-            $ns = rtrim((string) env('AUTH0_AUDIENCE', ''), '/');
+            // Action が付与する namespace: https://api.occore.local/
+            $ns = rtrim((string) env('AUTH0_AUDIENCE', ''), '/') . '/';
 
-            // namespaced claim を優先して拾う
-            $email = $this->claim($payload, "{$ns}/email") ?? $email;
-            $emailVerified = $this->claim($payload, "{$ns}/email_verified") ?? $emailVerified;
-            $displayName = $this->claim($payload, "{$ns}/name") ?? $displayName;
+            $email = $this->stringClaim($payload, "{$ns}email") ?? $email;
+            $displayName = $this->stringClaim($payload, "{$ns}name") ?? $displayName;
+
+            // ✅ ここが最重要：strict bool
+            $emailVerified = $this->boolClaim($payload, "{$ns}email_verified") ?? $emailVerified;
         }
 
-        // ✅ 全方式共通（外部ID）
+        // デバッグ：型事故を即発見できる
+        Log::info('[JwtUserResolver] email_verified raw', [
+            'provider' => $provider,
+            'sub' => $sub,
+            'email_verified' => $emailVerified,
+        ]);
+
         try {
             $provisioned = $this->provisioning->provisionFromExternalIdentity(
                 provider: $provider,
                 providerUid: $sub,
-                email: is_string($email) ? $email : null,
-                emailVerified: is_bool($emailVerified) ? $emailVerified : null,
-                displayName: is_string($displayName) ? $displayName : null,
-                // stdClass の (array) キャストは事故ることがあるので get_object_vars 推奨
+                email: $email,
+                emailVerified: $emailVerified, // ✅ bool|null をそのまま渡す
+                displayName: $displayName,
                 claims: get_object_vars($payload),
             );
         } catch (\Throwable $e) {
             Log::warning('[JwtUserResolver] provisioning failed', [
                 'provider' => $provider,
                 'sub' => $sub,
-                'email' => is_string($email) ? $email : null,
+                'email' => $email,
                 'error' => $e->getMessage(),
             ]);
             return null;
         }
 
-        // 互換：もし既存トークンが sub=内部user_id の場合
-        if (! $provisioned->userId && ctype_digit($sub)) {
+        // 互換：古い sub=内部user_id のJWT
+        if ((!$provisioned->userId) && ctype_digit($sub)) {
             $provisioned = $this->provisioning->provisionFromJwt((int) $sub);
         }
 
         $eloquentUser = User::find($provisioned->userId);
-        if (! $eloquentUser) {
-            return null;
-        }
+        if (!$eloquentUser) return null;
 
         $principal = AuthPrincipal::fromProvisionedUser(
             user: $provisioned,
@@ -99,21 +95,45 @@ final class JwtUserResolver
             providerUid: $sub
         );
 
-        Log::info('[🔥JwtUserResolver] decoded', [
-            'provider' => $provider,
-            'sub' => $sub,
-            'email' => is_string($email) ? $email : null,
-        ]);
-
         return [
-            'user'      => $eloquentUser,
+            'user' => $eloquentUser,
             'principal' => $principal,
         ];
     }
 
     private function claim(object $payload, string $key): mixed
     {
-        // stdClass のプロパティとして namespaced key を取る
         return property_exists($payload, $key) ? $payload->{$key} : null;
+    }
+
+    private function stringClaim(object $payload, string $key): ?string
+    {
+        $v = $this->claim($payload, $key);
+        return is_string($v) && $v !== '' ? $v : null;
+    }
+
+    /**
+     * ✅ "false" を true にしない strict bool
+     */
+    private function boolClaim(object $payload, string $key): ?bool
+    {
+        $v = $this->claim($payload, $key);
+
+        if (is_bool($v)) return $v;
+
+        if (is_int($v)) {
+            if ($v === 1) return true;
+            if ($v === 0) return false;
+            return null;
+        }
+
+        if (is_string($v)) {
+            $s = strtolower(trim($v));
+            if ($s === 'true' || $s === '1') return true;
+            if ($s === 'false' || $s === '0') return false;
+            return null;
+        }
+
+        return null;
     }
 }

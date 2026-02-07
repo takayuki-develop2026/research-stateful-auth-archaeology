@@ -159,25 +159,28 @@ final class Auth0JwksTokenVerifier implements TokenVerifierPort
         $http_response_header = null;
 
         $body = @file_get_contents($url, false, $ctx);
-        if ($body === false || $body === '') {
-            throw new \UnexpectedValueException('Failed to fetch Auth0 JWKS (timeout or network)');
-        }
+    if ($body === false || $body === '') {
+        throw new \UnexpectedValueException('Failed to fetch Auth0 JWKS (timeout or network)');
+    }
 
-        $ttl = 3600; // fallback
-        if (is_array($http_response_header)) {
-            foreach ($http_response_header as $h) {
-                if (stripos($h, 'Cache-Control:') === 0) {
-                    if (preg_match('/max-age=(\d+)/i', $h, $m)) {
-                        $ttl = (int)$m[1];
-                        break;
-                    }
+    $ttl = 3600;
+
+    // ✅ グローバルの $http_response_header を参照
+    $headers = $http_response_header ?? null;
+    if (is_array($headers)) {
+        foreach ($headers as $h) {
+            if (stripos($h, 'Cache-Control:') === 0) {
+                if (preg_match('/max-age=(\d+)/i', $h, $m)) {
+                    $ttl = (int) $m[1];
+                    break;
                 }
             }
         }
-
-        $ttl = max(self::MIN_JWKS_TTL, min(self::MAX_JWKS_TTL, $ttl));
-        return [$body, $ttl];
     }
+
+    $ttl = max(self::MIN_JWKS_TTL, min(self::MAX_JWKS_TTL, $ttl));
+    return [$body, $ttl];
+}
 
     /**
      * @param array<string,mixed> $jwks
