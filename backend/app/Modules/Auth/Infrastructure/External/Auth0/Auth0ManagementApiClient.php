@@ -32,18 +32,13 @@ final class Auth0ManagementApiClient
         return new self($domain, $clientId, $clientSecret, $audience);
     }
 
-    /**
-     * client_credentials で Management API token を取得（Cacheで再利用）
-     */
+    /** client_credentials で Management API token を取得（Cacheで再利用） */
     public function getAccessToken(): string
     {
-        // domain + audience で分離（将来tenant増えても安全）
         $cacheKey = 'auth0.mgmt.token.' . sha1($this->domain . '|' . $this->audience);
 
         $cached = Cache::get($cacheKey);
-        if (is_string($cached) && $cached !== '') {
-            return $cached;
-        }
+        if (is_string($cached) && $cached !== '') return $cached;
 
         $url = "https://{$this->domain}/oauth/token";
 
@@ -68,7 +63,6 @@ final class Auth0ManagementApiClient
             throw new RuntimeException('Auth0 oauth/token missing access_token.');
         }
 
-        // 少し早めに失効させる（-60秒）
         $ttl = max(60, $expiresIn - 60);
         Cache::put($cacheKey, $token, $ttl);
 
@@ -77,7 +71,7 @@ final class Auth0ManagementApiClient
 
     /**
      * Email Verification Ticket を生成（result_url で戻り先固定）
-     * 必要scope: create:user_tickets
+     * scope: create:user_tickets
      */
     public function createEmailVerificationTicket(
         string $auth0UserId,
@@ -85,7 +79,6 @@ final class Auth0ManagementApiClient
         int $ttlSec = 900
     ): string {
         $token = $this->getAccessToken();
-
         $url = "https://{$this->domain}/api/v2/tickets/email-verification";
 
         $res = Http::asJson()
@@ -98,7 +91,6 @@ final class Auth0ManagementApiClient
             ]);
 
         if (!$res->successful()) {
-            // 403なら scope 不足（create:user_tickets が付いてない）
             throw new RuntimeException('Auth0 tickets/email-verification failed: ' . $res->status() . ' ' . $res->body());
         }
 
@@ -110,5 +102,32 @@ final class Auth0ManagementApiClient
         }
 
         return $ticketUrl;
+    }
+
+    /**
+     * Auth0 User を取得（email_verified を確認するため）
+     * scope: read:users
+     */
+    public function getUser(string $auth0UserId): array
+    {
+        $token = $this->getAccessToken();
+        $encoded = rawurlencode($auth0UserId);
+        $url = "https://{$this->domain}/api/v2/users/{$encoded}";
+
+        $res = Http::asJson()
+            ->withToken($token)
+            ->timeout(10)
+            ->get($url);
+
+        if (!$res->successful()) {
+            throw new RuntimeException('Auth0 get user failed: ' . $res->status() . ' ' . $res->body());
+        }
+
+        $json = $res->json();
+        if (!is_array($json)) {
+            throw new RuntimeException('Auth0 get user response invalid json.');
+        }
+
+        return $json;
     }
 }

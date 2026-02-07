@@ -8,8 +8,36 @@ import { TokenStorage } from "@/infrastructure/auth/TokenStorage";
 import { AuthContextCoreProvider } from "@/ui/auth/core/AuthContextCore";
 
 /* =========================================================
+   Logger
+========================================================= */
+function makeRunId(prefix = "oidc") {
+  // short unique id
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+function authLog(runId: string, label: string, data?: any) {
+  // eslint-disable-next-line no-console
+  console.log(`[Idaas][${runId}] ${label}`, data ?? "");
+}
+function authErr(runId: string, label: string, data?: any) {
+  // eslint-disable-next-line no-console
+  console.error(`[Idaas][${runId}] ${label}`, data ?? "");
+}
+function maskToken(t?: string) {
+  if (!t) return null;
+  return `${t.slice(0, 10)}…${t.slice(-6)}`;
+}
+
+/* =========================================================
    Bearer API Client
 ========================================================= */
+function normalizeBool(v: any): boolean {
+  if (v === true) return true;
+  if (v === false) return false;
+  if (v === 1 || v === "1") return true;
+  if (v === 0 || v === "0") return false;
+  return false;
+}
+
 function createBearerApiClient(): ApiClient {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost";
   const apiBase = `${base.replace(/\/+$/, "")}/api`;
@@ -31,7 +59,6 @@ function createBearerApiClient(): ApiClient {
     const isFormData =
       typeof FormData !== "undefined" && body instanceof FormData;
 
-    // ✅ FormData のときは Content-Type を付けない（boundary を壊さない）
     if (method !== "GET" && !isFormData) {
       headers["Content-Type"] = "application/json";
     }
@@ -129,7 +156,7 @@ const NAV_LOCK_KEY = "occore_nav_lock_v1";
 const OWNER_REDIRECT_KEY = "occore_owner_shop_code_v1";
 const JUST_LOGGED_IN_KEY = "occore_just_logged_in_v1";
 
-// ✅ StrictMode 二重実行を完全に潰す “グローバルロック”
+// StrictMode 二重実行を潰す “グローバルロック”
 const GLOBAL_LOCK_KEY = "__occore_auth0_exchange_lock_v1";
 
 function acquireGlobalLock(): boolean {
@@ -174,23 +201,13 @@ function removeSessionItem(key: string): void {
   }
 }
 
-/**
- * ✅ PKCE/state/verifier は sessionStorage に統一（localStorage禁止）
- * - state_mismatch の主因（storage混在）を潰す
- */
 function getPkceItem(key: string): string | null {
   return getSessionItem(key);
 }
 function setPkceItem(key: string, value: string): void {
   setSessionItem(key, value);
 }
-function removePkceItem(key: string): void {
-  removeSessionItem(key);
-}
 
-/**
- * ✅ OIDC/PKCE 一時状態をまとめて消す（sessionStorageのみ）
- */
 function clearOidcSessionState() {
   removeSessionItem(PKCE_VERIFIER_KEY);
   removeSessionItem(OIDC_STATE_KEY);
@@ -207,7 +224,6 @@ function navOnce(router: ReturnType<typeof useRouter>, to: string) {
   }
   router.replace(to);
 }
-
 function clearNavLockSoon() {
   setTimeout(() => removeSessionItem(NAV_LOCK_KEY), 0);
 }
@@ -278,25 +294,48 @@ export default function IdaasProvider({
     [auth0Domain],
   );
 
+  // StrictModeでも「同一マウント中の追跡」ができるよう runId を保持
+  const runIdRef = useRef<string>(makeRunId("init"));
+
   const exchangeInFlight = useRef(false);
 
-  const fetchMe = useCallback(async (): Promise<AuthUser | null> => {
-    try {
-      const u = await apiClient.get<AuthUser>("/me");
-      setUser(u);
-      return u;
-    } catch (e: any) {
-      if (e?.status === 401) TokenStorage.clear();
-      setUser(null);
-      return null;
-    }
-  }, [apiClient]);
+  const fetchMe = useCallback(
+    async (runId?: string): Promise<AuthUser | null> => {
+      const rid = runId ?? runIdRef.current;
+      try {
+        authLog(rid, "me:request", {});
+        const u = await apiClient.get<AuthUser>("/me");
+        authLog(rid, "me:response", {
+          id: (u as any)?.id ?? null,
+          email: (u as any)?.email ?? null,
+          email_verified_at: (u as any)?.email_verified_at ?? null,
+          profile_completed_raw: (u as any)?.profile_completed ?? null,
+          profile_completed_norm: normalizeBool((u as any)?.profile_completed),
+          shop_roles: (u as any)?.shop_roles ?? null,
+        });
+        setUser(u);
+        return u;
+      } catch (e: any) {
+        authErr(rid, "me:error", {
+          status: e?.status,
+          message: String(e?.message ?? e),
+        });
+        if (e?.status === 401) TokenStorage.clear();
+        setUser(null);
+        return null;
+      }
+    },
+    [apiClient],
+  );
 
   const refresh = useCallback(async () => {
-    await fetchMe();
+    await fetchMe(makeRunId("refresh"));
   }, [fetchMe]);
 
   useEffect(() => {
+    const runId = makeRunId("effect");
+    runIdRef.current = runId;
+
     (async () => {
       try {
         const code = searchParams.get("code");
@@ -304,8 +343,20 @@ export default function IdaasProvider({
         const error = searchParams.get("error");
         const errorDescription = searchParams.get("error_description");
 
+        authLog(runId, "effect:enter", {
+          href: typeof window !== "undefined" ? window.location.href : "",
+          hasCode: !!code,
+          hasState: !!state,
+          error: error ?? null,
+          tokenPresent: !!TokenStorage.load().accessToken,
+        });
+
         // Auth0側エラー
         if (error) {
+          authErr(runId, "callback:error_from_auth0", {
+            error,
+            errorDescription,
+          });
           TokenStorage.clear();
           clearOidcSessionState();
           releaseGlobalLock();
@@ -321,17 +372,34 @@ export default function IdaasProvider({
 
         // ===== callback =====
         if (code) {
-          // ✅ global lock（StrictMode 二重実行を殺す）
-          if (!acquireGlobalLock()) return;
+          authLog(runId, "callback:detected", {
+            codePrefix: String(code).slice(0, 6),
+            statePrefix: String(state ?? "").slice(0, 6),
+          });
 
-          // ✅ session lock（同一tab内の二重実行も抑止）
-          if (getSessionItem(EXCHANGE_LOCK_KEY) === "1") return;
+          // global lock
+          const gotGlobal = acquireGlobalLock();
+          authLog(runId, "callback:global_lock", { acquired: gotGlobal });
+          if (!gotGlobal) return;
+
+          // session lock
+          const sessionLock = getSessionItem(EXCHANGE_LOCK_KEY);
+          authLog(runId, "callback:session_lock_before", { sessionLock });
+          if (sessionLock === "1") return;
           setSessionItem(EXCHANGE_LOCK_KEY, "1");
 
-          if (exchangeInFlight.current) return;
+          if (exchangeInFlight.current) {
+            authLog(runId, "callback:exchange_in_flight_skip");
+            return;
+          }
           exchangeInFlight.current = true;
 
           if (!auth0Domain || !clientId || !audience) {
+            authErr(runId, "env:missing", {
+              auth0DomainPresent: !!auth0Domain,
+              clientIdPresent: !!clientId,
+              audiencePresent: !!audience,
+            });
             TokenStorage.clear();
             clearOidcSessionState();
             releaseGlobalLock();
@@ -339,8 +407,13 @@ export default function IdaasProvider({
             return;
           }
 
-          // ✅ state/verifier は sessionStorage（統一）
           const expectedState = getPkceItem(OIDC_STATE_KEY);
+          authLog(runId, "callback:state_check", {
+            expectedPrefix: String(expectedState ?? "").slice(0, 6),
+            actualPrefix: String(state ?? "").slice(0, 6),
+            matches: !!expectedState && state === expectedState,
+          });
+
           if (!expectedState || state !== expectedState) {
             TokenStorage.clear();
             clearOidcSessionState();
@@ -350,6 +423,10 @@ export default function IdaasProvider({
           }
 
           const verifier = getPkceItem(PKCE_VERIFIER_KEY);
+          authLog(runId, "callback:verifier_present", {
+            hasVerifier: !!verifier,
+          });
+
           if (!verifier) {
             TokenStorage.clear();
             clearOidcSessionState();
@@ -357,6 +434,13 @@ export default function IdaasProvider({
             router.replace("/login?oidc_error=missing_verifier");
             return;
           }
+
+          // token exchange
+          authLog(runId, "token_exchange:request", {
+            tokenEndpoint: endpoints.token,
+            redirectUri,
+            audiencePresent: !!audience,
+          });
 
           const body = new URLSearchParams();
           body.set("grant_type", "authorization_code");
@@ -376,8 +460,17 @@ export default function IdaasProvider({
             cache: "no-store",
           });
 
+          authLog(runId, "token_exchange:response", {
+            ok: res.ok,
+            status: res.status,
+          });
+
           if (!res.ok) {
             const text = await res.text().catch(() => "");
+            authErr(runId, "token_exchange:failed", {
+              status: res.status,
+              detail: text.slice(0, 200),
+            });
             TokenStorage.clear();
             clearOidcSessionState();
             releaseGlobalLock();
@@ -395,6 +488,12 @@ export default function IdaasProvider({
           const refreshToken =
             typeof json?.refresh_token === "string" ? json.refresh_token : "";
 
+          authLog(runId, "token_exchange:tokens", {
+            hasAccessToken: !!accessToken,
+            hasRefreshToken: !!refreshToken,
+            accessTokenMask: maskToken(accessToken),
+          });
+
           if (!accessToken) {
             TokenStorage.clear();
             clearOidcSessionState();
@@ -405,41 +504,58 @@ export default function IdaasProvider({
 
           TokenStorage.save({ accessToken, refreshToken });
 
-          // ✅ me を取得
-          const me = await fetchMe();
+          // me
+          const me = await fetchMe(runId);
+          if (!me) {
+            authErr(runId, "me:null_after_exchange");
+            TokenStorage.clear();
+            clearOidcSessionState();
+            releaseGlobalLock();
+            router.replace("/login?reason=me_null");
+            return;
+          }
 
-          // ✅ returnTo 最優先（verify→profile を保証）
+          // returnTo
           const returnToRaw = getSessionItem(OIDC_RETURN_TO_KEY);
           let returnTo = safeReturnTo(returnToRaw);
 
-          // ✅ 追加：profile_completed 済みなら profile への強制 returnTo を無効化
-          const completed =
-            !!(me as any)?.profile_completed || !!(me as any)?.profileCompleted;
+          const completed = normalizeBool((me as any)?.profile_completed);
+          authLog(runId, "redirect:pre", {
+            returnToRaw,
+            returnTo,
+            completed,
+          });
 
+          // completedなら profile 強制を無効化
           if (completed && returnTo === "/mypage/profile") {
+            authLog(runId, "redirect:override_profile_returnTo", {
+              from: returnTo,
+              to: "/",
+            });
             returnTo = "/";
           }
 
-          // ✅ 成功したので最後に “一括クリア”
           clearOidcSessionState();
           releaseGlobalLock();
 
           if (returnTo && returnTo !== "/") {
+            authLog(runId, "redirect:returnTo", { to: returnTo });
             navOnce(router, returnTo);
             clearNavLockSoon();
             clearJustLoggedInSoon();
             return;
           }
 
-          // returnTo が無い場合のみ、従来ルール
           const shopCode = pickOwnerShopCode(me as any);
           if (shopCode) {
+            authLog(runId, "redirect:owner_dashboard", { shopCode });
             setSessionItem(JUST_LOGGED_IN_KEY, "1");
             setSessionItem(OWNER_REDIRECT_KEY, shopCode);
             window.location.assign(`/shops/${shopCode}/dashboard`);
             return;
           }
 
+          authLog(runId, "redirect:home", {});
           navOnce(router, "/");
           clearNavLockSoon();
           clearJustLoggedInSoon();
@@ -449,11 +565,19 @@ export default function IdaasProvider({
         // ===== normal init =====
         const { accessToken } = TokenStorage.load();
         if (accessToken) {
-          await fetchMe();
+          authLog(runId, "init:token_present_fetch_me");
+          await fetchMe(runId);
+        } else {
+          authLog(runId, "init:no_token");
         }
+      } catch (e: any) {
+        authErr(runId, "effect:unhandled", {
+          message: String(e?.message ?? e),
+        });
       } finally {
         setIsLoading(false);
         setAuthReady(true);
+        authLog(runId, "effect:done", { isLoading: false, authReady: true });
       }
     })();
   }, [
@@ -467,23 +591,25 @@ export default function IdaasProvider({
     fetchMe,
   ]);
 
-  /**
-   * ✅ AuthContext の union に合わせた login
-   * - IdaasProvider は kind=idaas 以外を拒否
-   */
   const login = useCallback(
     async (payload: LoginPayload) => {
-      // PasswordログインはIdaaSでは扱わない（呼ばれたら “開始だけ” にしても良い）
-      // ここでは「間違って呼ばれても落とさない」方針にする。
+      const runId = makeRunId("login");
+      runIdRef.current = runId;
+
       const returnToFromPayload =
         payload.type === "oidc" ? payload.returnTo : undefined;
 
       if (!auth0Domain || !clientId) {
+        authErr(runId, "login:env_missing", {
+          auth0DomainPresent: !!auth0Domain,
+          clientIdPresent: !!clientId,
+        });
         throw new Error(
           "Auth0 env missing: NEXT_PUBLIC_AUTH0_DOMAIN / NEXT_PUBLIC_AUTH0_CLIENT_ID",
         );
       }
       if (!audience) {
+        authErr(runId, "login:env_missing_audience");
         throw new Error("Auth0 env missing: NEXT_PUBLIC_AUTH0_AUDIENCE");
       }
 
@@ -491,34 +617,46 @@ export default function IdaasProvider({
       const challenge = await sha256Base64Url(verifier);
 
       try {
-        // ログイン開始：古いロック/フラグを掃除
         removeSessionItem(EXCHANGE_LOCK_KEY);
         releaseGlobalLock();
         removeSessionItem(NAV_LOCK_KEY);
         removeSessionItem(OWNER_REDIRECT_KEY);
         removeSessionItem(JUST_LOGGED_IN_KEY);
 
-        // ✅ OIDC/PKCE残骸も掃除（中途半端な前回セッション対策）
         removeSessionItem(OIDC_RETURN_TO_KEY);
         removeSessionItem(OIDC_STATE_KEY);
         removeSessionItem(PKCE_VERIFIER_KEY);
 
-        // ✅ PKCE (sessionStorage)
         setPkceItem(PKCE_VERIFIER_KEY, verifier);
 
         const s = randomString(32);
         setPkceItem(OIDC_STATE_KEY, s);
 
-        // ✅ returnTo をセッションへ
         const injected = safeReturnTo(returnToFromPayload ?? null);
+
         const currentPath =
           typeof window !== "undefined"
             ? `${window.location.pathname}${window.location.search}`
             : "/";
         const fallback = currentPath.startsWith("/login") ? "/" : currentPath;
 
-        const returnTo = injected !== "/" ? injected : fallback;
+        let returnTo = injected !== "/" ? injected : fallback;
+
+        // login開始時点で profile を固定 returnTo にしない
+        if (returnTo === "/mypage/profile") {
+          returnTo = "/";
+        }
+
         setSessionItem(OIDC_RETURN_TO_KEY, returnTo);
+
+        authLog(runId, "login:start", {
+          injected: returnToFromPayload ?? null,
+          fallback,
+          finalReturnTo: returnTo,
+          redirectUri,
+          scopes,
+          audiencePresent: !!audience,
+        });
 
         const params = new URLSearchParams();
         params.set("response_type", "code");
@@ -530,8 +668,16 @@ export default function IdaasProvider({
         params.set("code_challenge_method", "S256");
         params.set("state", s);
 
+        authLog(runId, "login:redirect_to_auth0", {
+          authorize: endpoints.authorize,
+          statePrefix: s.slice(0, 6),
+          hasVerifier: true,
+          hasChallenge: true,
+        });
+
         window.location.assign(`${endpoints.authorize}?${params.toString()}`);
-      } catch {
+      } catch (e: any) {
+        authErr(runId, "login:failed", { message: String(e?.message ?? e) });
         TokenStorage.clear();
         clearOidcSessionState();
         releaseGlobalLock();
@@ -542,6 +688,9 @@ export default function IdaasProvider({
   );
 
   const logout = useCallback(async () => {
+    const runId = makeRunId("logout");
+    authLog(runId, "logout:start");
+
     TokenStorage.clear();
     clearOidcSessionState();
     releaseGlobalLock();
@@ -552,6 +701,7 @@ export default function IdaasProvider({
     removeSessionItem(JUST_LOGGED_IN_KEY);
 
     if (!auth0Domain || !clientId) {
+      authLog(runId, "logout:local_only");
       router.replace("/login");
       return;
     }
@@ -560,6 +710,7 @@ export default function IdaasProvider({
     params.set("client_id", clientId);
     params.set("returnTo", postLogoutRedirectUri);
 
+    authLog(runId, "logout:redirect", { to: endpoints.logout });
     window.location.assign(`${endpoints.logout}?${params.toString()}`);
   }, [auth0Domain, clientId, endpoints.logout, postLogoutRedirectUri, router]);
 
@@ -570,7 +721,7 @@ export default function IdaasProvider({
       isAuthenticated: !!user,
       user,
       apiClient,
-      login, // ← login(payload: LoginPayload)
+      login,
       logout,
       refresh,
     }),

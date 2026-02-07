@@ -17,25 +17,24 @@ final class BackfillLegacyIdentitySeeder extends Seeder
             ->orderBy('id')
             ->chunkById(200, function ($users) {
                 foreach ($users as $user) {
-                    $this->ensureLegacyIdentity($user);
+                    $this->ensureLegacyIdentityAndSecondVerification($user);
                 }
             });
     }
 
-    private function ensureLegacyIdentity(User $user): void
+    private function ensureLegacyIdentityAndSecondVerification(User $user): void
     {
-        // 旧ユーザー用の “最低保証 identity”
-        // provider/provider_uid は unique(provider, provider_uid) を満たす必要がある
         $provider = 'legacy';
         $providerUid = 'user:' . (string) $user->id;
 
+        // 1) identity を最低保証
         $identity = UserIdentity::query()->updateOrCreate(
             [
                 'provider' => $provider,
                 'provider_uid' => $providerUid,
             ],
             [
-                'user_id' => $user->id,
+                'user_id' => (int) $user->id,
                 'email' => $user->email,
                 'display_name' => $user->name ?? null,
                 'claims_json' => [
@@ -45,8 +44,7 @@ final class BackfillLegacyIdentitySeeder extends Seeder
             ]
         );
 
-        // 旧仕様の email verification を “新仕様”へ移植
-        // mustVerifyEmail を使っているなら hasVerifiedEmail() を優先
+        // 2) verifiedAt の決定（旧仕様から移植）
         $verifiedAt = null;
 
         if (method_exists($user, 'hasVerifiedEmail')) {
@@ -57,20 +55,26 @@ final class BackfillLegacyIdentitySeeder extends Seeder
             $verifiedAt = $user->email_verified_at ?? null;
         }
 
-        UserIdentityVerification::query()->updateOrCreate(
-            [
-                'user_identity_id' => $identity->id,
-                'type' => 'email',
-            ],
-            [
-                'verified_at' => $verifiedAt,
-                'verified_provider' => $verifiedAt ? 'legacy' : null,
-                'verified_subject' => $verifiedAt ? $providerUid : null,
-                'evidence_json' => $verifiedAt ? [
-                    'copied_from' => 'users.email_verified_at',
-                    'copied_at' => now()->toIso8601String(),
-                ] : null,
-            ]
-        );
+        // 3) ✅ /api/me のSoTに合わせて email_second を立てる
+        if ($verifiedAt) {
+            UserIdentityVerification::query()->updateOrCreate(
+                [
+                    'user_identity_id' => (int) $identity->id,
+                    'type' => 'email_second',
+                ],
+                [
+                    'verified_at' => $verifiedAt,
+                    'verified_provider' => 'legacy',
+                    'verified_subject' => $providerUid,
+                    'evidence_json' => [
+                        'copied_from' => 'users.email_verified_at',
+                        'copied_at' => now()->toIso8601String(),
+                    ],
+                ]
+            );
+        } else {
+            // 未検証ユーザーは email_second を作らない（= 403 のまま）
+            // 作るなら verified_at null になるので /api/me では無効、存在させる意味が薄い
+        }
     }
 }

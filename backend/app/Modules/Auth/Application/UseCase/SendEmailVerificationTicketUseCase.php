@@ -8,6 +8,7 @@ use App\Modules\Auth\Domain\ValueObject\AuthPrincipal;
 use App\Modules\Auth\Infrastructure\External\Auth0\Auth0ManagementApiClient;
 use App\Modules\Auth\Presentation\Notification\EmailVerificationTicketNotification;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\URL;
 
 final class SendEmailVerificationTicketUseCase
 {
@@ -24,7 +25,11 @@ final class SendEmailVerificationTicketUseCase
         // ✅ Auth0 sub は providerUid()
         $auth0UserId = $principal->providerUid();
 
-        $resultUrl = (string) config('auth0_management.verify_result_url');
+        $resultUrl = URL::temporarySignedRoute(
+    name: 'auth.verify_second.auth0',
+    expiration: now()->addSeconds($ttl),
+    parameters: ['sub' => $auth0UserId],
+);
         $ttl = (int) config('auth0_management.verify_ttl_sec', 900);
 
         $client = Auth0ManagementApiClient::fromConfig();

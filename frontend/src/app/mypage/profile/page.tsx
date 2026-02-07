@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/ui/auth/AuthProvider";
 import { getImageUrl, IMAGE_TYPE } from "@/utils/utils";
 import styles from "./W-ProfilePage.module.css";
+import { useAuthGuard } from "@/ui/auth/useAuthGuard";
 
 /* =========================
    Types
@@ -39,10 +40,17 @@ type ProfileErrors = {
   user_image?: string[];
 };
 
+
+
 /* =========================
    Component
 ========================= */
 export default function ProfilePage() {
+  useAuthGuard({
+    requireAuth: true,
+    requireVerified: false,
+    requireProfile: false, // ✅ 自分自身には “profile未完了→profileへ” をかけない
+  });
   const router = useRouter();
 
   const {
@@ -192,11 +200,7 @@ export default function ProfilePage() {
   ========================= */
   useEffect(() => {
     if (!authReady) return;
-
-    if (!isAuthenticated) {
-      router.replace("/login");
-      return;
-    }
+    if (!isAuthenticated) return;
 
     if (!hasFetchedProfile && !isFetching) {
       fetchUserProfile();
@@ -207,7 +211,6 @@ export default function ProfilePage() {
     hasFetchedProfile,
     isFetching,
     fetchUserProfile,
-    router,
   ]);
 
   /* =========================

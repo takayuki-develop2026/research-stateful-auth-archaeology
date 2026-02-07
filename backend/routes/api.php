@@ -40,12 +40,20 @@ Route::middleware('auth.occ')->group(function () {
 
 Route::post('/register', RegisterController::class);
 
-
+// メール認証
 use App\Modules\Auth\Presentation\Http\Controllers\VerifyEmailController;
 
 Route::get('/email/verify/{id}/{hash}', VerifyEmailController::class)
     ->middleware(['signed'])
-    ->name('verification.verify');
+    ->name('verification.verify'); // 一次
+
+Route::get('/email/verify-second/{id}/{hash}', VerifyEmailController::class)
+    ->middleware(['signed'])
+    ->name('verification.verify_second'); // 二次
+
+Route::get('/auth/verify-second/auth0', \App\Modules\Auth\Presentation\Http\Controllers\Auth0SecondVerifyCallbackController::class)
+    ->middleware(['signed'])
+    ->name('auth.verify_second.auth0');
 
 
 

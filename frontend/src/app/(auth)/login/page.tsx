@@ -36,7 +36,7 @@ export default function LoginPage() {
     try {
       // Idaas(Auth0) は PKCE リダイレクトが本体なので、email/passwordは使わない
       if (isIdaas) {
-        await login({ type: "oidc", returnTo: "/mypage/profile" });
+        await login({ type: "oidc", returnTo: "/" });
         return;
       }
 
@@ -49,6 +49,11 @@ export default function LoginPage() {
       }
 
       const me = await apiClient.get("/me");
+
+      if (!me?.email_verified_at) {
+        router.replace("/email/verify");
+        return;
+      }
 
       if (me?.profile_completed === false) {
         router.replace("/mypage/profile");

@@ -29,6 +29,10 @@ final class UserIdentityVerification extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected $dates = [
+    'verified_at',
+    ];
+
     public function identity(): BelongsTo
     {
         return $this->belongsTo(UserIdentity::class, 'user_identity_id');

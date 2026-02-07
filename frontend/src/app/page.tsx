@@ -17,10 +17,13 @@ import { getImageUrl, IMAGE_TYPE, onImageError } from "@/utils/utils";
 
 import styles from "./W-Resource-Rich-Simulation-Center-Home.module.css";
 
+
 export default function Home() {
-  useAuthGuard();
+  useAuthGuard({ verifiedProfileOnly: true }); // ✅ これを追加
 
   const router = useRouter();
+
+
   const searchParams = useSearchParams();
   const { isAuthenticated, authReady, apiClient, user } = useAuth();
 

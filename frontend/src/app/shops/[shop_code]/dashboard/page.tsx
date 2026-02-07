@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/ui/auth/AuthProvider";
+import { useAuthGuard } from "@/ui/auth/useAuthGuard";
 
 function subscribeLastLoginAt(onStoreChange: () => void) {
   const onChanged = () => onStoreChange();
@@ -40,6 +41,13 @@ function getLastLoginAtServerSnapshot(): string | null {
 }
 
 export default function ShopDashboardPage() {
+  // useAuthGuard({
+  //   requireAuth: true,
+  //   requireVerified: true,
+  //   requireProfile: true,
+  //   allowJustLoggedInBypass: true, // owner dashboard の瞬間だけバイパス
+  // });
+
   const params = useParams();
   const shop_code = (params as any)?.shop_code as string;
 
