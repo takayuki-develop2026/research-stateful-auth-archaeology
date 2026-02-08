@@ -137,7 +137,7 @@
   color: inherit;
 }
 
-/* SOLD ラベル */
+/* SOLD ラベル（旧） */
 .sold_text {
   position: absolute;
   bottom: 5px;
@@ -152,6 +152,7 @@
   border-radius: 4px;
 }
 
+/* ✅ 完売バッジ */
 .soldOutBadge {
   position: absolute;
   top: 10px;
@@ -195,23 +196,121 @@
   color: #777;
 }
 
-/* 自分の商品 */
-.itemImageWrapper {
-  position: relative;
-}
+/* =========================
+   ✅ 42px 円バッジ（💫 / ⭐️ 共通）
+   - 位置を完全固定（ズレ根絶）
+   - 文字が上、アイコンが下
+========================= */
 
-.ownStar {
+/* バッジ外枠（固定サイズ） */
+.badge {
   position: absolute;
   top: 8px;
   left: 8px;
-  z-index: 2;
-  font-size: 20px;
-  line-height: 1;
-  background: rgba(255, 255, 255, 0.85);
+  z-index: 32;
+
+  width: 42px;   /* ✅ ベスト値 */
+  height: 42px;  /* ✅ ベスト値 */
   border-radius: 9999px;
-  padding: 4px 6px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+
+  background: rgba(255, 255, 255, 0.90);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+
+  pointer-events: none;
+  overflow: hidden;
+
+  /* ✅ 絵文字のベースライン癖を無効化 */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP",
+    "Hiragino Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
-.ownStar:hover {
+/* うっすらガラス＋ハイライト */
+.badge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+
+  background:
+    radial-gradient(
+      circle at 28% 28%,
+      rgba(255, 255, 255, 0.95),
+      rgba(255, 255, 255, 0.70) 40%,
+      rgba(255, 255, 255, 0.92) 78%,
+      rgba(255, 255, 255, 0.86) 100%
+    );
+  opacity: 0.95;
+
+  pointer-events: none;
 }
+
+/* リユース専用の枠＆奥行き（💫/⭐️ どちらも同じ見せ方でOK） */
+.reuseBadge {
+  border: 1px solid rgba(255, 64, 65, 0.22);
+  backdrop-filter: blur(6px);
+}
+
+/* ✅ アイコン（💫/⭐️ 共通）— 文字の下に固定 */
+.badgeIcon {
+  font-size: 32px;
+  /* font-variant-emoji: emoji; */
+  position: absolute;
+  left: 53%;
+  top: 53%; /* ✅ 下寄り（文字と分離） */
+  transform: translate(-50%, -50%);
+
+  line-height: 1;
+
+  z-index: 3; /* ✅ テキストより手前 */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
+}
+
+/* ✅ リユース文字（上・欠けない・読みやすい） */
+.badgeText {
+  position: absolute;
+  left: 50%;
+  top: 42%; /* ✅ 上寄り */
+  transform: translate(-50%, -50%) scaleX(0.92); /* ✅ 横を少し詰めて欠け防止 */
+
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  line-height: 1;
+
+  z-index: 2;
+
+  color: #ff4041;
+
+  text-shadow:
+    -0.6px -0.6px 0 rgba(255, 255, 255, 0.95),
+     0.6px -0.6px 0 rgba(255, 255, 255, 0.95),
+    -0.6px  0.6px 0 rgba(255, 255, 255, 0.95),
+     0.6px  0.6px 0 rgba(255, 255, 255, 0.95),
+     0 1.6px 3px rgba(0, 0, 0, 0.14);
+
+  background: rgba(255, 255, 255, 0.55);
+  padding: 1px 2px;
+  border-radius: 999px;
+}
+
+/* =========================
+   ✅ STAR（⭐️）だけ：文字を上に
+   - テキストを前面（z-index上）
+   - テキストを少し上
+   - ⭐️を少し下＆背面
+========================= */
+.starBadge {
+  transform: translate(0px, 0px); /* ✅ 上左へ（好みで -2〜-6px） */
+}
+
+.starBadge .badgeText {
+  z-index: 4;      /* ✅ 文字を⭐️より前へ */
+  top: 52%;        /* ✅ ほんの少し上へ（必要なら 39%〜41%で微調整） */
+}
+
+.starBadge .badgeIcon {
+  z-index: 2;      /* ✅ ⭐️を文字の奥へ */
+  top: 46%;        /* ✅ ⭐️を少し下へ（必要なら 55%〜58%で微調整） */
+  left: 47%;       /* ✅ ⭐️を少し右へ（必要なら 53%〜57%で微調整） */
+}
+

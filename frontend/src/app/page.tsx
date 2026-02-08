@@ -3,7 +3,6 @@
 import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { mutate } from "swr";
 
 import { useAuthGuard } from "@/ui/auth/useAuthGuard";
 import { useAuth } from "@/ui/auth/AuthProvider";
@@ -17,15 +16,13 @@ import { getImageUrl, IMAGE_TYPE, onImageError } from "@/utils/utils";
 
 import styles from "./W-Resource-Rich-Simulation-Center-Home.module.css";
 
-
 export default function Home() {
   useAuthGuard({ verifiedProfileOnly: true }); // ✅ これを追加
 
   const router = useRouter();
 
-
   const searchParams = useSearchParams();
-  const { isAuthenticated, authReady, apiClient, user } = useAuth();
+  const { isAuthenticated, authReady, user } = useAuth();
 
   useEffect(() => {
     if (!authReady || !isAuthenticated) return;
@@ -84,9 +81,11 @@ export default function Home() {
         : isSearch
           ? searchResult.items
           : listResult.items;
+
     console.log("❤️‍🔥home raw sample", raw?.[0]);
     console.log("raw keys", Object.keys(raw?.[0] ?? {}));
     console.log("raw full", raw?.[0]);
+
     return raw.map((item: any) => {
       // price: number or {amount}
       const price =
@@ -133,24 +132,6 @@ export default function Home() {
   ]);
 
   const isPageLoading = !authReady || isItemsLoading;
-
-  /* =========================
-     Favorite toggle
-  ========================= */
-  const toggleFavorite = async (item: PublicItemCard, isFavorited: boolean) => {
-    if (!apiClient) return;
-
-    try {
-      if (isFavorited) {
-        await apiClient.delete(`/favorites/${item.id}`);
-      } else {
-        await apiClient.post(`/favorites/${item.id}`);
-      }
-      mutate(() => true);
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
   /* =========================
      Render
@@ -200,8 +181,6 @@ export default function Home() {
           <div className={styles.items_select}>
             {items.length > 0 ? (
               items.map((item) => {
-                const isFavorited = item.isFavorited;
-
                 return (
                   <div key={item.id} className={styles.items_select_all}>
                     {/* ✅ 完売でも詳細は見せる（クリック挙動は変更しない） */}
@@ -215,27 +194,28 @@ export default function Home() {
                       }}
                     >
                       <div className={styles.itemImageWrapper}>
+                        {/* ✅ ⭐️ + リユース（円バッジ化：文字が⭐️の上） */}
                         {item.displayType === "STAR" ? (
-                          <span className={styles.ownStar}>⭐️</span>
+                          <span
+                            className={`${styles.badge} ${styles.reuseBadge} ${styles.starBadge}`}
+                            aria-label="リユース"
+                          >
+                            <span className={styles.badgeIcon}>⭐️</span>
+                            <span className={styles.badgeText}>リユース</span>
+                          </span>
                         ) : item.displayType === "OWN" ? (
-                          <span className={styles.ownStar}>💫</span>
+                          <span
+                            className={`${styles.badge} ${styles.reuseBadge}`}
+                            aria-label="リユース"
+                          >
+                            <span className={styles.badgeIcon}>💫</span>
+                            <span className={styles.badgeText}>リユース</span>
+                          </span>
                         ) : null}
 
                         {/* ✅ 完売バッジ */}
                         {item.isSoldOut && (
                           <span className={styles.soldOutBadge}>完売</span>
-                        )}
-
-                        {isAuthenticated && (
-                          <button
-                            className={styles.favoriteButton}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleFavorite(item, isFavorited);
-                            }}
-                          >
-                            {isFavorited ? "❤️" : "🤍"}
-                          </button>
                         )}
 
                         <img
