@@ -281,21 +281,21 @@ export default function AuthCallbackPage() {
   // --------------------
   const stepLabel = useMemo(() => {
     if (effectivePhase === "first") return "STEP 1/2";
-    if (effectivePhase === "second_pending") return "STEP 2/2";
+    if (effectivePhase === "second_pending") return "STEP 1.5/2";
     if (effectivePhase === "second_done") return "STEP 2/2";
     return "AUTH";
   }, [effectivePhase]);
 
   const title = useMemo(() => {
-    if (effectivePhase === "first") return "メール確認 1/2";
-    if (effectivePhase === "second_pending") return "メール確認 2/2";
-    if (effectivePhase === "second_done") return "メール確認 2/2";
+    if (effectivePhase === "first") return "メール認証 1/2";
+    if (effectivePhase === "second_pending") return "メール認証 1.5/2";
+    if (effectivePhase === "second_done") return "メール認証 2/2";
     return "Signing in…";
   }, [effectivePhase]);
 
   const baseMessage = useMemo(() => {
     if (effectivePhase === "first")
-      return "メール認証 1/2 が完了しました。次は 2/2 の登録へ進みます。";
+      return "メール認証 1/2 が完了しました。次は 1.5/2 の登録へ進みます。";
     if (effectivePhase === "second_pending")
       return "1.5/2 の登録が完了しました。届いたメールの Verify Link を押して完了してください。";
     if (effectivePhase === "second_done")
@@ -746,20 +746,20 @@ export default function AuthCallbackPage() {
               <>
                 <div className={styles.instBlock}>
                   <div className={styles.instLead}>
-                    メール認証 1/2 完了しました。
+                    メール認証 1.5/2 登録の手順
                   </div>
                   <div className={styles.instText}>
                     ログインページの <b>”Continue”</b> の下の <b>”Sign up”</b>{" "}
                     を押して
                     <br />
-                    メールとパスワードを入力して <b>メール認証 2/2</b>{" "}
+                    メールとパスワードを再度入力して <b>メール認証 2/2</b>{" "}
                     の登録してください。
                   </div>
                 </div>
 
                 <div className={styles.instBlock}>
                   <div className={styles.instLead}>
-                    メール認証 1.5/2 登録後の手順
+                    その後メール認証 2/2 登録完了の手順
                   </div>
                   <ol className={styles.instList}>
                     <li>
@@ -775,7 +775,7 @@ export default function AuthCallbackPage() {
             ) : effectivePhase === "second_pending" ? (
               <div className={styles.instBlock}>
                 <div className={styles.instLead}>
-                  メール認証 2/2 登録後の手順
+                  メール認証 2/2 登録の手順
                 </div>
                 <div className={styles.instText}>
                   メールを開き <b>“Verify Link”</b> /{" "}
@@ -840,8 +840,9 @@ export default function AuthCallbackPage() {
                 </span>
               ) : effectivePhase === "second_pending" ? (
                 <span>
-                  ※ メールの <b>“Verify Link”</b> / <b>“Verify Your Account”</b>{" "}
-                  をクリックしてください（この画面は待機します）。
+                  ※ この画面は待機します。届いたメールを確認してクリックして、
+                  <br />
+                  その後<b>”Accept”</b>を押してログインしてください。
                 </span>
               ) : (
                 <span>※ 自動で進まない場合は「続ける」を押してください。</span>
