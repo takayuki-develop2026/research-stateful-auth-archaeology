@@ -12,6 +12,18 @@ import type { AuthContext } from "@/ui/auth/contracts";
 const LAST_LOGIN_AT_KEY = "last_login_at";
 const LAST_LOGIN_AT_EVENT = "occ:last_login_at_changed";
 
+function isSensitiveAuthFlowPath(): boolean {
+  if (typeof window === "undefined") return false;
+  const p = window.location.pathname || "";
+
+  // ✅ 認証コールバック・メール検証・ログイン導線では副作用禁止
+  if (p.startsWith("/auth/callback")) return true;
+  if (p.startsWith("/email/verify")) return true;
+  if (p.startsWith("/login")) return true;
+
+  return false;
+}
+
 function touchLastLoginAt(): void {
   try {
     localStorage.setItem(LAST_LOGIN_AT_KEY, new Date().toISOString());
@@ -40,40 +52,48 @@ export function AuthContextCoreProvider(props: {
 }) {
   const { children, value } = props;
 
-  // contracts のキーを正として扱う（あなたは authReady を使っている）
   const authReady = !!(value as any).authReady;
   const isAuthenticated = !!(value as any).isAuthenticated;
 
-  // ✅ “認証が確定して authenticated になった瞬間” を setState無しで検知
-  const prev = useRef<{ ready: boolean; authed: boolean }>({
-    ready: false,
-    authed: false,
-  });
+  const userEmail: string | null =
+    ((value as any)?.user?.email as string | undefined) ?? null;
+
+  const prev = useRef<{
+    ready: boolean;
+    authed: boolean;
+    email: string | null;
+  }>({ ready: false, authed: false, email: null });
 
   useEffect(() => {
-    const base: any = value;
-    const userEmail = base?.user?.email; // ← AuthContext の実態に合わせる
+    const was = prev.current;
 
-    const wasReady = prev.current.ready;
-    const wasAuthed = prev.current.authed;
+    const becameAuthed =
+      authReady &&
+      isAuthenticated &&
+      !!userEmail &&
+      (!was.ready || !was.authed || was.email !== userEmail);
 
-    if (authReady && isAuthenticated && (!wasReady || !wasAuthed)) {
+    // ✅ callback/verify/login では last_login_at を絶対触らない
+    if (becameAuthed && !isSensitiveAuthFlowPath()) {
       touchLastLoginAt();
     }
 
-    // ✅ user が確定したら pending_* を掃除（これが一番事故らない）
+    // ✅ user が確定したら pending_* を掃除（OK）
     if (authReady && isAuthenticated && userEmail) {
       try {
         localStorage.removeItem("pending_email");
         localStorage.removeItem("pending_display_name");
-        localStorage.removeItem("pending_email_expires_at"); // TTL入れてるなら
+        localStorage.removeItem("pending_email_expires_at");
       } catch {}
     }
 
-    prev.current = { ready: authReady, authed: isAuthenticated };
-  }, [authReady, isAuthenticated, value]);
+    prev.current = {
+      ready: authReady,
+      authed: isAuthenticated,
+      email: userEmail,
+    };
+  }, [authReady, isAuthenticated, userEmail]);
 
-  // ✅ logout だけ共通処理を差し込む（その他は素通し）
   const wrapped = useMemo<AuthContext>(() => {
     const base: any = value;
 

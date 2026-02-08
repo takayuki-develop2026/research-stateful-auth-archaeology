@@ -11,15 +11,14 @@ import { AuthContextCoreProvider } from "@/ui/auth/core/AuthContextCore";
    Logger
 ========================================================= */
 function makeRunId(prefix = "oidc") {
-  // short unique id
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 }
 function authLog(runId: string, label: string, data?: any) {
-  // eslint-disable-next-line no-console
   console.log(`[Idaas][${runId}] ${label}`, data ?? "");
 }
 function authErr(runId: string, label: string, data?: any) {
-  // eslint-disable-next-line no-console
   console.error(`[Idaas][${runId}] ${label}`, data ?? "");
 }
 function maskToken(t?: string) {
@@ -89,9 +88,7 @@ function createBearerApiClient(): ApiClient {
           const t = await res.text().catch(() => "");
           if (t) msg = t.slice(0, 300);
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
       const e: any = new Error(msg);
       e.status = res.status;
       throw e;
@@ -145,13 +142,15 @@ async function sha256Base64Url(input: string): Promise<string> {
 }
 
 /* =========================================================
-   Keys
+   Keys（✅固定）
 ========================================================= */
 const PKCE_VERIFIER_KEY = "auth0_pkce_verifier_v1";
 const OIDC_STATE_KEY = "auth0_state_v1";
-const OIDC_RETURN_TO_KEY = "auth0_return_to_v1";
-const EXCHANGE_LOCK_KEY = "auth0_exchange_lock_v1";
 
+// ✅ SINGLE SOURCE OF TRUTH
+const RETURN_TO_KEY = "auth0_return_to_v1";
+
+const EXCHANGE_LOCK_KEY = "auth0_exchange_lock_v1";
 const NAV_LOCK_KEY = "occore_nav_lock_v1";
 const OWNER_REDIRECT_KEY = "occore_owner_shop_code_v1";
 const JUST_LOGGED_IN_KEY = "occore_just_logged_in_v1";
@@ -189,39 +188,37 @@ function getSessionItem(key: string): string | null {
 function setSessionItem(key: string, value: string): void {
   try {
     sessionStorage.setItem(key, value);
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 function removeSessionItem(key: string): void {
   try {
     sessionStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
-function getPkceItem(key: string): string | null {
-  return getSessionItem(key);
-}
-function setPkceItem(key: string, value: string): void {
-  setSessionItem(key, value);
-}
-
-function clearOidcSessionState() {
+/**
+ * ✅ callback後に消すもの（returnTo/lockは「遷移発火後」に消す）
+ */
+function clearOidcSessionStateAfterCallback() {
   removeSessionItem(PKCE_VERIFIER_KEY);
   removeSessionItem(OIDC_STATE_KEY);
-  removeSessionItem(OIDC_RETURN_TO_KEY);
-  removeSessionItem(EXCHANGE_LOCK_KEY);
+  // EXCHANGE_LOCK_KEY は残す（StrictMode/二重処理防止）。次の login() が必ず消す。
+  // RETURN_TO_KEY は nav 発火後に消す。
 }
 
+const NAV_GLOBAL_LOCK = "__occore_nav_lock_until_v1";
+
 function navOnce(router: ReturnType<typeof useRouter>, to: string) {
-  try {
-    if (sessionStorage.getItem(NAV_LOCK_KEY) === "1") return;
-    sessionStorage.setItem(NAV_LOCK_KEY, "1");
-  } catch {
-    // ignore
-  }
+  const g = globalThis as any;
+  const now = Date.now();
+  const until = typeof g[NAV_GLOBAL_LOCK] === "number" ? g[NAV_GLOBAL_LOCK] : 0;
+
+  // まだロック中なら二重遷移を抑止
+  if (now < until) return;
+
+  // 2秒だけロック（十分）
+  g[NAV_GLOBAL_LOCK] = now + 2000;
+
   router.replace(to);
 }
 function clearNavLockSoon() {
@@ -229,6 +226,9 @@ function clearNavLockSoon() {
 }
 function clearJustLoggedInSoon() {
   setTimeout(() => removeSessionItem(JUST_LOGGED_IN_KEY), 1500);
+}
+function clearReturnToSoon() {
+  setTimeout(() => removeSessionItem(RETURN_TO_KEY), 0);
 }
 
 /* =========================================================
@@ -255,6 +255,17 @@ function pickOwnerShopCode(me: any): string | null {
   if (r0?.role === "owner" && r0?.shop_code) return r0.shop_code;
   if (r0?.shop_code) return r0.shop_code;
   return null;
+}
+
+/* =========================================================
+   Retry helpers
+========================================================= */
+async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+function isHoldReturnTo(path: string): boolean {
+  return path.startsWith("/auth/callback?") && path.includes("p=");
 }
 
 /* =========================================================
@@ -294,18 +305,24 @@ export default function IdaasProvider({
     [auth0Domain],
   );
 
-  // StrictModeでも「同一マウント中の追跡」ができるよう runId を保持
   const runIdRef = useRef<string>(makeRunId("init"));
-
   const exchangeInFlight = useRef(false);
 
-  const fetchMe = useCallback(
-    async (runId?: string): Promise<AuthUser | null> => {
-      const rid = runId ?? runIdRef.current;
+  /**
+   * ✅ fetchMe を「normal / callback」で分離
+   * - callback中は 401/403 を “即Token破棄”しない（揺れ対策）
+   */
+  const fetchMeRaw = useCallback(
+    async (
+      runId: string,
+    ): Promise<
+      | { ok: true; me: AuthUser }
+      | { ok: false; status?: number; message?: string }
+    > => {
       try {
-        authLog(rid, "me:request", {});
+        authLog(runId, "me:request", {});
         const u = await apiClient.get<AuthUser>("/me");
-        authLog(rid, "me:response", {
+        authLog(runId, "me:response", {
           id: (u as any)?.id ?? null,
           email: (u as any)?.email ?? null,
           email_verified_at: (u as any)?.email_verified_at ?? null,
@@ -313,28 +330,331 @@ export default function IdaasProvider({
           profile_completed_norm: normalizeBool((u as any)?.profile_completed),
           shop_roles: (u as any)?.shop_roles ?? null,
         });
-        setUser(u);
-        return u;
+        return { ok: true, me: u };
       } catch (e: any) {
-        authErr(rid, "me:error", {
+        authErr(runId, "me:error", {
           status: e?.status,
           message: String(e?.message ?? e),
         });
-        if (e?.status === 401) TokenStorage.clear();
-        setUser(null);
-        return null;
+        return {
+          ok: false,
+          status: e?.status,
+          message: String(e?.message ?? e),
+        };
       }
     },
     [apiClient],
   );
 
+  const fetchMeNormalInit = useCallback(
+    async (runId?: string) => {
+      const rid = runId ?? runIdRef.current;
+      const r = await fetchMeRaw(rid);
+      if (r.ok) {
+        setUser(r.me);
+        return r.me;
+      }
+
+      // normal init: 401/403 は token を捨てる
+      if (r.status === 401 || r.status === 403) {
+        TokenStorage.clear();
+      }
+      setUser(null);
+      return null;
+    },
+    [fetchMeRaw],
+  );
+
+  const fetchMeWithRetryAfterExchange = useCallback(
+    async (runId: string, tries = 3) => {
+      for (let i = 1; i <= tries; i++) {
+        const r = await fetchMeRaw(runId);
+
+        if (r.ok) {
+          setUser(r.me);
+          return { ok: true as const, me: r.me };
+        }
+
+        // 401/403 でも「即死」させない。短い遅延で再試行（token書き込み/反映の競合対策）
+        if ((r.status === 401 || r.status === 403) && i < tries) {
+          authLog(runId, "me:retry_wait_auth", {
+            attempt: i,
+            nextInMs: 150 * i,
+          });
+          await sleep(150 * i);
+          continue;
+        }
+
+        // それ以外や最終回は失敗として返す
+        return {
+          ok: false as const,
+          status: r.status ?? 0,
+          kind:
+            r.status === 401 || r.status === 403
+              ? ("unauthorized" as const)
+              : ("transient" as const),
+        };
+      }
+      return { ok: false as const, status: 0, kind: "transient" as const };
+    },
+    [fetchMeRaw],
+  );
+
   const refresh = useCallback(async () => {
-    await fetchMe(makeRunId("refresh"));
-  }, [fetchMe]);
+    await fetchMeNormalInit(makeRunId("refresh"));
+  }, [fetchMeNormalInit]);
+
+  const handleCallback = useCallback(
+    async (args: { code: string; state: string | null }) => {
+      const runId = makeRunId("callback");
+      runIdRef.current = runId;
+
+      const { code, state } = args;
+
+      const returnToAtEnter = getSessionItem(RETURN_TO_KEY);
+      authLog(runId, "callback:enter", {
+        codePrefix: code.slice(0, 6),
+        statePrefix: String(state ?? "").slice(0, 6),
+        returnTo_session: returnToAtEnter,
+      });
+
+      // global lock
+      const gotGlobal = acquireGlobalLock();
+      authLog(runId, "callback:global_lock", { acquired: gotGlobal });
+      if (!gotGlobal) return;
+
+      // session lock（StrictMode二重・HMR二重の保険）
+      const sessionLock = getSessionItem(EXCHANGE_LOCK_KEY);
+      authLog(runId, "callback:session_lock_before", { sessionLock });
+      if (sessionLock === "1") {
+        releaseGlobalLock();
+        return;
+      }
+      setSessionItem(EXCHANGE_LOCK_KEY, "1");
+
+      if (exchangeInFlight.current) {
+        authLog(runId, "callback:exchange_in_flight_skip");
+        releaseGlobalLock();
+        return;
+      }
+      exchangeInFlight.current = true;
+
+      const go = (to: string) => {
+        authLog(runId, "nav:replace", { to });
+        navOnce(router, to);
+        clearNavLockSoon();
+      };
+
+      try {
+        if (!auth0Domain || !clientId || !audience) {
+          authErr(runId, "env:missing", {
+            auth0DomainPresent: !!auth0Domain,
+            clientIdPresent: !!clientId,
+            audiencePresent: !!audience,
+          });
+          TokenStorage.clear();
+          clearOidcSessionStateAfterCallback();
+          // RETURN_TO は消す（ここは復旧不能）
+          removeSessionItem(RETURN_TO_KEY);
+          go("/login?oidc_error=env_missing");
+          return;
+        }
+
+        const expectedState = getSessionItem(OIDC_STATE_KEY);
+        authLog(runId, "callback:state_check", {
+          expectedPrefix: String(expectedState ?? "").slice(0, 6),
+          actualPrefix: String(state ?? "").slice(0, 6),
+          matches: !!expectedState && state === expectedState,
+        });
+
+        if (!expectedState || state !== expectedState) {
+          TokenStorage.clear();
+          clearOidcSessionStateAfterCallback();
+          removeSessionItem(RETURN_TO_KEY);
+          go("/login?oidc_error=state_mismatch");
+          return;
+        }
+
+        const verifier = getSessionItem(PKCE_VERIFIER_KEY);
+        authLog(runId, "callback:verifier_present", {
+          hasVerifier: !!verifier,
+        });
+
+        if (!verifier) {
+          TokenStorage.clear();
+          clearOidcSessionStateAfterCallback();
+          removeSessionItem(RETURN_TO_KEY);
+          go("/login?oidc_error=missing_verifier");
+          return;
+        }
+
+        // token exchange
+        authLog(runId, "token_exchange:request", {
+          tokenEndpoint: endpoints.token,
+          redirectUri,
+        });
+
+        const body = new URLSearchParams();
+        body.set("grant_type", "authorization_code");
+        body.set("client_id", clientId);
+        body.set("code", code);
+        body.set("redirect_uri", redirectUri);
+        body.set("code_verifier", verifier);
+        body.set("audience", audience);
+
+        const res = await fetch(endpoints.token, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+          },
+          body: body.toString(),
+          cache: "no-store",
+        });
+
+        authLog(runId, "token_exchange:response", {
+          ok: res.ok,
+          status: res.status,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          authErr(runId, "token_exchange:failed", {
+            status: res.status,
+            detail: text.slice(0, 200),
+          });
+          TokenStorage.clear();
+          clearOidcSessionStateAfterCallback();
+          removeSessionItem(RETURN_TO_KEY);
+          go(`/login?oidc_error=token_exchange_failed&status=${res.status}`);
+          return;
+        }
+
+        const json = (await res.json().catch(() => ({}))) as any;
+        const accessToken =
+          typeof json?.access_token === "string" ? json.access_token : "";
+        const refreshToken =
+          typeof json?.refresh_token === "string" ? json.refresh_token : "";
+
+        authLog(runId, "token_exchange:tokens", {
+          hasAccessToken: !!accessToken,
+          hasRefreshToken: !!refreshToken,
+          accessTokenMask: maskToken(accessToken),
+        });
+
+        if (!accessToken) {
+          TokenStorage.clear();
+          clearOidcSessionStateAfterCallback();
+          removeSessionItem(RETURN_TO_KEY);
+          go("/login?oidc_error=missing_access_token");
+          return;
+        }
+
+        // ✅ token 保存（ここから先、me失敗で即 /login へ逃がさない）
+        TokenStorage.save({ accessToken, refreshToken });
+
+        // ✅ callback専用：me リトライ（401/403も短く待つ）
+        const meResult = await fetchMeWithRetryAfterExchange(runId, 3);
+
+        // ✅ RETURN_TO は “必ず” ここから取る（hold URL の唯一の根拠）
+        const returnToRaw = getSessionItem(RETURN_TO_KEY);
+        const returnTo = safeReturnTo(returnToRaw);
+
+        if (!meResult.ok) {
+          authErr(runId, "me:failed_after_exchange", meResult);
+
+          // ここが最重要：hold があるなら、login再発火で returnTo を壊さない
+          if (returnTo && isHoldReturnTo(returnTo)) {
+            authLog(runId, "me:fail_redirect_to_hold", { returnTo });
+            clearOidcSessionStateAfterCallback();
+            // RETURN_TO_KEY は “踏んだ後”に消す
+            go(returnTo);
+            clearReturnToSoon();
+            return;
+          }
+
+          // hold が無いなら初めて /login に落とす
+          if (meResult.kind === "unauthorized") {
+            TokenStorage.clear();
+            clearOidcSessionStateAfterCallback();
+            removeSessionItem(RETURN_TO_KEY);
+            go("/login?reason=me_unauthorized");
+            return;
+          }
+
+          clearOidcSessionStateAfterCallback();
+          // tokenは保持（transient扱い）
+          go("/login?reason=me_transient");
+          return;
+        }
+
+        const me = meResult.me;
+
+        const completed = normalizeBool((me as any)?.profile_completed);
+        authLog(runId, "redirect:pre", {
+          returnToRaw,
+          returnTo,
+          completed,
+          isHold: isHoldReturnTo(returnTo),
+        });
+
+        // ✅ 1) hold は最優先で必ず踏む（ここで 10 秒 UI が保証される）
+        if (returnTo && isHoldReturnTo(returnTo)) {
+          clearOidcSessionStateAfterCallback();
+          go(returnTo);
+          clearReturnToSoon();
+          clearJustLoggedInSoon();
+          return;
+        }
+
+        // ✅ 2) 通常 returnTo があるならそれを踏む（/ 以外）
+        if (returnTo && returnTo !== "/") {
+          clearOidcSessionStateAfterCallback();
+          go(returnTo);
+          clearReturnToSoon();
+          clearJustLoggedInSoon();
+          return;
+        }
+
+        // ✅ 3) / の場合のみ既存の owner redirect
+        const shopCode = pickOwnerShopCode(me as any);
+        if (shopCode) {
+          authLog(runId, "redirect:owner_dashboard", { shopCode });
+          clearOidcSessionStateAfterCallback();
+          removeSessionItem(RETURN_TO_KEY);
+          setSessionItem(JUST_LOGGED_IN_KEY, "1");
+          setSessionItem(OWNER_REDIRECT_KEY, shopCode);
+          window.location.assign(`/shops/${shopCode}/dashboard`);
+          return;
+        }
+
+        authLog(runId, "redirect:home", {});
+        clearOidcSessionStateAfterCallback();
+        removeSessionItem(RETURN_TO_KEY);
+        go("/");
+        clearJustLoggedInSoon();
+      } finally {
+        exchangeInFlight.current = false;
+        // EXCHANGE_LOCK_KEY は残す（次回login()が必ず掃除する）
+        releaseGlobalLock();
+      }
+    },
+    [
+      auth0Domain,
+      clientId,
+      audience,
+      endpoints.token,
+      redirectUri,
+      router,
+      fetchMeWithRetryAfterExchange,
+    ],
+  );
 
   useEffect(() => {
     const runId = makeRunId("effect");
     runIdRef.current = runId;
+
+    let aborted = false;
 
     (async () => {
       try {
@@ -349,17 +669,18 @@ export default function IdaasProvider({
           hasState: !!state,
           error: error ?? null,
           tokenPresent: !!TokenStorage.load().accessToken,
+          returnTo: getSessionItem(RETURN_TO_KEY),
+          exchangeLock: getSessionItem(EXCHANGE_LOCK_KEY),
         });
 
-        // Auth0側エラー
         if (error) {
           authErr(runId, "callback:error_from_auth0", {
             error,
             errorDescription,
           });
           TokenStorage.clear();
-          clearOidcSessionState();
-          releaseGlobalLock();
+          clearOidcSessionStateAfterCallback();
+          removeSessionItem(RETURN_TO_KEY);
           router.replace(
             `/login?oidc_error=${encodeURIComponent(error)}${
               errorDescription
@@ -370,203 +691,16 @@ export default function IdaasProvider({
           return;
         }
 
-        // ===== callback =====
         if (code) {
-          authLog(runId, "callback:detected", {
-            codePrefix: String(code).slice(0, 6),
-            statePrefix: String(state ?? "").slice(0, 6),
-          });
-
-          // global lock
-          const gotGlobal = acquireGlobalLock();
-          authLog(runId, "callback:global_lock", { acquired: gotGlobal });
-          if (!gotGlobal) return;
-
-          // session lock
-          const sessionLock = getSessionItem(EXCHANGE_LOCK_KEY);
-          authLog(runId, "callback:session_lock_before", { sessionLock });
-          if (sessionLock === "1") return;
-          setSessionItem(EXCHANGE_LOCK_KEY, "1");
-
-          if (exchangeInFlight.current) {
-            authLog(runId, "callback:exchange_in_flight_skip");
-            return;
-          }
-          exchangeInFlight.current = true;
-
-          if (!auth0Domain || !clientId || !audience) {
-            authErr(runId, "env:missing", {
-              auth0DomainPresent: !!auth0Domain,
-              clientIdPresent: !!clientId,
-              audiencePresent: !!audience,
-            });
-            TokenStorage.clear();
-            clearOidcSessionState();
-            releaseGlobalLock();
-            router.replace("/login?oidc_error=env_missing");
-            return;
-          }
-
-          const expectedState = getPkceItem(OIDC_STATE_KEY);
-          authLog(runId, "callback:state_check", {
-            expectedPrefix: String(expectedState ?? "").slice(0, 6),
-            actualPrefix: String(state ?? "").slice(0, 6),
-            matches: !!expectedState && state === expectedState,
-          });
-
-          if (!expectedState || state !== expectedState) {
-            TokenStorage.clear();
-            clearOidcSessionState();
-            releaseGlobalLock();
-            router.replace("/login?oidc_error=state_mismatch");
-            return;
-          }
-
-          const verifier = getPkceItem(PKCE_VERIFIER_KEY);
-          authLog(runId, "callback:verifier_present", {
-            hasVerifier: !!verifier,
-          });
-
-          if (!verifier) {
-            TokenStorage.clear();
-            clearOidcSessionState();
-            releaseGlobalLock();
-            router.replace("/login?oidc_error=missing_verifier");
-            return;
-          }
-
-          // token exchange
-          authLog(runId, "token_exchange:request", {
-            tokenEndpoint: endpoints.token,
-            redirectUri,
-            audiencePresent: !!audience,
-          });
-
-          const body = new URLSearchParams();
-          body.set("grant_type", "authorization_code");
-          body.set("client_id", clientId);
-          body.set("code", code);
-          body.set("redirect_uri", redirectUri);
-          body.set("code_verifier", verifier);
-          body.set("audience", audience);
-
-          const res = await fetch(endpoints.token, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-              Accept: "application/json",
-            },
-            body: body.toString(),
-            cache: "no-store",
-          });
-
-          authLog(runId, "token_exchange:response", {
-            ok: res.ok,
-            status: res.status,
-          });
-
-          if (!res.ok) {
-            const text = await res.text().catch(() => "");
-            authErr(runId, "token_exchange:failed", {
-              status: res.status,
-              detail: text.slice(0, 200),
-            });
-            TokenStorage.clear();
-            clearOidcSessionState();
-            releaseGlobalLock();
-            router.replace(
-              `/login?oidc_error=token_exchange_failed&status=${res.status}${
-                text ? `&detail=${encodeURIComponent(text.slice(0, 200))}` : ""
-              }`,
-            );
-            return;
-          }
-
-          const json = (await res.json().catch(() => ({}))) as any;
-          const accessToken =
-            typeof json?.access_token === "string" ? json.access_token : "";
-          const refreshToken =
-            typeof json?.refresh_token === "string" ? json.refresh_token : "";
-
-          authLog(runId, "token_exchange:tokens", {
-            hasAccessToken: !!accessToken,
-            hasRefreshToken: !!refreshToken,
-            accessTokenMask: maskToken(accessToken),
-          });
-
-          if (!accessToken) {
-            TokenStorage.clear();
-            clearOidcSessionState();
-            releaseGlobalLock();
-            router.replace("/login?oidc_error=missing_access_token");
-            return;
-          }
-
-          TokenStorage.save({ accessToken, refreshToken });
-
-          // me
-          const me = await fetchMe(runId);
-          if (!me) {
-            authErr(runId, "me:null_after_exchange");
-            TokenStorage.clear();
-            clearOidcSessionState();
-            releaseGlobalLock();
-            router.replace("/login?reason=me_null");
-            return;
-          }
-
-          // returnTo
-          const returnToRaw = getSessionItem(OIDC_RETURN_TO_KEY);
-          let returnTo = safeReturnTo(returnToRaw);
-
-          const completed = normalizeBool((me as any)?.profile_completed);
-          authLog(runId, "redirect:pre", {
-            returnToRaw,
-            returnTo,
-            completed,
-          });
-
-          // completedなら profile 強制を無効化
-          if (completed && returnTo === "/mypage/profile") {
-            authLog(runId, "redirect:override_profile_returnTo", {
-              from: returnTo,
-              to: "/",
-            });
-            returnTo = "/";
-          }
-
-          clearOidcSessionState();
-          releaseGlobalLock();
-
-          if (returnTo && returnTo !== "/") {
-            authLog(runId, "redirect:returnTo", { to: returnTo });
-            navOnce(router, returnTo);
-            clearNavLockSoon();
-            clearJustLoggedInSoon();
-            return;
-          }
-
-          const shopCode = pickOwnerShopCode(me as any);
-          if (shopCode) {
-            authLog(runId, "redirect:owner_dashboard", { shopCode });
-            setSessionItem(JUST_LOGGED_IN_KEY, "1");
-            setSessionItem(OWNER_REDIRECT_KEY, shopCode);
-            window.location.assign(`/shops/${shopCode}/dashboard`);
-            return;
-          }
-
-          authLog(runId, "redirect:home", {});
-          navOnce(router, "/");
-          clearNavLockSoon();
-          clearJustLoggedInSoon();
+          await handleCallback({ code, state });
           return;
         }
 
-        // ===== normal init =====
+        // normal init
         const { accessToken } = TokenStorage.load();
         if (accessToken) {
           authLog(runId, "init:token_present_fetch_me");
-          await fetchMe(runId);
+          await fetchMeNormalInit(runId);
         } else {
           authLog(runId, "init:no_token");
         }
@@ -575,21 +709,17 @@ export default function IdaasProvider({
           message: String(e?.message ?? e),
         });
       } finally {
+        if (aborted) return;
         setIsLoading(false);
         setAuthReady(true);
         authLog(runId, "effect:done", { isLoading: false, authReady: true });
       }
     })();
-  }, [
-    searchParams,
-    router,
-    auth0Domain,
-    clientId,
-    audience,
-    redirectUri,
-    endpoints.token,
-    fetchMe,
-  ]);
+
+    return () => {
+      aborted = true;
+    };
+  }, [searchParams, router, handleCallback, fetchMeNormalInit]);
 
   const login = useCallback(
     async (payload: LoginPayload) => {
@@ -617,20 +747,22 @@ export default function IdaasProvider({
       const challenge = await sha256Base64Url(verifier);
 
       try {
+        // ✅ 毎回クリーンに（callbackのロック類もここで必ず落とす）
         removeSessionItem(EXCHANGE_LOCK_KEY);
         releaseGlobalLock();
+
         removeSessionItem(NAV_LOCK_KEY);
         removeSessionItem(OWNER_REDIRECT_KEY);
         removeSessionItem(JUST_LOGGED_IN_KEY);
 
-        removeSessionItem(OIDC_RETURN_TO_KEY);
+        removeSessionItem(RETURN_TO_KEY);
         removeSessionItem(OIDC_STATE_KEY);
         removeSessionItem(PKCE_VERIFIER_KEY);
 
-        setPkceItem(PKCE_VERIFIER_KEY, verifier);
+        setSessionItem(PKCE_VERIFIER_KEY, verifier);
 
         const s = randomString(32);
-        setPkceItem(OIDC_STATE_KEY, s);
+        setSessionItem(OIDC_STATE_KEY, s);
 
         const injected = safeReturnTo(returnToFromPayload ?? null);
 
@@ -641,13 +773,10 @@ export default function IdaasProvider({
         const fallback = currentPath.startsWith("/login") ? "/" : currentPath;
 
         let returnTo = injected !== "/" ? injected : fallback;
+        if (returnTo === "/mypage/profile") returnTo = "/";
 
-        // login開始時点で profile を固定 returnTo にしない
-        if (returnTo === "/mypage/profile") {
-          returnTo = "/";
-        }
-
-        setSessionItem(OIDC_RETURN_TO_KEY, returnTo);
+        // ✅ returnTo は単一キーに保存（hold URL もここに入る）
+        setSessionItem(RETURN_TO_KEY, returnTo);
 
         authLog(runId, "login:start", {
           injected: returnToFromPayload ?? null,
@@ -679,8 +808,8 @@ export default function IdaasProvider({
       } catch (e: any) {
         authErr(runId, "login:failed", { message: String(e?.message ?? e) });
         TokenStorage.clear();
-        clearOidcSessionState();
-        releaseGlobalLock();
+        clearOidcSessionStateAfterCallback();
+        removeSessionItem(RETURN_TO_KEY);
         throw new Error("auth0_login_start_failed");
       }
     },
@@ -692,8 +821,8 @@ export default function IdaasProvider({
     authLog(runId, "logout:start");
 
     TokenStorage.clear();
-    clearOidcSessionState();
-    releaseGlobalLock();
+    clearOidcSessionStateAfterCallback();
+    removeSessionItem(RETURN_TO_KEY);
     setUser(null);
 
     removeSessionItem(NAV_LOCK_KEY);

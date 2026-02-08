@@ -1,17 +1,28 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 
 export { useAuth } from "@/ui/auth/core/AuthContextCore";
 
-// ✅ module load（このファイルが読み込まれたら必ず出る）
-console.warn("[AuthProvider] module loaded");
+// ─────────────────────────────────────────────
+// Debug logger (dev only)
+// ─────────────────────────────────────────────
+const DEV = process.env.NODE_ENV !== "production";
+const log = (...args: any[]) => {
+  if (DEV) console.warn(...args);
+};
 
+// ✅ module load（dev only）
+log("[AuthProvider] module loaded");
+
+// ─────────────────────────────────────────────
+// Dynamic providers (client only)
+// ─────────────────────────────────────────────
 const SanctumProvider = dynamic(() => import("./modes/SanctumProvider"), {
   ssr: false,
   loading: () => {
-    console.warn("[AuthProvider] loading SanctumProvider...");
+    log("[AuthProvider] loading SanctumProvider...");
     return null;
   },
 });
@@ -21,7 +32,7 @@ const FirebaseJwtProvider = dynamic(
   {
     ssr: false,
     loading: () => {
-      console.warn("[AuthProvider] loading FirebaseJwtProvider...");
+      log("[AuthProvider] loading FirebaseJwtProvider...");
       return null;
     },
   },
@@ -30,30 +41,44 @@ const FirebaseJwtProvider = dynamic(
 const IdaasProvider = dynamic(() => import("./modes/IdaasProvider"), {
   ssr: false,
   loading: () => {
-    console.warn("[AuthProvider] loading IdaasProvider...");
+    log("[AuthProvider] loading IdaasProvider...");
     return null;
   },
 });
 
+type AuthMode = "sanctum" | "idaas" | "firebase_jwt";
+
+function resolveMode(raw: string | undefined | null): AuthMode {
+  if (raw === "sanctum") return "sanctum";
+  if (raw === "idaas") return "idaas";
+  return "firebase_jwt";
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // NEXT_PUBLIC_* はビルド時に埋め込まれ、ランタイムで undefined になるケースもあるので保険
   const raw = process.env.NEXT_PUBLIC_AUTH_MODE;
 
-  const mode =
-    raw === "sanctum" ? "sanctum" : raw === "idaas" ? "idaas" : "firebase_jwt";
+  const mode = useMemo<AuthMode>(() => resolveMode(raw), [raw]);
 
-  // ✅ render（このコンポーネントがレンダーされるたびに出る）
-  console.warn("[AuthProvider] render", { raw, mode });
+  // ✅ render（dev only）
+  log("[AuthProvider] render", { raw, mode });
 
-  if (mode === "firebase_jwt") {
-    console.warn("[AuthProvider] -> FirebaseJwtProvider");
-    return <FirebaseJwtProvider>{children}</FirebaseJwtProvider>;
+  switch (mode) {
+    case "firebase_jwt":
+      log("[AuthProvider] -> FirebaseJwtProvider");
+      return <FirebaseJwtProvider>{children}</FirebaseJwtProvider>;
+
+    case "idaas":
+      log("[AuthProvider] -> IdaasProvider");
+      return <IdaasProvider>{children}</IdaasProvider>;
+
+    case "sanctum":
+      log("[AuthProvider] -> SanctumProvider");
+      return <SanctumProvider>{children}</SanctumProvider>;
+
+    default:
+      // 型的に来ないが、安全側
+      log("[AuthProvider] -> fallback FirebaseJwtProvider");
+      return <FirebaseJwtProvider>{children}</FirebaseJwtProvider>;
   }
-
-  if (mode === "idaas") {
-    console.warn("[AuthProvider] -> IdaasProvider");
-    return <IdaasProvider>{children}</IdaasProvider>;
-  }
-
-  console.warn("[AuthProvider] -> SanctumProvider");
-  return <SanctumProvider>{children}</SanctumProvider>;
 }
