@@ -122,8 +122,10 @@ export default function ShopDashboardPage() {
         <h1 className="text-3xl font-bold">店舗ダッシュボード</h1>
 
         <p className="text-sm text-gray-600">
-          店舗名: {shopName ?? shop_code} / ユーザー名:{" "}
-          {user?.display_name ?? user?.email ?? "-"}（{roleInShop ?? "-"}）
+          <b>
+            店舗名: {shopName ?? shop_code} / ユーザー名:{" "}
+            {user?.display_name ?? user?.email ?? "-"}（{roleInShop ?? "-"}）
+          </b>
         </p>
 
         <p className="text-xs text-gray-500">
@@ -147,7 +149,7 @@ export default function ShopDashboardPage() {
         >
           注文・配送管理
           <p className="text-xs text-gray-500 mt-1">
-            ※手動→半自動（構築中）→自動配送管理(予定計画)
+            ※手動(実装済み)→半自動（構築中）→自動配送管理(予定計画)
           </p>
         </Link>
 
@@ -215,7 +217,7 @@ export default function ShopDashboardPage() {
             >
               ▶ 管理レビュー一覧
               <p className="text-xs text-gray-500">
-                ※Stripe以外のPSP切り替え実装予定計画
+                ※PSP切り替え自動状況判断システム実装予定計画
               </p>
             </Link>
           </div>

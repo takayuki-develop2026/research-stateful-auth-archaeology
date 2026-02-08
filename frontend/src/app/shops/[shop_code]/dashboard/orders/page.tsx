@@ -127,7 +127,8 @@ export default function ShopOrderListPage() {
                   )}
                   {isDraft && (
                     <div className="text-amber-600 text-xs font-semibold">
-                      購入手続き受付待ち
+                      購入手続き受付待ち。<br />
+                      （在庫確認して受付してください。）
                     </div>
                   )}
                   {isNotCreated && (
@@ -173,7 +174,7 @@ export default function ShopOrderListPage() {
                   href={`/shops/${shop_code}/dashboard/orders/${it.order_id}/shipment`}
                   className="text-blue-600 underline text-sm"
                 >
-                  配送詳細を見る →
+                  配送処理をする。（詳細を見る） →
                 </Link>
               </div>
             </div>

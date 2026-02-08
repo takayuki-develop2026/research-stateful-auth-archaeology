@@ -610,7 +610,7 @@ export default function TrustLedgerDashboardPage() {
           <div className="text-2xl font-bold">
             {summary ? summary.postings_count.toLocaleString() : "-"}
           </div>
-          <div className="text-xs text-gray-500 mt-1">summary 기준</div>
+          <div className="text-xs text-gray-500 mt-1">summary </div>
         </div>
       </div>
 
