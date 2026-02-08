@@ -10,7 +10,7 @@ import styles from "./W-AuthCallbackPage.module.css";
 // --------------------
 const FLOW_KEY = "occore_email_flow_v2";
 const NONCE_KEY = "occore_email_flow_nonce_v1";
-const RETURN_TO_KEY = "occore_return_to_v1"; // ✅ AuthProvider と必ず一致
+const RETURN_TO_KEY = "auth0_return_to_v1"; // ✅ AuthProvider と必ず一致
 
 type FlowPhase = "first" | "second_pending" | "second_done";
 type Screen = "login" | "verify" | "verify_done";
@@ -119,12 +119,33 @@ function buildHoldUrl(args: {
   return `/auth/callback?${sp.toString()}`;
 }
 
+const normalizeInternalPath = (raw?: string | null) => {
+  if (!raw) return null;
+  if (!raw.startsWith("/")) return null; // 外部URL拒否（安全）
+  try {
+    const u = new URL(raw, "http://local");
+    return `${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    return null;
+  }
+};
+
+const resolvePostVerifyReturnTo = (me: any, raw: string | null) => {
+  const normalized = normalizeInternalPath(raw);
+
+  // 今回の事故（存在しないページ）を確実に回避
+  if (!normalized || normalized === "/email/verify-second") {
+    return me?.profile_completed_norm ? "/" : "/mypage/profile";
+  }
+  return normalized;
+};
+
 export default function AuthCallbackPage() {
   const sp = useSearchParams();
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, refresh } = useAuth();
 
-  const returnToRaw = sp.get("returnTo") ?? "/";
+  const returnToRaw = normalizeInternalPath(sp.get("returnTo")) ?? "/";
 
   // Auth0 callback params（ここに来ても “このページでは何もしない”）
   const code = sp.get("code");
@@ -276,7 +297,7 @@ export default function AuthCallbackPage() {
     if (effectivePhase === "first")
       return "メール認証 1/2 が完了しました。次は 2/2 の登録へ進みます。";
     if (effectivePhase === "second_pending")
-      return "2/2 の登録が完了しました。届いたメールの Verify Link を押して完了してください。";
+      return "1.5/2 の登録が完了しました。届いたメールの Verify Link を押して完了してください。";
     if (effectivePhase === "second_done")
       return "メール認証 2/2 が完了しました。10秒後にログイン処理を開始します。";
 
@@ -411,26 +432,26 @@ export default function AuthCallbackPage() {
   /**
    * ✅ 2/2 完走後 → 最終ログイン（callback後は final returnTo へ）
    */
-  const loginAfterSecondDone = useCallback(async () => {
+  const finalizeAfterSecondDone = useCallback(async () => {
     if (onceRef.current) return;
     onceRef.current = true;
 
-    setReturnToToSession(returnToRaw);
-
-    // 誤判定防止
+    // flow掃除
     clearFlow();
     clearNonceFromSession();
     setPhase(null);
 
-    d("action:loginAfterSecondDone", { returnToRaw });
+    d("action:finalizeAfterSecondDone", { returnToRaw });
 
+    // ✅ ここでme同期だけ取って終わる（Auth0へ戻らない）
+    let me: any = null;
     try {
-      await login({ type: "oidc", returnTo: returnToRaw });
-    } catch (e) {
-      console.error(e);
-      router.replace(`/login?oidc_error=1`);
-    }
-  }, [login, router, returnToRaw]);
+      me = await refresh?.();
+    } catch {}
+
+    const next = resolvePostVerifyReturnTo(me, returnToRaw);
+    router.replace(next || "/");
+  }, [refresh, router, returnToRaw]);
 
   // --------------------
   // story runner
@@ -485,7 +506,7 @@ export default function AuthCallbackPage() {
 
         afterReadyTimerRef.current = window.setTimeout(() => {
           if (effectivePhase === "first") void goToAuth0SignupForSecond();
-          if (effectivePhase === "second_done") void loginAfterSecondDone();
+          if (effectivePhase === "second_done") void finalizeAfterSecondDone();
           // second_pending は待機
         }, 0);
 
@@ -507,7 +528,7 @@ export default function AuthCallbackPage() {
     setBtnDisabled,
     baseMessage,
     goToAuth0SignupForSecond,
-    loginAfterSecondDone,
+    finalizeAfterSecondDone,
   ]);
 
   // --------------------
@@ -570,34 +591,38 @@ export default function AuthCallbackPage() {
     d("ui:continue_clicked", { effectivePhase, returnToRaw });
 
     if (effectivePhase === "first") return void goToAuth0SignupForSecond();
-    if (effectivePhase === "second_done") return void loginAfterSecondDone();
+    if (effectivePhase === "second_done") void finalizeAfterSecondDone();
+
 
     if (effectivePhase === "second_pending") {
       const nonce = getNonceFromSession() || genNonce();
       setNonceToSession(nonce);
 
-      const holdPending = buildHoldUrl({
-        phase: "second_pending",
+      const holdDone = buildHoldUrl({
+        phase: "second_done",
         finalReturnTo: returnToRaw,
         nonce,
       });
 
-      setReturnToToSession(holdPending);
+      // ✅ 次の callback 後の着地点は second_done
+      setReturnToToSession(holdDone);
 
-      d("ui:continue_second_pending", { nonce, holdPending });
+      d("ui:continue_second_pending_to_done", { nonce, holdDone });
 
       try {
-        await login({ type: "oidc", returnTo: holdPending });
+        await login({ type: "oidc", returnTo: holdDone }); // ✅ ここが重要
       } catch (e) {
         console.error(e);
         router.replace(`/login?oidc_error=1`);
       }
+      return;
     }
+
   }, [
     effectivePhase,
     returnToRaw,
     goToAuth0SignupForSecond,
-    loginAfterSecondDone,
+    finalizeAfterSecondDone,
     login,
     router,
   ]);
@@ -734,7 +759,7 @@ export default function AuthCallbackPage() {
 
                 <div className={styles.instBlock}>
                   <div className={styles.instLead}>
-                    メール認証 2/2 登録後の手順
+                    メール認証 1.5/2 登録後の手順
                   </div>
                   <ol className={styles.instList}>
                     <li>
@@ -763,7 +788,7 @@ export default function AuthCallbackPage() {
               // second_done
               <div className={styles.instBlock}>
                 <div className={styles.instLead}>
-                  メール認証 2/2 が完了しました。
+                  メール認証完了 2/2 が全て完了しました。
                 </div>
                 <div className={styles.instText}>
                   10秒後にログイン処理を開始します。
