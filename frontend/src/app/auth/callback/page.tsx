@@ -158,6 +158,9 @@ export default function AuthCallbackPage() {
     : null;
   const nonceFromQuery = sp.get(NONCE_QUERY_KEY);
 
+  // ✅ 4枚目（code callbackでp無し）だけを“ほぼ無表示”にする判定
+  const isSilentTransit = !!code && !phaseFromQuerySafe;
+
   const [hydrated, setHydrated] = useState(false);
   const [phase, setPhase] = useState<FlowPhase | null>(null);
 
@@ -177,6 +180,7 @@ export default function AuthCallbackPage() {
       hasError: !!error,
       returnToRaw,
       nonceFromQuery,
+      isSilentTransit,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -275,6 +279,17 @@ export default function AuthCallbackPage() {
       return STEP1_MS;
     return 0;
   }, [effectivePhase]);
+
+  // --------------------
+  // ✅ Scene selection (S1 / S1R / S3 / SX)
+  // --------------------
+  const sceneKind = useMemo<"s1" | "s1r" | "s3" | "sx">(() => {
+    if (!isVerify) return "sx";
+    if (effectivePhase === "first") return "s1"; // 1つ目：現状
+    if (effectivePhase === "second_pending") return "s1r"; // 2つ目：逆走
+    if (effectivePhase === "second_done") return "s3"; // 3つ目：PC+Phone+Lang
+    return "sx";
+  }, [isVerify, effectivePhase]);
 
   // --------------------
   // ✅ UI texts (phaseごとにテキストのみ変える)
@@ -556,6 +571,8 @@ export default function AuthCallbackPage() {
       flowLocal: readFlowState(),
       nonce_session: getNonceFromSession(),
       nonce_query: nonceFromQuery,
+      sceneKind,
+      isSilentTransit,
     });
 
     if (isVerify && isHold) {
@@ -580,6 +597,8 @@ export default function AuthCallbackPage() {
     nonceFromQuery,
     startStory,
     clearTimers,
+    sceneKind,
+    isSilentTransit,
   ]);
 
   // --------------------
@@ -592,7 +611,6 @@ export default function AuthCallbackPage() {
 
     if (effectivePhase === "first") return void goToAuth0SignupForSecond();
     if (effectivePhase === "second_done") void finalizeAfterSecondDone();
-
 
     if (effectivePhase === "second_pending") {
       const nonce = getNonceFromSession() || genNonce();
@@ -617,7 +635,6 @@ export default function AuthCallbackPage() {
       }
       return;
     }
-
   }, [
     effectivePhase,
     returnToRaw,
@@ -628,9 +645,18 @@ export default function AuthCallbackPage() {
   ]);
 
   // --------------------
-  // hydration guard
+  // ✅ hydration guard
+  // - 4枚目（codeあり & p無し）の瞬間は“透明”だけ返す
   // --------------------
   if (!hydrated) {
+    if (isSilentTransit) {
+      return (
+        <div className={styles.silentTransit} role="status" aria-live="polite">
+          <span className={styles.srOnly}>Signing in…</span>
+        </div>
+      );
+    }
+
     return (
       <div className={styles.wrap}>
         <div className={styles.bgGlow} aria-hidden="true" />
@@ -656,9 +682,20 @@ export default function AuthCallbackPage() {
   }
 
   // --------------------
+  // ✅ hydrated後も 4枚目（codeあり & p無し）は“透明”だけ返す
+  // --------------------
+  if (isSilentTransit) {
+    return (
+      <div className={styles.silentTransit} role="status" aria-live="polite">
+        <span className={styles.srOnly}>Signing in…</span>
+      </div>
+    );
+  }
+
+  // --------------------
   // ✅ render
-  // - 1回目/2回目/3回目：全部同じS1アニメ（envelope+plane+sparks）
-  // - テキストだけ phase で差し替え
+  // - verify系：S1 / S1R / S3 を effectivePhase で切替（sceneKind）
+  // - login：SX のまま
   // --------------------
   return (
     <div
@@ -693,33 +730,120 @@ export default function AuthCallbackPage() {
           <div className={styles.halo} />
           <div className={styles.halo2} />
 
-          {/* ✅ verify/verify_done/second_pending すべて同じ S1 */}
+          {/* ✅ verify/verify_done：S1 / S1R / S3 を切替 */}
           {isVerify ? (
-            <div className={`${styles.scene} ${styles.sceneS1}`}>
-              <div className={styles.trailOnce} />
+            <div
+              className={`${styles.scene} ${
+                sceneKind === "s1"
+                  ? styles.sceneS1
+                  : sceneKind === "s1r"
+                    ? styles.sceneS1R
+                    : styles.sceneS3
+              }`}
+            >
+              {/* ---------- S1（既存） ---------- */}
+              {sceneKind === "s1" ? (
+                <>
+                  <div className={styles.trailOnce} />
 
-              <div className={styles.envelope}>
-                <div className={styles.envBody} />
-                <div className={styles.envFlap} />
-                <div className={styles.envLine} />
-                <div className={styles.envShadow} />
-              </div>
+                  <div className={styles.envelope}>
+                    <div className={styles.envBody} />
+                    <div className={styles.envFlap} />
+                    <div className={styles.envLine} />
+                    <div className={styles.envShadow} />
+                  </div>
 
-              <div className={styles.planeOnce}>
-                <div className={styles.planeBody} />
-                <div className={styles.planeWing} />
-                <div className={styles.planeWing2} />
-              </div>
+                  <div className={styles.planeOnce}>
+                    <div className={styles.planeBody} />
+                    <div className={styles.planeWing} />
+                    <div className={styles.planeWing2} />
+                  </div>
 
-              <div className={`${styles.sparkOnce} ${styles.sA}`} />
-              <div className={`${styles.sparkOnce} ${styles.sB}`} />
-              <div className={`${styles.sparkOnce} ${styles.sC}`} />
-              <div className={`${styles.sparkOnce} ${styles.sD}`} />
-              <div className={`${styles.sparkOnce} ${styles.sE}`} />
+                  <div className={`${styles.sparkOnce} ${styles.sA}`} />
+                  <div className={`${styles.sparkOnce} ${styles.sB}`} />
+                  <div className={`${styles.sparkOnce} ${styles.sC}`} />
+                  <div className={`${styles.sparkOnce} ${styles.sD}`} />
+                  <div className={`${styles.sparkOnce} ${styles.sE}`} />
+                </>
+              ) : null}
+
+              {/* ---------- S1R（追加：逆走） ---------- */}
+              {sceneKind === "s1r" ? (
+                <>
+                  <div className={styles.trailOnceR} />
+
+                  <div className={styles.envelope}>
+                    <div className={styles.envBody} />
+                    <div className={styles.envFlap} />
+                    <div className={styles.envLine} />
+                    <div className={styles.envShadow} />
+                  </div>
+
+                  <div className={styles.planeOnceR}>
+                    <div className={styles.planeBody} />
+                    <div className={styles.planeWing} />
+                    <div className={styles.planeWing2} />
+                  </div>
+
+                  <div className={`${styles.sparkOnceR} ${styles.rA}`} />
+                  <div className={`${styles.sparkOnceR} ${styles.rB}`} />
+                  <div className={`${styles.sparkOnceR} ${styles.rC}`} />
+                  <div className={`${styles.sparkOnceR} ${styles.rD}`} />
+                  <div className={`${styles.sparkOnceR} ${styles.rE}`} />
+                </>
+              ) : null}
+
+              {/* ---------- S3（追加：Devices + Lang + Emit） ---------- */}
+              {sceneKind === "s3" ? (
+                <>
+                  <div className={styles.emitField} />
+                  <div className={styles.emitFlash} />
+                  <div className={styles.emitBeams} />
+
+                  <div className={styles.emitRing} />
+                  <div className={styles.emitRing2} />
+                  <div className={styles.emitRing3} />
+
+                  <div className={styles.emitParticles} />
+
+                  <div className={styles.devices}>
+                    <div className={styles.laptop}>
+                      <div className={styles.laptopTop} />
+                      <div className={styles.laptopScreen} />
+                      <div className={styles.laptopBase} />
+                    </div>
+                    <div className={styles.phone}>
+                      <div className={styles.phoneBody} />
+                      <div className={styles.phoneScreen} />
+                      <div className={styles.phoneCam} />
+                    </div>
+                  </div>
+
+                  <div className={styles.langCloud}>
+                    <span className={`${styles.lang} ${styles.lJava}`}>
+                      Java
+                    </span>
+                    <span className={`${styles.lang} ${styles.lPython}`}>
+                      Python
+                    </span>
+                    <span className={`${styles.lang} ${styles.lPHP}`}>PHP</span>
+                    <span className={`${styles.lang} ${styles.lRuby}`}>
+                      Ruby
+                    </span>
+                    <span className={`${styles.lang} ${styles.lKotlin}`}>
+                      Kotlin
+                    </span>
+                    <span className={`${styles.lang} ${styles.lGo}`}>GO</span>
+                    <span className={`${styles.lang} ${styles.lElixir}`}>
+                      Elixir
+                    </span>
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : null}
 
-          {/* login時 */}
+          {/* login時（SXは既存のまま） */}
           {!isVerify ? (
             <div className={`${styles.scene} ${styles.sceneSX}`}>
               <div className={styles.waveOnce} />
@@ -774,9 +898,7 @@ export default function AuthCallbackPage() {
               </>
             ) : effectivePhase === "second_pending" ? (
               <div className={styles.instBlock}>
-                <div className={styles.instLead}>
-                  メール認証 2/2 登録の手順
-                </div>
+                <div className={styles.instLead}>メール認証 2/2 登録の手順</div>
                 <div className={styles.instText}>
                   メールを開き <b>“Verify Link”</b> /{" "}
                   <b>“Verify Your Account”</b> をクリックしてください。

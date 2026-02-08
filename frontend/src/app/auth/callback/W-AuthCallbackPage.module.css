@@ -699,3 +699,525 @@
 .d1{ left: 12%; top: 38%; animation-delay: 0ms; }
 .d2{ left: 26%; top: 62%; animation-delay: 280ms; }
 .d3{ left: 38%; top: 46%; animation-delay: 560ms; }
+
+
+
+/* ===========================
+   Scene S1R: Reverse Plane -> Envelope (Right to Left)
+   =========================== */
+
+.sceneS1R{
+  position:absolute;
+  inset:0;
+}
+
+/* Reverse trail: right -> left arc */
+.trailOnceR{
+  position:absolute;
+  left: 24%;
+  top: 56%;
+  width: 70%;
+  height: 60%;
+  border-radius: 999px;
+  transform: rotate(8deg);
+  background:
+    radial-gradient(closest-side,
+      transparent 62%,
+      rgba(255,255,255,.14) 63%,
+      transparent 70%),
+    conic-gradient(from 40deg,
+      rgba(53,240,208,.00),
+      rgba(255,59,212,.35),
+      rgba(124,92,255,.42),
+      rgba(53,240,208,.55),
+      rgba(53,240,208,.00));
+  mask:
+    radial-gradient(circle at 75% 60%, transparent 50%, #000 58%),
+    radial-gradient(circle at 75% 60%, #000 0 100%);
+  filter: blur(.2px);
+  opacity: 0;
+  animation: trailInR var(--dur) ease-out forwards;
+}
+@keyframes trailInR{
+  0%{ opacity:0; transform: rotate(10deg) scale(.95); }
+  15%{ opacity:.55; }
+  100%{ opacity:.85; transform: rotate(8deg) scale(1); }
+}
+
+/* Reverse plane */
+.planeOnceR{
+  position:absolute;
+
+  /* 目的地の封筒は left:14% 幅86px → 中心は概ね 14% + 43px */
+  /* plane終点を封筒中心へ寄せるため、終点 translate を -220px 付近に設定 */
+  left: 78%;
+  top: 44%;
+  width: 46px;
+  height: 28px;
+  transform: translateZ(0);
+  animation: planeFlyR var(--dur) cubic-bezier(.2,.9,.2,1) forwards;
+  filter: drop-shadow(0 14px 18px rgba(0,0,0,.25));
+}
+
+@keyframes planeFlyR{
+  0%{
+    transform: translate(120px, -18px) rotate(-8deg) scale(.92);
+    opacity: 0;
+  }
+  10%{ opacity: 1; }
+  55%{
+    transform: translate(-30px, -6px) rotate(6deg) scale(1);
+  }
+  100%{
+    /* 10秒後に封筒へ”当たる”感じ：左へ深く入れる */
+    transform: translate(-260px, 12px) rotate(14deg) scale(1.02);
+    opacity: .96;
+  }
+}
+
+/* Reverse sparks: drift to left */
+.sparkOnceR{
+  position:absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.85);
+  box-shadow:
+    0 0 16px rgba(53,240,208,.55),
+    0 0 18px rgba(124,92,255,.40),
+    0 0 22px rgba(255,59,212,.30);
+  opacity: 0;
+  animation: sparkR var(--dur) linear forwards;
+}
+
+@keyframes sparkR{
+  0%{ opacity:0; transform: translate(0,0) scale(.6); }
+  18%{ opacity:0; }
+  22%{ opacity:.9; }
+  70%{ opacity:.55; }
+  100%{ opacity:0; transform: translate(-300px, 22px) scale(.9); }
+}
+
+/* 初期位置は右側に */
+.rA{ left: 78%; top: 58%; animation-delay: 0ms; }
+.rB{ left: 74%; top: 54%; animation-delay: 120ms; }
+.rC{ left: 72%; top: 62%; animation-delay: 240ms; }
+.rD{ left: 76%; top: 64%; animation-delay: 360ms; }
+.rE{ left: 80%; top: 56%; animation-delay: 480ms; }
+
+
+/* ===========================
+   Scene S3: Devices + Languages (float 5s -> broadcast 5s)
+   - uses --p (0..1)
+   =========================== */
+
+.sceneS3{
+  position:absolute;
+  inset:0;
+}
+
+/* ---- flash at 50% ---- */
+.emitFlash{
+  position:absolute;
+  inset:-20%;
+  pointer-events:none;
+  opacity:0;
+  background:
+    radial-gradient(circle at 50% 52%,
+      rgba(255,255,255,.55),
+      rgba(53,240,208,.18) 30%,
+      rgba(124,92,255,.10) 52%,
+      transparent 72%);
+  filter: blur(10px);
+  animation: s3Flash var(--dur) ease-out both;
+}
+@keyframes s3Flash{
+  0%,49%{ opacity:0; transform: scale(.92); }
+  52%{ opacity:1; transform: scale(1.02); }
+  60%{ opacity:0; transform: scale(1.35); }
+  100%{ opacity:0; }
+}
+
+/* ---- emission field grows after 50% ---- */
+.emitField{
+  position:absolute;
+  inset:-40%;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 50% 55%, rgba(53,240,208,.16), transparent 58%),
+    radial-gradient(circle at 55% 45%, rgba(124,92,255,.14), transparent 62%),
+    radial-gradient(circle at 45% 62%, rgba(255,59,212,.10), transparent 66%);
+  filter: blur(26px);
+  opacity:.28;
+  transform: scale(.92);
+  animation: s3Field var(--dur) ease-out both;
+}
+@keyframes s3Field{
+  0%,50%{ opacity:.28; transform: scale(.92); }
+  70%{ opacity:.55; transform: scale(1.12); }
+  100%{ opacity:.68; transform: scale(1.35); }
+}
+
+/* ---- beams: “broadcast” look ---- */
+.emitBeams{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  opacity:0;
+  transform: scale(.9);
+  filter: blur(.2px);
+  background:
+    conic-gradient(from -90deg,
+      rgba(53,240,208,.00) 0deg,
+      rgba(53,240,208,.22) 10deg,
+      rgba(255,255,255,.00) 18deg,
+      rgba(124,92,255,.18) 30deg,
+      rgba(255,255,255,.00) 38deg,
+      rgba(255,59,212,.14) 52deg,
+      rgba(255,255,255,.00) 60deg,
+      rgba(53,240,208,.22) 78deg,
+      rgba(255,255,255,.00) 86deg,
+      rgba(124,92,255,.18) 110deg,
+      rgba(255,255,255,.00) 118deg,
+      rgba(255,59,212,.14) 142deg,
+      rgba(255,255,255,.00) 150deg,
+      rgba(53,240,208,.22) 180deg,
+      rgba(255,255,255,.00) 360deg);
+  mask: radial-gradient(circle at 50% 52%, transparent 0 22%, #000 28% 100%);
+  animation: s3Beams var(--dur) ease-out both;
+}
+@keyframes s3Beams{
+  0%,50%{ opacity:0; transform: scale(.9) rotate(0deg); }
+  55%{ opacity:.85; transform: scale(1.0) rotate(10deg); }
+  100%{ opacity:0; transform: scale(1.85) rotate(40deg); }
+}
+
+
+/* 波紋リング（後半で出る：0.5以降で強く） */
+.emitRing, .emitRing2, .emitRing3{
+  position:absolute;
+  left: 50%;
+  top: 52%;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%) scale(.8);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset;
+  opacity:0;
+  pointer-events:none;
+}
+
+.emitRing{
+  animation: s3Ring1 var(--dur) ease-out both;
+}
+.emitRing2{
+  animation: s3Ring2 var(--dur) ease-out both;
+}
+.emitRing3{
+  animation: s3Ring3 var(--dur) ease-out both;
+}
+
+@keyframes s3Ring1{
+  0%,50%{ opacity:0; transform: translate(-50%,-50%) scale(.7); }
+  56%{ opacity:.75; transform: translate(-50%,-50%) scale(1.0); }
+  100%{ opacity:0; transform: translate(-50%,-50%) scale(7.0); }
+}
+@keyframes s3Ring2{
+  0%,52%{ opacity:0; transform: translate(-50%,-50%) scale(.7); }
+  58%{ opacity:.55; transform: translate(-50%,-50%) scale(1.15); }
+  100%{ opacity:0; transform: translate(-50%,-50%) scale(9.0); }
+}
+@keyframes s3Ring3{
+  0%,54%{ opacity:0; transform: translate(-50%,-50%) scale(.7); }
+  60%{ opacity:.45; transform: translate(-50%,-50%) scale(1.3); }
+  100%{ opacity:0; transform: translate(-50%,-50%) scale(11.0); }
+}
+
+
+/* 粒子：後半で外へ */
+.emitParticles{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  opacity:0;
+  transform: scale(.9);
+  background:
+    radial-gradient(circle at 50% 52%, rgba(255,255,255,.85), transparent 10%),
+    radial-gradient(circle at 52% 50%, rgba(53,240,208,.65), transparent 12%),
+    radial-gradient(circle at 48% 54%, rgba(124,92,255,.55), transparent 12%),
+    radial-gradient(circle at 51% 56%, rgba(255,59,212,.45), transparent 12%);
+  filter: blur(.2px);
+  animation: s3Particles var(--dur) ease-out both;
+}
+@keyframes s3Particles{
+  0%,50%{ opacity:0; transform: scale(.9); }
+  55%{ opacity:1; transform: scale(1.0); filter: blur(.2px); }
+  100%{ opacity:0; transform: scale(2.8); filter: blur(1.4px); }
+}
+
+/* 中央デバイス */
+.devices{
+  position:absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%);
+  display:flex;
+  gap: 14px;
+  align-items:flex-end;
+  filter: drop-shadow(0 16px 22px rgba(0,0,0,.28));
+  animation:
+    floatCore 3200ms ease-in-out infinite,
+    s3DeviceCast var(--dur) ease-out both;
+}
+
+@keyframes s3DeviceCast{
+  0%,50%{
+    transform: translate(-50%,-50%) scale(1);
+    filter: drop-shadow(0 16px 22px rgba(0,0,0,.28));
+  }
+  58%{
+    transform: translate(-50%,-50%) scale(1.08);
+    filter: drop-shadow(0 26px 34px rgba(0,0,0,.35));
+  }
+  100%{
+    transform: translate(-50%,-50%) scale(.92);
+    filter: drop-shadow(0 10px 18px rgba(0,0,0,.22));
+  }
+}
+
+/* 後半で画面発光を増やす */
+.laptopScreen::after{
+  opacity: .15;
+  animation: sheen 1800ms ease-in-out infinite, s3ScreenGlow var(--dur) ease-out both;
+}
+@keyframes s3ScreenGlow{
+  0%,50%{ opacity:.15; }
+  60%{ opacity:.55; }
+  100%{ opacity:.25; }
+}
+
+/* ふわふわ＋後半で少し前に出る */
+/* .devices{
+  animation: floatCore 3200ms ease-in-out infinite;
+} */
+@keyframes floatCore{
+  0%{ transform: translate(-50%, -50%) translateY(0); }
+  50%{ transform: translate(-50%, -50%) translateY(-6px); }
+  100%{ transform: translate(-50%, -50%) translateY(0); }
+}
+
+/* Laptop */
+.laptop{
+  width: 88px;
+  height: 66px;
+  position:relative;
+}
+.laptopTop{
+  position:absolute;
+  left: 6px; right: 6px;
+  top: 4px;
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset;
+}
+.laptopScreen{
+  position:absolute;
+  left: 12px; right: 12px;
+  top: 10px;
+  height: 32px;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(53,240,208,.18), transparent 55%),
+    radial-gradient(circle at 70% 60%, rgba(124,92,255,.16), transparent 60%),
+    linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.15));
+  border: 1px solid rgba(255,255,255,.12);
+  overflow:hidden;
+}
+.laptopScreen::after{
+  content:"";
+  position:absolute;
+  inset:-50% -30%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+  transform: translateX(-45%);
+  opacity: calc(.25 + (var(--p) * .25));
+  animation: sheen 1800ms ease-in-out infinite;
+}
+@keyframes sheen{
+  0%{ transform: translateX(-55%); }
+  100%{ transform: translateX(55%); }
+}
+.laptopBase{
+  position:absolute;
+  left: 0; right: 0;
+  bottom: 0;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+  border: 1px solid rgba(255,255,255,.12);
+}
+
+/* Phone */
+.phone{
+  width: 40px;
+  height: 68px;
+  position:relative;
+  transform: translateY(4px);
+}
+.phoneBody{
+  position:absolute;
+  inset:0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset;
+}
+.phoneScreen{
+  position:absolute;
+  left: 6px; right: 6px;
+  top: 10px;
+  bottom: 10px;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255,59,212,.14), transparent 60%),
+    radial-gradient(circle at 65% 70%, rgba(53,240,208,.14), transparent 60%),
+    linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.15));
+  border: 1px solid rgba(255,255,255,.12);
+}
+.phoneCam{
+  position:absolute;
+  left: 50%;
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,.35);
+}
+
+/* 言語クラウド：程よく散らす（固定配置＋個別float） */
+.langCloud{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  filter: drop-shadow(0 14px 18px rgba(0,0,0,.22));
+}
+
+.lang{
+  position:absolute;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing:.04em;
+  color: rgba(255,255,255,.90);
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.16);
+  backdrop-filter: blur(10px);
+  transform: translate(-50%,-50%);
+  opacity: .92;
+  filter: drop-shadow(0 14px 18px rgba(0,0,0,.22));
+
+  /* 0-50 calm + 50-100 shoot */
+  animation:
+    langFloat 3600ms ease-in-out infinite,
+    s3LangCast var(--dur) cubic-bezier(.2,.9,.2,1) both;
+}
+
+@keyframes s3LangCast{
+  0%,50%{
+    transform: translate(-50%,-50%) translate(0,0) scale(1);
+    opacity:.92;
+    box-shadow: none;
+  }
+  56%{
+    transform: translate(-50%,-50%) translate(calc(var(--dx) * .18), calc(var(--dy) * .18)) scale(1.18);
+    opacity:1;
+    box-shadow:
+      0 0 18px rgba(53,240,208,.22),
+      0 0 22px rgba(124,92,255,.18),
+      0 0 26px rgba(255,59,212,.14);
+  }
+  100%{
+    transform: translate(-50%,-50%) translate(var(--dx), var(--dy)) scale(.86) rotate(6deg);
+    opacity:0;
+    box-shadow:
+      0 0 26px rgba(53,240,208,.18),
+      0 0 32px rgba(124,92,255,.14),
+      0 0 38px rgba(255,59,212,.10);
+  }
+}
+
+/* 0..0.5：floatのみ / 0.5..1：広がる */
+@keyframes langFloat{
+  0%{ transform: translate(-50%,-50%) translateY(0); }
+  50%{ transform: translate(-50%,-50%) translateY(-6px); }
+  100%{ transform: translate(-50%,-50%) translateY(0); }
+}
+
+/* 後半の “外へ発信” は --p でスケール・距離を増やす */
+.sceneS3 .lang{
+  /* 0.5以降で少し強く光る */
+  box-shadow:
+    0 0 calc(10px + (var(--p) * 10px)) rgba(53,240,208,.10),
+    0 0 calc(14px + (var(--p) * 12px)) rgba(124,92,255,.08),
+    0 0 calc(18px + (var(--p) * 14px)) rgba(255,59,212,.06);
+  /* 後半で軽く外へ押し広げる（p>0.5で効く） */
+  translate: calc((var(--p) - .5) * 18px) calc((var(--p) - .5) * -10px);
+}
+
+/* 程よいバランス配置（きっちり対称じゃない） */
+.lJava   { left: 20%; top: 30%; --dx: -240px; --dy: -160px; }
+.lPython { left: 70%; top: 28%; --dx:  240px; --dy: -170px; }
+.lPHP    { left: 82%; top: 58%; --dx:  300px; --dy:   40px; }
+.lRuby   { left: 62%; top: 78%; --dx:  170px; --dy:  210px; }
+.lKotlin { left: 34%; top: 80%; --dx: -160px; --dy:  220px; }
+.lGo     { left: 16%; top: 58%; --dx: -300px; --dy:   40px; }
+.lElixir { left: 52%; top: 22%; --dx:   10px; --dy: -240px; }
+
+@media (prefers-reduced-motion: reduce){
+  .emitFlash, .emitBeams, .emitRing, .emitRing2, .emitRing3, .emitParticles,
+  .devices, .lang{
+    animation: none !important;
+  }
+}
+
+/* ===========================
+   Silent transit (code callback only)
+   - 4枚目を“ほぼ無表示”
+   =========================== */
+.silentTransit{
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* アクセシビリティ用（画面には出さない） */
+.srOnly{
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+
+.silentTransit::after{
+  content:"";
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,.18);
+  border-top-color: rgba(255,255,255,.45);
+  animation: spin .9s linear infinite;
+  opacity: .25;
+}

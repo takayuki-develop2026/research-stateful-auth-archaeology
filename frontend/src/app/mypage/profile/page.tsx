@@ -337,7 +337,7 @@ export default function ProfilePage() {
               onChange={(e) =>
                 setForm((prev) => ({ ...prev, address: e.target.value }))
               }
-              placeholder="手動で入力してください"
+              placeholder="都道府県市区町村を入力してください"
             />
             <div className={styles.profile__error}>
               {profileErrors.address ? profileErrors.address[0] : ""}
