@@ -76,7 +76,7 @@ export default function RegisterPage() {
   return (
     <div className="w-full max-w-xl p-8 bg-white rounded-xl shadow-2xl mx-auto z-10 mt-10 mb-8">
       <h2 className="text-center text-3xl font-bold text-gray-800 mb-6 border-b pb-3">
-        会員登録
+        会員登録(2段階認証)
       </h2>
 
       {apiError && (
@@ -145,7 +145,7 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={isSubmitting || isLoading}
-          className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold text-lg"
+          className="w-full bg-black text-white py-3 rounded-lg font-semibold text-lg"
         >
           {isSubmitting ? "登録中..." : "登録する"}
         </button>

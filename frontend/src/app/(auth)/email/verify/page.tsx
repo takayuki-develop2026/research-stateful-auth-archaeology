@@ -46,7 +46,7 @@ export default function VerifyEmailPage() {
     <div className="min-h-screen flex justify-center items-start pt-20 bg-gray-50">
       <div className="w-full max-w-xl p-8 bg-white rounded-lg shadow-xl">
         <h2 className="text-3xl font-bold text-indigo-600 text-center mb-6">
-          メール認証のご案内
+          メール認証のご案内 1/2
         </h2>
 
         <p className="text-center text-gray-700">
