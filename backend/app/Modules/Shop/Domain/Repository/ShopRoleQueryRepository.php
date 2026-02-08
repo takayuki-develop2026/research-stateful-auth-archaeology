@@ -13,4 +13,9 @@ interface ShopRoleQueryRepository
      * @return bool whether any role exists for (userId, shopId)
      */
     public function existsRoleForUserInShop(int $userId, int $shopId): bool;
+
+    /**
+    * @return array<int,array{shop_id:int,shop_code:string,role:string}>
+    */
+    public function findByUserId(int $userId): array;
 }

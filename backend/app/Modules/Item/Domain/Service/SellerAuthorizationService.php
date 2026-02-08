@@ -29,15 +29,15 @@ final class SellerAuthorizationService
         SellerId $sellerId,
         AuthPrincipal $principal,
     ): bool {
-        // Draft フェーズ（shop:managed）
+        // Draft フェーズ（shop:managed）※ id が未確定なら「何かしら shop 権限あるか」
         if ($sellerId->id() === null) {
-            return ! empty($principal->shopIds);
+            return !empty($principal->shopIds()); // ✅ メソッド呼び出し
         }
 
         // Publish 後（shop:ID）
         return in_array(
-            $sellerId->id(),
-            $principal->shopIds,
+            (int) $sellerId->id(),
+            $principal->shopIds(), // ✅ メソッド呼び出し
             true
         );
     }

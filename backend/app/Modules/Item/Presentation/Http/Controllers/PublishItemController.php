@@ -24,15 +24,11 @@ final class PublishItemController extends Controller
         return response()->json(['message' => 'Unauthenticated'], 401);
     }
 
-    $shopId = $request->input('shop_id');
-
-    if ($shopId === null) {
-        throw new \DomainException('shop_id is required');
-    }
+    $shopIdRaw = $request->input('shop_id');
 
     $input = new PublishItemInput(
         draftId: $draftId,
-        shopId: (int) $shopId,
+        shopId: is_null($shopIdRaw) ? null : (int) $shopIdRaw,
     );
 
     $this->useCase->execute($input, $principal, null);

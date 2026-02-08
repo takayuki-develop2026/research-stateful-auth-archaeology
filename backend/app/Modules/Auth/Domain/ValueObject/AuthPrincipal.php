@@ -280,4 +280,9 @@ final class AuthPrincipal
         // - legacy token
         // などが現実にあるため
     }
+
+    public function shopIds(): array
+{
+    return array_map('intval', array_keys($this->shopRoles));
+}
 }

@@ -86,6 +86,13 @@ laravel環境構築
 （ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
 
 
+# アプリの仕様計画<br>
+・Adminでショップ運営の権限を与えることができて(ShopOwner付与)<br>
+ShopOwnerからManageとStaffの権限を与えることができる。(個人も申請すれば出店できる)<br>
+・出品の際マークが付いているのは中古商品としてのマーク<br>
+個人出品の場合は💫、ショップの中古商品は⭐️となる<br>
+
+
 # 次のステップ提案<br>
 
 

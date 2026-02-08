@@ -5,15 +5,19 @@ namespace App\Modules\Auth\Application\Service;
 use App\Modules\Auth\Domain\Port\UserProvisioningPort;
 use App\Modules\Auth\Domain\Port\TokenVerifierPort;
 use App\Modules\Auth\Domain\ValueObject\AuthPrincipal;
+use App\Modules\Shop\Domain\Repository\ShopRoleQueryRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use App\Models\User;
+
 
 final class JwtUserResolver
 {
     public function __construct(
         private TokenVerifierPort $verifier,
         private UserProvisioningPort $provisioning,
+        private ShopRoleQueryRepository $shopRoleQuery,
     ) {}
 
     public function resolve(Request $request): ?array
@@ -128,11 +132,30 @@ final class JwtUserResolver
             return null;
         }
 
-        $principal = AuthPrincipal::fromProvisionedUser(
-            user: $provisioned,
-            provider: $provider,
-            providerUid: $sub,
-        );
+        // role_user (user_id / role_id / shop_id) + roles.slug 前提
+$rows = $this->shopRoleQuery->findByUserId((int) $eloquentUser->id);
+
+$shopRolesMap = [];
+foreach ($rows as $r) {
+    if (!isset($r['shop_id'])) continue;
+    $sid = (int) $r['shop_id'];
+    if ($sid <= 0) continue;              // ✅ ここ
+    $role = (string) ($r['role'] ?? '');
+    if ($role === '') continue;
+
+    $shopRolesMap[$sid] ??= [];
+    $shopRolesMap[$sid][] = $role;
+}
+foreach ($shopRolesMap as $sid => $roles) {
+    $shopRolesMap[$sid] = array_values(array_unique($roles));
+}
+
+$principal = AuthPrincipal::fromProvisionedUser(
+    user: $provisioned,
+    provider: $provider,
+    providerUid: $sub,
+    shopRoles: $shopRolesMap, // ✅ここが核心
+);
 
         return [
             'user' => $eloquentUser,

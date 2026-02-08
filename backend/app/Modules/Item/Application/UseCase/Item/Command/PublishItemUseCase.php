@@ -11,10 +11,7 @@ use App\Modules\Item\Domain\Entity\Item;
 use App\Modules\Item\Domain\Service\SellerAuthorizationService;
 use App\Modules\Item\Domain\ValueObject\StockCount;
 use App\Modules\Item\Domain\ValueObject\SellerType;
-use App\Modules\Item\Domain\ValueObject\ItemOrigin;
-use App\Modules\Item\Domain\Event\ItemPublished;
 use App\Modules\Item\Domain\ValueObject\ItemOrigin as ItemOriginVO;
-// use App\Modules\Item\Domain\Enum\ItemOrigin as ItemOriginEnum;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
@@ -31,111 +28,108 @@ final class PublishItemUseCase
     }
 
     public function execute(
-    PublishItemInput $input,
-    AuthPrincipal $principal,
-    ?int $tenantId,
-): void {
-    $itemId = null;
-    $rawText = null;
+        PublishItemInput $input,
+        AuthPrincipal $principal,
+        ?int $tenantId,
+    ): void {
+        $itemId = null;
+        $rawText = null;
 
-    if ($input->shopId === null) {
-    throw new DomainException('shop_id is required to publish item');
-}
+        DB::transaction(function () use ($input, $principal, &$itemId, &$rawText) {
 
-    DB::transaction(function () use ($input, $principal, &$itemId, &$rawText) {
+            $draft = $this->draftRepository->findById($input->draftId);
 
-        $draft = $this->draftRepository->findById($input->draftId);
-
-        if (! $draft || ! $draft->isPublishableV1()) {
-            throw new DomainException('Draft is not publishable');
-        }
-
-        $sellerId = $draft->sellerId();
-
-/**
- * shop_id 解決（個人・ショップ共通）
- */
-$shopId = match ($sellerId->type()) {
-    SellerType::SHOP => $sellerId->id() ?? $input->shopId,
-    SellerType::INDIVIDUAL => $input->shopId,
-};
-
-if ($shopId === null) {
-    throw new DomainException('shop_id is required to publish item');
-}
-
-if (
-    $sellerId->type() === SellerType::SHOP &&
-    $sellerId->id() !== null &&
-    $sellerId->id() !== $shopId
-) {
-    throw new DomainException('shop_id mismatch');
-}
-
-        $price = $draft->price();
-        if ($price === null) {
-            throw new DomainException('price is required to publish');
-        }
-
-        // 画像昇格
-        $itemImage = null;
-        if ($draftImageVO = $draft->itemImage()) {
-            $draftImagePath = $draftImageVO->value();
-            $itemImagePath = str_replace('item_drafts/', 'item_images/', $draftImagePath);
-
-            if (! Storage::disk('public')->exists($itemImagePath)) {
-                Storage::disk('public')->copy($draftImagePath, $itemImagePath);
+            if (! $draft || ! $draft->isPublishableV1()) {
+                throw new DomainException('Draft is not publishable');
             }
 
-            $itemImage = ItemImagePath::fromRaw($itemImagePath);
-        }
+            $sellerId = $draft->sellerId();
 
-        // Item 作成
-        $item = Item::createNew(
-    itemOrigin: ItemOriginVO::from(
-        $sellerId->type() === SellerType::SHOP
-            ? ItemOriginVO::SHOP_MANAGED
-            : ItemOriginVO::USER_PERSONAL
-    ),
-    shopId: $shopId, // ★ null 不可
-    createdByUserId: $principal->userId(), // 常に user を記録
-    name: $draft->name()->value(),
-    price: $price,
-    explain: $draft->explain(),
-    condition: $draft->condition(),
-    category: $draft->category(),
-    itemImage: $itemImage,
-    remain: new StockCount(1),
-);
+            /**
+             * ✅ B方針：個人は shop_id = null 固定
+             * - SHOP: sellerId が shop:2 等ならそれを採用。shop:managed 等で id が無いなら input.shopId 必須
+             * - INDIVIDUAL: 常に null
+             */
+            $shopId = match ($sellerId->type()) {
+                SellerType::SHOP => $sellerId->id() ?? $input->shopId,
+                SellerType::INDIVIDUAL => null,
+            };
 
-        $item->markPublished(new \DateTimeImmutable('now'));
+            // ✅ SHOP のときだけ shop_id を必須化
+            if ($sellerId->type() === SellerType::SHOP && $shopId === null) {
+                throw new DomainException('shop_id is required to publish item');
+            }
 
-        $this->itemRepository->save($item);
-        $itemId = $item->id();
+            // ✅ SHOP のときだけ mismatch 判定
+            if (
+                $sellerId->type() === SellerType::SHOP &&
+                $sellerId->id() !== null &&
+                $sellerId->id() !== $shopId
+            ) {
+                throw new DomainException('shop_id mismatch');
+            }
 
-        // 🔑 rawText（純粋データのみ）
-        $rawText = trim(implode(' ', array_filter([
-    (string) $draft->name()?->value(),
-    (string) ($draft->explain() ?? ''),
-    (string) ($draft->brand()?->value() ?? ''),
-    (string) ($draft->condition() ?? ''),   // ← 必ず string 化
-    (string) ($draft->color() ?? ''),       // ← color があるなら
-])));
+            $price = $draft->price();
+            if ($price === null) {
+                throw new DomainException('price is required to publish');
+            }
 
-        // Draft publish
-        $draft->markPublished();
-        $this->draftRepository->save($draft);
-    });
+            // 画像昇格
+            $itemImage = null;
+            if ($draftImageVO = $draft->itemImage()) {
+                $draftImagePath = $draftImageVO->value();
+                $itemImagePath = str_replace('item_drafts/', 'item_images/', $draftImagePath);
 
-    // 🔥 transaction 完了後に dispatch（最重要）
-    Event::dispatch(
-    new ItemImported(
-        $itemId,
-        $rawText,
-        $tenantId,
-        'publish',
-        $input->draftId,
-    )
-);
-}
+                if (! Storage::disk('public')->exists($itemImagePath)) {
+                    Storage::disk('public')->copy($draftImagePath, $itemImagePath);
+                }
+
+                $itemImage = ItemImagePath::fromRaw($itemImagePath);
+            }
+
+            // ✅ Item 作成（B方針：shopId nullable）
+            $item = Item::createNew(
+                itemOrigin: ItemOriginVO::from(
+                    $sellerId->type() === SellerType::SHOP
+                        ? ItemOriginVO::SHOP_MANAGED
+                        : ItemOriginVO::USER_PERSONAL
+                ),
+                shopId: $shopId,                    // ★ INDIVIDUAL は null
+                createdByUserId: $principal->userId(),
+                name: $draft->name()->value(),
+                price: $price,
+                explain: $draft->explain(),
+                condition: $draft->condition(),
+                category: $draft->category(),
+                itemImage: $itemImage,
+                remain: new StockCount(1),
+            );
+
+            $item->markPublished(new \DateTimeImmutable('now'));
+
+            $this->itemRepository->save($item);
+            $itemId = $item->id();
+
+            // rawText（純粋データのみ）
+            $rawText = trim(implode(' ', array_filter([
+                (string) $draft->name()?->value(),
+                (string) ($draft->explain() ?? ''),
+                (string) ($draft->brand()?->value() ?? ''),
+                (string) ($draft->condition() ?? ''),
+                (string) ($draft->color() ?? ''),
+            ])));
+
+            $draft->markPublished();
+            $this->draftRepository->save($draft);
+        });
+
+        // transaction 完了後に dispatch
+        Event::dispatch(new ItemImported(
+            $itemId,
+            $rawText,
+            $tenantId,
+            'publish',
+            $input->draftId,
+        ));
+    }
 }

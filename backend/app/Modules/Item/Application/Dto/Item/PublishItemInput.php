@@ -6,7 +6,7 @@ final class PublishItemInput
 {
     public function __construct(
         public readonly string $draftId,
-        public readonly int $shopId,
+        public readonly ?int $shopId,
     ) {
     }
 }

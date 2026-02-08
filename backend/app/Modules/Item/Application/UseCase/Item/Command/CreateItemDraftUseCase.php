@@ -38,21 +38,18 @@ final class CreateItemDraftUseCase
          * ========================================= */
         $shopId = null;
 
-        if ($sellerId->type() === SellerType::SHOP) {
+if ($sellerId->type() === SellerType::SHOP) {
+    $shopId = $sellerId->id(); // shop:2 など
 
-            // shop:2 の場合
-            if ($sellerId->id() !== null) {
-                $shopId = $sellerId->id();
-            }
-            // shop:managed の場合
-            else {
-                $shopId = $principal->shopIds[0] ?? null;
-            }
+    if (! $shopId) {
+        // ✅ shop:managed を許さない（設計固定）
+        throw new \DomainException('seller_id must be shop:{id} for SHOP listing');
+    }
+}
 
-            if (! $shopId) {
-                throw new \DomainException('shop_id is required');
-            }
-        }
+if ($sellerId->type() === SellerType::INDIVIDUAL) {
+    $this->assignSellerRoleService->assignIndividualIfNotExists($principal->userId());
+}
 
         /* =========================================
          * 個人出品のみ seller ロール付与

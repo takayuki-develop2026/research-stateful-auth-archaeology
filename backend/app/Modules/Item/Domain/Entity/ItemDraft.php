@@ -218,4 +218,24 @@ public function color(): ?string
 {
     return null;
 }
+
+public function applyPublishIdentity(string $itemOrigin, ?int $shopId, int $userId): void
+{
+    if ($itemOrigin === ItemOrigin::SHOP_MANAGED) {
+        if (!$shopId) {
+            throw new \DomainException('shop_id is required for SHOP_MANAGED');
+        }
+        $this->sellerId = SellerId::fromRaw('shop:' . (string)$shopId);
+        $this->shopId = (int)$shopId;
+        return;
+    }
+
+    // USER_PERSONAL
+    if ($itemOrigin !== ItemOrigin::USER_PERSONAL) {
+        throw new \DomainException("Invalid item_origin: {$itemOrigin}");
+    }
+
+    $this->sellerId = SellerId::fromRaw('individual:' . (string)$userId);
+    $this->shopId = null;
+}
 }

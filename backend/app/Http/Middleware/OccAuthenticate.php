@@ -35,6 +35,12 @@ final class OccAuthenticate
             $principal = $resolved['principal'];
             $this->authContext->setPrincipal($principal);
 
+\Log::info('[🔥AUTH CHECK]', [
+  'user_id' => $principal->userId(),
+  'shop_ids' => $principal->shopIds(),
+  'shop_roles' => $principal->shopRoles(),
+]);
+
             // ✅ 追加：Controller が読むための単一経路
             $request->attributes->set('auth_principal', $principal);
 

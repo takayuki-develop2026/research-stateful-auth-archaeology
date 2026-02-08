@@ -25,8 +25,9 @@ class CreateItemsTable extends Migration
              * ショップに属する場合のみ入る
              */
             $table->foreignId('shop_id')
-                ->constrained('shops')
-                ->cascadeOnDelete();
+    ->nullable()
+    ->constrained('shops')
+    ->nullOnDelete();
 
             /**
              * 個人出品者

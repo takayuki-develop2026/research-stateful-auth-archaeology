@@ -40,16 +40,36 @@ final class PublicItemAssembler
         // =========================
         $displayType = null;
 
-        // 💫 個人出品（shop_id=null）は誰が見ても💫
-        // ※ viewer ではなく item の属性で決める
-        if ($shopId === null) {
-            $displayType = 'OWN'; // フロント側が 💫 として扱う値に合わせる
-        }
+$itemOrigin = (string) ($row['item_origin'] ?? '');
+$creatorHasShopRole = (bool) ($row['creator_has_shop_role'] ?? false);
 
-        // ❤️ FAVORITE 最優先（既存ロジック維持）
-        if ($isFavorited) {
-            $displayType = 'FAVORITE';
-        }
+$displayType = null;
+
+if ($itemOrigin === 'USER_PERSONAL') {
+    $displayType = $creatorHasShopRole ? 'STAR' : 'OWN';
+}
+
+// ✅ 個人出品判定（shop_idに依存しない救済込み）
+$isPersonalListing =
+    ($shopId === null)
+    || in_array($itemOrigin, [
+        'personal',
+        'individual',
+        'user',
+        'user_personal',
+        'personal_user',
+    ], true);
+
+// ✅ 個人出品だけマーク付与：一般=💫 / shop関係=⭐️
+// ✅ ショップ出品はマーク無し（null）
+if ($isPersonalListing) {
+    $displayType = $creatorHasShopRole ? 'STAR' : 'OWN';
+}
+
+        // ❤️ フロントで、FAVORITE 最優先（既存ロジック維持）
+        // if ($isFavorited) {
+        //     $displayType = 'FAVORITE';
+        // }
 
         // 画像（複数キーを吸収して強くする）
         $rawImage =

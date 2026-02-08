@@ -22,7 +22,13 @@ final class UploadItemDraftImageUseCase
         string $path,
     ): void {
         $draft = $this->draftRepository->findById($draftId);
-
+\Log::info('[🔥UploadDraftImage][AUTH CHECK]', [
+    'draft_id' => $draftId,
+    'draft_seller_raw' => $draft->sellerId()->raw(),
+    'principal_user_id' => $principal->userId(),
+    'principal_shop_ids' => $principal->shopIds(),
+    'principal_shop_roles' => $principal->shopRoles(),
+]);
         if (! $draft) {
             throw new DomainException('Draft not found');
         }

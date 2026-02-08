@@ -80,7 +80,7 @@ export default function Home() {
   const items: PublicItemCard[] = useMemo(() => {
     const raw =
       currentTab === "mylist"
-        ? favoriteResult.items.map((item) => ({ ...item, displayType: null }))
+        ? favoriteResult.items
         : isSearch
           ? searchResult.items
           : listResult.items;
@@ -215,11 +215,11 @@ export default function Home() {
                       }}
                     >
                       <div className={styles.itemImageWrapper}>
-                        {item.displayType && (
-                          <span className={styles.ownStar}>
-                            {item.displayType === "STAR" ? "⭐️" : "💫"}
-                          </span>
-                        )}
+                        {item.displayType === "STAR" ? (
+                          <span className={styles.ownStar}>⭐️</span>
+                        ) : item.displayType === "OWN" ? (
+                          <span className={styles.ownStar}>💫</span>
+                        ) : null}
 
                         {/* ✅ 完売バッジ */}
                         {item.isSoldOut && (

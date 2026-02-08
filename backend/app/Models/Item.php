@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Modules\Item\Domain\ValueObject\ItemOrigin;
 
 class Item extends Model
 {
@@ -106,12 +107,12 @@ class Item extends Model
      * ===================== */
 
     public function isUserPersonal(): bool
-    {
-        return $this->item_origin === 'USER_PERSONAL';
-    }
+{
+    return $this->item_origin === ItemOrigin::USER_PERSONAL; // 'user_personal'
+}
 
-    public function isShopManaged(): bool
-    {
-        return $this->item_origin === 'SHOP_MANAGED';
-    }
+public function isShopManaged(): bool
+{
+    return $this->item_origin === ItemOrigin::SHOP_MANAGED;  // 'shop_managed'
+}
 }

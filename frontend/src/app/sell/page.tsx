@@ -1,7 +1,6 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/ui/auth/AuthProvider";
@@ -67,6 +66,32 @@ export default function ItemSellPage() {
   const [error, setError] = useState("");
 
   /* =========================
+     Shop helpers（userがnullでも安全）
+  ========================= */
+  const shops = user?.shop_roles ?? [];
+
+  // ✅ 一般ユーザーは SHOP_MANAGED を選べない（owner/manager のみ）
+  const canShopManaged = useMemo(() => {
+    return shops.some((r: any) => r.role === "owner" || r.role === "manager");
+  }, [shops]);
+
+  // ✅ 表示用ラベル（shop_name 等があれば使う）
+  const shopLabel = (r: any) => {
+    return (
+      r.shop_name ??
+      r.shopName ??
+      r.name ??
+      r.shop_code ??
+      r.shopCode ??
+      `ショップID #${r.shop_id}`
+    );
+  };
+
+  const selectedShop = useMemo(() => {
+    return shops.find((r: any) => r.shop_id === selectedShopId) ?? null;
+  }, [shops, selectedShopId]);
+
+  /* =========================
      Auth Guard（共通仕様）
   ========================= */
   useEffect(() => {
@@ -79,25 +104,41 @@ export default function ItemSellPage() {
 
   /* =========================
      SHOP_MANAGED 初期化
-     SoT: primary_shop
+     - USER_PERSONAL のときは shop を要求しない（エラー出さない）
+     - SHOP_MANAGED のときだけ自動選択（owner優先）
   ========================= */
   useEffect(() => {
     if (!user) return;
 
-    // 個人用ショップ（必須）
-    const personalShop = user.shop_roles?.find(
-      (r) => r.role === "owner" // or personal
-    );
-
-    if (!personalShop) {
-      setError("個人ショップが見つかりません");
+    // ✅ USER_PERSONAL では shop を要求しない
+    if (itemOrigin !== "SHOP_MANAGED") {
+      setError("");
       return;
     }
 
-    setSelectedShopId(personalShop.shop_id);
-  }, [user]);
+    // ✅ SHOP_MANAGED を選べないユーザーは UIもdisabledだが二重防御
+    if (!canShopManaged) {
+      setError("");
+      setItemOrigin("USER_PERSONAL");
+      return;
+    }
 
-  // Auth 初期化待ち
+    const ownerShop = shops.find((r: any) => r.role === "owner") ?? null;
+    const fallbackShop =
+      ownerShop ?? shops.find((r: any) => r.role === "manager") ?? null;
+
+    if (!fallbackShop) {
+      setError("ショップ出品する権限がありません");
+      return;
+    }
+
+    setSelectedShopId(fallbackShop.shop_id);
+    setError("");
+  }, [user, itemOrigin, canShopManaged, shops]);
+
+  /* =========================
+     ここで早期return（Hooksの後なのでOK）
+  ========================= */
   if (!authReady || !user) return null;
 
   /* =========================
@@ -139,26 +180,41 @@ export default function ItemSellPage() {
       return;
     }
 
+    // ✅ SHOP_MANAGED のときだけ shop 選択必須
+    if (itemOrigin === "SHOP_MANAGED") {
+      if (!canShopManaged) {
+        setError("ショップ出品する権限がありません");
+        return;
+      }
+      if (!selectedShopId) {
+        setError("ショップを選択してください");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setError("");
 
     try {
       // 1. Draft 作成
-      type CreateItemDraftResponse = {
-        draft_id: string;
-      };
+      type CreateItemDraftResponse = { draft_id: string };
+
+      const sellerId =
+        itemOrigin === "SHOP_MANAGED"
+          ? `shop:${selectedShopId}`
+          : `individual:${user.id}`;
 
       const draftRes = await apiClient.post<CreateItemDraftResponse>(
         "/items/drafts",
         {
-          seller_id: `individual:${user.id}`,
+          seller_id: sellerId,
           name: form.name,
           price_amount: Number(form.price),
           price_currency: "JPY",
           brand: form.attributes || null,
           explain: form.explain || null,
           category: form.categories.length ? form.categories : null,
-        }
+        },
       );
 
       const draftId = draftRes.draft_id;
@@ -166,13 +222,12 @@ export default function ItemSellPage() {
       // 2. Image Upload
       const imageData = new FormData();
       imageData.append("image", imageFile);
-
       await apiClient.post(`/items/drafts/${draftId}/image`, imageData);
 
-      // 3. Publish
+      // 3. Publish（SHOPのときだけ shop_id 送信）
       await apiClient.post(`/items/drafts/${draftId}/publish`, {
         item_origin: itemOrigin,
-        shop_id: selectedShopId,
+        ...(itemOrigin === "SHOP_MANAGED" ? { shop_id: selectedShopId } : {}),
       });
 
       router.push("/");
@@ -194,7 +249,7 @@ export default function ItemSellPage() {
       <form onSubmit={submitItem} className={styles.form}>
         {/* 出品名義 */}
         <div className={styles.formGroup}>
-          <label>出品名義</label>
+          <label>出品タイプ</label>
           <div className={styles.radioGroup}>
             <label>
               <input
@@ -202,22 +257,34 @@ export default function ItemSellPage() {
                 checked={itemOrigin === "USER_PERSONAL"}
                 onChange={() => setItemOrigin("USER_PERSONAL")}
               />
-              個人出品
+              カスタマー出品/ショップ出品（中古）
             </label>
 
-            <label>
+            {/* ✅ 一般ユーザーは薄い灰色の◯で選択不可 */}
+            <label
+              style={{
+                opacity: canShopManaged ? 1 : 0.45,
+                cursor: canShopManaged ? "pointer" : "not-allowed",
+              }}
+              title={
+                canShopManaged
+                  ? ""
+                  : "ショップ出品する権限がありません（owner/manager が必要）"
+              }
+            >
               <input
                 type="radio"
                 checked={itemOrigin === "SHOP_MANAGED"}
                 onChange={() => setItemOrigin("SHOP_MANAGED")}
+                disabled={!canShopManaged}
               />
-              ショップ管理商品
+              ショップ出品（新品）
             </label>
           </div>
         </div>
 
         {/* ショップ選択 */}
-        {itemOrigin === "SHOP_MANAGED" && user.shop_roles?.length ? (
+        {itemOrigin === "SHOP_MANAGED" && canShopManaged && shops.length ? (
           <div className={styles.formGroup}>
             <label>出品するショップ</label>
             <select
@@ -226,12 +293,18 @@ export default function ItemSellPage() {
               required
             >
               <option value="">選択してください</option>
-              {user.shop_roles.map((r) => (
+              {shops.map((r: any) => (
                 <option key={r.shop_id} value={r.shop_id}>
-                  ショップID #{r.shop_id}
+                  {shopLabel(r)}
                 </option>
               ))}
             </select>
+
+            {selectedShop ? (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                選択中：{shopLabel(selectedShop)}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
