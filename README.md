@@ -31,8 +31,9 @@ Dockerビルド
 
 　 シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
 (backend)<br>
-DB_PASSWORD=,JWT_SECRET=,<br>
 FIREBASE_CREDENTIALS=(現段階では使っていない。jsonファイルなし位置表示のみ),<br>
+DB_PASSWORD=,JWT_SECRET=,<br>
+AUTH0_MANAGEMENT_CLIENT_SECRET=,<br>
 STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
 ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
   必要でしたら　backend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
