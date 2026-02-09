@@ -5,6 +5,7 @@ namespace App\Modules\Payment\Infrastructure\Gateway;
 use App\Modules\Payment\Domain\Service\PaymentMethodVault;
 use App\Modules\Payment\Domain\Service\SetupIntentResult;
 use App\Modules\Payment\Domain\Service\PaymentMethodCardSnapshot;
+use App\Modules\Payment\Domain\Service\SetupIntentSnapshot;
 use Stripe\StripeClient;
 
 final class StripePaymentMethodVault implements PaymentMethodVault
@@ -37,8 +38,10 @@ final class StripePaymentMethodVault implements PaymentMethodVault
         $si = $this->stripe->setupIntents->create([
             'customer' => $providerCustomerId,
             'payment_method_types' => ['card'],
-            // v1: OneClick に備えて off_session を推奨（将来変更可）
             'usage' => 'off_session',
+            'metadata' => [
+                'purpose' => 'wallet_card_save',
+            ],
         ]);
 
         return new SetupIntentResult(
@@ -47,10 +50,37 @@ final class StripePaymentMethodVault implements PaymentMethodVault
         );
     }
 
+    public function retrieveSetupIntent(string $setupIntentId): SetupIntentSnapshot
+    {
+        $si = $this->stripe->setupIntents->retrieve($setupIntentId, []);
+
+        $pm = $si->payment_method ?? null;
+        $pmId = null;
+        if (is_string($pm)) {
+            $pmId = $pm;
+        } elseif (is_object($pm) && isset($pm->id)) {
+            $pmId = (string)$pm->id;
+        }
+
+        $customer = $si->customer ?? null;
+        $customerId = null;
+        if (is_string($customer)) {
+            $customerId = $customer;
+        } elseif (is_object($customer) && isset($customer->id)) {
+            $customerId = (string)$customer->id;
+        }
+
+        return new SetupIntentSnapshot(
+            setupIntentId: (string)$si->id,
+            status: (string)$si->status,
+            providerCustomerId: $customerId,
+            providerPaymentMethodId: $pmId,
+        );
+    }
+
     public function retrievePaymentMethodCard(string $providerPaymentMethodId): PaymentMethodCardSnapshot
     {
         $pm = $this->stripe->paymentMethods->retrieve($providerPaymentMethodId, []);
-
         $card = $pm->card ?? null;
 
         return new PaymentMethodCardSnapshot(
@@ -62,8 +92,7 @@ final class StripePaymentMethodVault implements PaymentMethodVault
     }
 
     public function detachPaymentMethod(string $providerPaymentMethodId): void
-{
-    // すでにdetachedでもStripe側はエラーを返す場合があるので、上位で握る設計でOK
-    $this->stripe->paymentMethods->detach($providerPaymentMethodId, []);
-}
+    {
+        $this->stripe->paymentMethods->detach($providerPaymentMethodId, []);
+    }
 }

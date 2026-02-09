@@ -165,6 +165,7 @@ type StripeSectionHandle = {
   confirmCardPaymentByClientSecret: (clientSecret: string) => Promise<void>;
   confirmCardSetupByClientSecret: (clientSecret: string) => Promise<void>;
   hasCardElement: () => boolean;
+  isCardComplete: () => boolean; // ✅ 追加
 };
 
 type StripeSectionProps = {
@@ -179,6 +180,9 @@ const StripeCardSection = forwardRef<StripeSectionHandle, StripeSectionProps>(
   function StripeCardSection(props, ref) {
     const stripe = useStripe();
     const elements = useElements();
+
+    // ✅ CardElement の入力完了フラグ（未入力/未完了時の誤実行を防ぐ）
+    const [cardComplete, setCardComplete] = useState(false);
 
     const safeStringifyError = (e: any) => {
       try {
@@ -198,6 +202,10 @@ const StripeCardSection = forwardRef<StripeSectionHandle, StripeSectionProps>(
         hasCardElement: () => {
           if (!elements) return false;
           return !!elements.getElement(CardElement);
+        },
+
+        isCardComplete: () => {
+          return !!cardComplete;
         },
 
         confirmCardPaymentByClientSecret: async (clientSecret: string) => {
@@ -245,13 +253,17 @@ const StripeCardSection = forwardRef<StripeSectionHandle, StripeSectionProps>(
           }
         },
       }),
-      [stripe, elements],
+      [stripe, elements, cardComplete],
     );
 
     return (
       <div style={{ marginTop: 12 }}>
         <div className={styles.stripeCardWrapper}>
           <CardElement
+            onChange={(e) => {
+              // ✅ Stripe Elements 側の入力状態を保持
+              setCardComplete(!!(e as any)?.complete);
+            }}
             options={{
               hidePostalCode: true,
               disableLink: true,
@@ -284,7 +296,8 @@ const StripeCardSection = forwardRef<StripeSectionHandle, StripeSectionProps>(
                 disabled={
                   props.processing ||
                   props.saveCardLoading ||
-                  props.walletLoading
+                  props.walletLoading ||
+                  !cardComplete // ✅ 追加：カード入力が完了するまで押せない（見た目は同じ）
                 }
                 style={{
                   padding: "6px 10px",
@@ -369,6 +382,7 @@ export default function PurchaseConfirmPage() {
   const orderIdRef = useRef<number | null>(null);
 
   const stripeSectionRef = useRef<StripeSectionHandle | null>(null);
+  const saveCardInFlightRef = useRef(false);
   const [showDebug, setShowDebug] = useState(false);
   const [cardPsp, setCardPsp] = useState<CardPspMode>(CARD_PSP_MODE);
 
@@ -574,7 +588,6 @@ export default function PurchaseConfirmPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payment, apiClient, isAuthenticated, item, cardPsp]);
 
-
   // ✅ Adyen Drop-in mount（A案：常時表示 / PayButtonはfalse）
   useEffect(() => {
     if (!adyenSession) return;
@@ -711,8 +724,9 @@ export default function PurchaseConfirmPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adyenSession?.sessionId, item?.price]);
 
-  // ✅ 保存カード（SetupIntent → confirmCardSetup）
+
   const saveCardForOneClick = async () => {
+    // 0) まず簡易ガード（ここはロック前でOK）
     if (!apiClient) {
       alert("APIクライアントが準備できていません。");
       return;
@@ -721,30 +735,45 @@ export default function PurchaseConfirmPage() {
       alert("ログインが必要です。");
       return;
     }
+    if (!stripeSectionRef.current?.hasCardElement()) {
+      alert("カード入力欄が準備できていません。");
+      return;
+    }
+    if (!stripeSectionRef.current?.isCardComplete()) {
+      alert("カード情報を最後まで入力してください。");
+      return;
+    }
+
+    // ✅ 1) 二重実行防止ロック（ここが追加点）
+    if (saveCardInFlightRef.current) return;
+    saveCardInFlightRef.current = true;
 
     try {
       setSaveCardLoading(true);
 
+      // 1) setup-intent 作成
       const si = await apiClient.post<CreateSetupIntentResponse>(
         "/wallet/setup-intent",
         {},
       );
-      if (!si?.client_secret) {
-        alert("client_secret が取得できませんでした。");
-        return;
+      if (!si?.client_secret || !si?.setup_intent_id) {
+        alert("setup_intent の情報が取得できませんでした。");
+        return; // ✅ finally でロック解除される
       }
 
-      if (!stripeSectionRef.current) {
-        alert("Stripeの決済UIが準備できていません。");
-        return;
-      }
-
+      // 2) Stripe confirm
       await stripeSectionRef.current.confirmCardSetupByClientSecret(
         si.client_secret,
       );
 
-      await new Promise((r) => setTimeout(r, 1200));
+      // 3) SoT確定
+      await apiClient.post("/wallet/setup-intent/complete", {
+        setup_intent_id: si.setup_intent_id,
+        provider: "stripe",
+        set_default: true,
+      });
 
+      // 4) 最新状態を取り直す
       setWalletLoading(true);
       const wallet = await apiClient.get<WalletPaymentMethodsResponse>(
         "/wallet/payment-methods",
@@ -758,6 +787,8 @@ export default function PurchaseConfirmPage() {
         e?.response?.data?.message ?? e?.message ?? "カード保存に失敗しました",
       );
     } finally {
+      // ✅ 2) 必ず解除（ここが重要）
+      saveCardInFlightRef.current = false;
       setWalletLoading(false);
       setSaveCardLoading(false);
     }
@@ -1275,4 +1306,3 @@ export default function PurchaseConfirmPage() {
     </div>
   );
 }
-

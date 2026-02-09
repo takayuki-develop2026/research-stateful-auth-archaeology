@@ -507,11 +507,13 @@ Route::middleware('auth.occ')
 
 
 use App\Modules\Payment\Presentation\Http\Controllers\Wallet\CreateSetupIntentController;
+use App\Modules\Payment\Presentation\Http\Controllers\Wallet\CompleteSetupIntentController;
 
 Route::middleware('auth.occ')
     ->prefix('wallet')
     ->group(function () {
         Route::post('setup-intent', CreateSetupIntentController::class);
+        Route::post('setup-intent/complete', CompleteSetupIntentController::class);
     });
 
 

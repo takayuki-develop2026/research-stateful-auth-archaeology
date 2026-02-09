@@ -28,6 +28,9 @@ interface PaymentMethodVault
 
     public function createSetupIntent(string $providerCustomerId): SetupIntentResult;
 
+    // ✅ 追加（complete API の核）
+    public function retrieveSetupIntent(string $setupIntentId): SetupIntentSnapshot;
+
     public function retrievePaymentMethodCard(string $providerPaymentMethodId): PaymentMethodCardSnapshot;
 
     public function detachPaymentMethod(string $providerPaymentMethodId): void;

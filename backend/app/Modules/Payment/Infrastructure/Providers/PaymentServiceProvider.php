@@ -77,6 +77,8 @@ use App\Modules\Payment\Infrastructure\Persistence\Repository\EloquentPaymentQue
 
 use App\Modules\Payment\Application\UseCase\CreateAdyenPreviewSessionUseCase;
 
+use App\Modules\Payment\Application\UseCase\Wallet\OneClickCheckoutUseCase;
+
 
 final class PaymentServiceProvider extends ServiceProvider
 {
@@ -129,6 +131,10 @@ final class PaymentServiceProvider extends ServiceProvider
         $this->app->when(CreateAdyenPreviewSessionUseCase::class)
             ->needs(PaymentGatewayPort::class)
             ->give(AdyenPaymentGateway::class);
+
+            $this->app->when(OneClickCheckoutUseCase::class)
+  ->needs(PaymentGatewayPort::class)
+  ->give(StripePaymentGateway::class);
 
 
         $this->app->bind(PaymentGatewayPort::class, function ($app) {
