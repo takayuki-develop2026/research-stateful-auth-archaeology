@@ -25,9 +25,9 @@ Dockerビルド
 
 　5\. env.exampleファイルから.envを作成し、.envファイルの環境変数を変更(backend+frontend+admin_rails)<br>
 　　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
-(DB_PASSWORD="",と<br>
-AUTH0_MANAGEMENT_CLIENT_SECRET="",<br>
-(新規登録時403エラーになるのはメール認証完了してないとログインできない仕様だからです。)<br>)
+　DB_PASSWORD="",と<br>
+　AUTH0_MANAGEMENT_CLIENT_SECRET="",<br>
+　(新規登録時403エラーになるのはメール認証完了してないとログインできない仕様だからです。)<br>
 　　b:(frontendディレクトリで実行) cp .env.example .env　の実行<br>
 　　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env<br>
 　の実行<br>
