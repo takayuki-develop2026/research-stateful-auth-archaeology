@@ -23,6 +23,9 @@ final class PublicCatalogItemResource
                 : null,
 
             'publishedAt'  => $dto->publishedAt->format(DATE_ATOM),
+            'category' => $dto->category ?? [],
+            'remain' => $dto->remain,
+            'is_sold_out' => $dto->isSoldOut(),
 
             // ★ UI 用
             'displayType'  => $dto->displayType, // 'STAR' | 'COMET' | null

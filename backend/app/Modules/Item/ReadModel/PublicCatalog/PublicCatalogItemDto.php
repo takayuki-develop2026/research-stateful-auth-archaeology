@@ -13,6 +13,10 @@ final class PublicCatalogItemDto
         public readonly ?string $brandPrimary,
         public readonly ?string $conditionName,
         public readonly ?string $colorName,
+
+        // ✅ 追加：JSON category（例: ["PC","ストレージ","HDD"]）
+        public readonly ?array $category,
+
         public readonly ?string $itemImagePath,
         public readonly \DateTimeInterface $publishedAt,
         public readonly ?string $itemOrigin,
@@ -38,6 +42,10 @@ final class PublicCatalogItemDto
             'brandPrimary' => $this->brandPrimary,
             'conditionName' => $this->conditionName,
             'colorName' => $this->colorName,
+
+            // ✅ 追加
+            'category' => $this->category,
+
             'itemImagePath' => $this->itemImagePath,
             'publishedAt' => $this->publishedAt->format('Y-m-d H:i:s'),
             'item_origin' => $this->itemOrigin,

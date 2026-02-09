@@ -75,6 +75,7 @@ final class ItemReadRepository
                 'i.item_image',
                 'i.brand',
                 'i.condition',
+                'i.category',
                 's.payment_provider as shop_payment_provider',
             ])
             ->first();
@@ -82,6 +83,34 @@ final class ItemReadRepository
         if (!$row) {
             return null;
         }
+
+        $category = $row->category ?? null;
+
+// DB::table は JSON を string で返すことがある
+if (is_string($category) && $category !== '') {
+    $decoded = json_decode($category, true);
+
+    // 1) 正常：JSON配列文字列 -> array
+    if (is_array($decoded)) {
+        $category = $decoded;
+    }
+    // 2) 二重：JSON文字列の中に配列文字列が入ってる -> もう一回 decode
+    elseif (is_string($decoded) && $decoded !== '') {
+        $decoded2 = json_decode($decoded, true);
+        $category = is_array($decoded2) ? $decoded2 : [$decoded];
+    }
+    // 3) JSONじゃない普通の文字列 -> 区切って配列化（保険）
+    else {
+        $parts = preg_split('/[|\/,\x{3001}\x{30fb}]+/u', $category) ?: [];
+        $parts = array_values(array_filter(array_map('trim', $parts), fn($v) => $v !== ''));
+        $category = $parts;
+    }
+}
+
+// 最終保証：必ず配列
+if (!is_array($category)) {
+    $category = [];
+}
 
         $entity = $this->pickBestEntityRow((int) $row->id);
 
@@ -153,6 +182,7 @@ final class ItemReadRepository
             'brand'     => $display['brand']['name'] ?? null,
             'condition' => $display['condition']['name'] ?? null,
             'color'     => $display['color']['name'] ?? null,
+            'category'  => $category,
             'display'   => $display,
 
             // shop の決済プロバイダ

@@ -60,22 +60,32 @@ final class ListPublicCatalogItemsUseCase
         $displayType = $isShopMember ? 'STAR' : 'COMET';
     }
 
-    $items[] = new PublicCatalogItemDto(
-        id: (int) $row->id,
-        name: (string) $row->name,
-        price: (int) $row->price,
-        brandPrimary: $row->brand_primary ?? null,
-        conditionName: $row->condition_name ?? null,
-        colorName: $row->color_name ?? null,
-        itemImagePath: $row->item_image ?? null,
-        publishedAt: $row->created_at,
-        itemOrigin: $itemOrigin,
-        displayType: $displayType
-    );
-}
+    $category = $row->category ?? null;
+if (is_string($category)) {
+    $decoded = json_decode($category, true);
+    $category = is_array($decoded) ? $decoded : null;
 }
 
+$items[] = new PublicCatalogItemDto(
+    id: (int) $row->id,
+    name: (string) $row->name,
+    price: (int) $row->price,
+    remain: (int) ($row->remain ?? 0),
 
+    // まず raw（安全）
+    brandPrimary: $row->brand ?? null,
+    conditionName: $row->condition ?? null,
+    colorName: null, // itemsに無いなら null。あるなら $row->color
+
+    category: $category,
+
+    itemImagePath: $row->item_image ?? null,
+    publishedAt: $row->created_at,
+    itemOrigin: $itemOrigin,
+    displayType: $displayType,
+    display: null
+);
+}
 
         return new PublicCatalogItemCollection($items);
     }

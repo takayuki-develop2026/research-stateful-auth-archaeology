@@ -32,6 +32,7 @@ final class ItemDetailResource
             'brand'      => $row['brand'] ?? null,
             'condition'  => $row['condition'] ?? null,
             'color'      => $row['color'] ?? null,
+            'category' => $row['category'] ?? [],
 
             // ✅ 表示メタ（由来・source 用）
             'display'    => $row['display'] ?? null,

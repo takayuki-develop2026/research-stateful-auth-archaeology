@@ -420,40 +420,44 @@ export default function ItemDetailPage() {
             <div className={styles.section}>
               <h2 className={styles.sectionTitle}>商品情報</h2>
 
-              <div className={styles.categoryRow}>
-                <p className={styles.categoryLabel}>カテゴリー：</p>
-                <ul className={styles.categoryList}>
-                  {categoryTokens.map((c) => (
-                    <li key={c}>{c}</li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* 状態：左 raw / 右 加工後（スペースあり） */}
-              <div
-                className={styles.conditionRow}
-                style={{ display: "flex", gap: 14 }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p className={styles.conditionLabel}>商品の状態：</p>
-                  <p className={styles.conditionValue}>
-                    {rawCondition || "未登録"}
-                  </p>
+              <div className={styles.specGrid}>
+                {/* カテゴリー */}
+                <div className={styles.specRow}>
+                  <div className={styles.specLabel}>カテゴリー</div>
+                  <div className={styles.specValue}>
+                    {categoryTokens.length > 0 ? (
+                      <span
+                        className={`${styles.valueStrong} ${styles.categoryValue}`}
+                      >
+                        {categoryTokens.join(" ・ ")}
+                      </span>
+                    ) : (
+                      <span className={styles.muted}>未登録</span>
+                    )}
+                  </div>
                 </div>
 
-                {/* <div style={{ flex: 1, minWidth: 0 }}>
-                  <p className={styles.conditionLabel}>Update</p>
-                  <p className={styles.conditionValue}>
-                    {displayCondition || rawCondition || "未登録"}
-                  </p>
+                {/* 商品の状態 */}
+                <div className={styles.specRow}>
+                  <div className={styles.specLabel}>コンディション</div>
+                  <div className={styles.specValue}>
+                    {rawCondition ? (
+                      <span className={styles.valueStrong}>{rawCondition}</span>
+                    ) : (
+                      <span className={styles.muted}>未登録</span>
+                    )}
+                  </div>
                 </div>
-              </div> */}
 
-                {/* カラー：新規追加 */}
-                <div className={styles.conditionRow} style={{ marginTop: 10 }}>
-                  <p className={styles.conditionLabel}>カラー：</p>
-                  <div className={styles.conditionValue}>
-                    {rawColor || "未登録"}
+                {/* カラー */}
+                <div className={styles.specRow}>
+                  <div className={styles.specLabel}>カラー</div>
+                  <div className={styles.specValue}>
+                    {rawColor ? (
+                      <span className={styles.valueStrong}>{rawColor}</span>
+                    ) : (
+                      <span className={styles.muted}>未登録</span>
+                    )}
                   </div>
                 </div>
               </div>

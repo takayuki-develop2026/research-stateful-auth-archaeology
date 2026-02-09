@@ -521,6 +521,80 @@
   opacity: 0.78;
 }
 
+/* =========================
+   商品情報（spec）
+========================= */
+
+.specGrid {
+  margin-top: 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.specRow {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: none;
+}
+
+.specRow:first-child {
+  border-top: none;
+}
+
+.specLabel {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding-top: 2px;
+  white-space: nowrap;
+}
+
+.specValue {
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.6;
+  min-width: 0;
+}
+
+.valueStrong {
+  font-weight: 700;
+}
+
+.muted {
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+/* category chips */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.categoryValue {
+  font-weight: 500;
+  text-shadow: 0.1px 0 0 currentColor; /* 最小の太らせ */
+  letter-spacing: 0.12em; /* ほんの少しだけ隙間を作る */
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 100%;
+}
+
 /* ============================================================
    レスポンシブ
 ============================================================ */
