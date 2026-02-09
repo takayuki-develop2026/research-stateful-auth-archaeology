@@ -25,7 +25,10 @@ Dockerビルド
 
 　5\. env.exampleファイルから.envを作成し、.envファイルの環境変数を変更(backend+frontend+admin_rails)<br>
 　　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
-　　b:(frontendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
+(DB_PASSWORD="",と<br>
+AUTH0_MANAGEMENT_CLIENT_SECRET="",<br>
+(新規登録時403エラーになるのはメール認証完了してないとログインできない仕様だからです。)<br>)
+　　b:(frontendディレクトリで実行) cp .env.example .env　の実行<br>
 　　c:(admin_railsディレクトリで実行) cp .env.example .env 2>/dev/null || true && test -f .env || touch .env<br>
 　の実行<br>
 
@@ -34,8 +37,8 @@ Dockerビルド
 FIREBASE_CREDENTIALS=(現段階では使っていない。jsonファイルなし位置表示のみ),<br>
 JWT_SECRET=,DB_PASSWORD=,<br>
 AUTH0_MANAGEMENT_CLIENT_SECRET=,<br>
-STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
-ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
+(STRIPE)STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
+(ADYEN)ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
   必要でしたら　backend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
 
 　6\. Docker Desktopを立ち上げて
@@ -44,9 +47,6 @@ ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お�
 
 laravel環境構築
 <br>
-　準備：<br>
-DB_PASSWORD="",と<br>
-AUTH0_MANAGEMENT_CLIENT_SECRET="",(新規登録時403エラーになるのはメール認証完了してないとログインできない仕様だからです。)<br>
 <br>
 　1\. (カレントディレクトリー)docker-compose exec php bash　の実行
 <br>

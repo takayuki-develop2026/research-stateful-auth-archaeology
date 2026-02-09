@@ -92,6 +92,12 @@ export default function ShopOrderListPage() {
   ========================= */
   return (
     <div className="p-6 space-y-4">
+      <Link
+        href={`/shops/${shop_code}/dashboard`}
+        className="text-blue-600 underline"
+      >
+        ← 店舗ダッシュボードへ戻る
+      </Link>
       <h1 className="text-2xl font-bold">注文・配送管理</h1>
       <div className="text-sm text-gray-600">件数: {count}</div>
 
@@ -127,7 +133,8 @@ export default function ShopOrderListPage() {
                   )}
                   {isDraft && (
                     <div className="text-amber-600 text-xs font-semibold">
-                      購入手続き受付待ち。<br />
+                      購入手続き受付待ち。
+                      <br />
                       （在庫確認して受付してください。）
                     </div>
                   )}
