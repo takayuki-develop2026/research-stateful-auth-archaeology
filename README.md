@@ -32,7 +32,7 @@ Dockerビルド
 　 シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
 (backend)<br>
 FIREBASE_CREDENTIALS=(現段階では使っていない。jsonファイルなし位置表示のみ),<br>
-DB_PASSWORD=,JWT_SECRET=,<br>
+JWT_SECRET=,DB_PASSWORD=,<br>
 AUTH0_MANAGEMENT_CLIENT_SECRET=,<br>
 STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
 ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
@@ -44,6 +44,9 @@ ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お�
 
 laravel環境構築
 <br>
+　準備：<br>
+DB_PASSWORD="",と<br>
+AUTH0_MANAGEMENT_CLIENT_SECRET="",(新規登録時403エラーになるのはメール認証完了してないとログインできない仕様だからです。)<br>
 <br>
 　1\. (カレントディレクトリー)docker-compose exec php bash　の実行
 <br>
@@ -83,7 +86,7 @@ laravel環境構築
 カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
 有効期限（未来）・名前、は決まりなし。<br><br>
 
-- 出品解析システム <br>
+- AI解析システム（出品解析システム：出品する前に実行） <br>
 （ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
 
 

@@ -653,7 +653,7 @@ function TimelineView({ rows }: { rows: AtlasRequestRow[] }) {
                   </div>
                   <div className="mt-2">
                     <Line
-                      label="Brand"
+                      label="Pending AI Analysis"
                       value={bBrand.text}
                       hint={bBrand.hint}
                     />

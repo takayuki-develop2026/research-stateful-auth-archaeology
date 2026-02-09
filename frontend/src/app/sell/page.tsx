@@ -278,7 +278,7 @@ export default function ItemSellPage() {
                 onChange={() => setItemOrigin("SHOP_MANAGED")}
                 disabled={!canShopManaged}
               />
-              ショップ出品（新品）
+              ショップ出品（新品）(解析はどちらも機能しますが管理できるのはこちら）)
             </label>
           </div>
         </div>
