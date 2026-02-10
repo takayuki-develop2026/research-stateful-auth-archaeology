@@ -27,6 +27,12 @@ type FlowState = { phase: FlowPhase; ts: number };
 // --------------------
 // Debug helper
 // --------------------
+function clearReturnToFromSession() {
+  try {
+    sessionStorage.removeItem(RETURN_TO_KEY);
+  } catch {}
+}
+
 function d(...args: any[]) {
   console.log("[AuthCallback]", ...args);
 }
@@ -161,6 +167,37 @@ export default function AuthCallbackPage() {
   // ✅ 4枚目（code callbackでp無し）だけを“ほぼ無表示”にする判定
   const isSilentTransit = !!code && !phaseFromQuerySafe;
 
+  // --------------------
+  // ✅ Debug: ローカル強制シーン表示（登録/ログイン不要）
+  // ?debugScene=s3&debugHold=1[&debugPhase=second_done]
+  // - debugScene: s1 | s1r | s3 | sx
+  // - debugHold=1: ストーリー(10s)を走らせる（自動遷移は無効化）
+  // --------------------
+  const debugSceneParam = sp.get("debugScene");
+  const debugHoldParam = sp.get("debugHold");
+  const debugPhaseParam = sp.get("debugPhase");
+  const debugPhaseSafe: FlowPhase | null = isValidPhase(debugPhaseParam)
+    ? debugPhaseParam
+    : null;
+
+  const debugSceneKind = useMemo<"s1" | "s1r" | "s3" | "sx" | null>(() => {
+    if (debugSceneParam === "s1") return "s1";
+    if (debugSceneParam === "s1r") return "s1r";
+    if (debugSceneParam === "s3") return "s3";
+    if (debugSceneParam === "sx") return "sx";
+    return null;
+  }, [debugSceneParam]);
+
+  const isDebugScene = !!debugSceneKind;
+  const isDebugHold = debugHoldParam === "1";
+
+  const debugEffectivePhase: FlowPhase | null = useMemo(() => {
+    if (!isDebugScene) return null;
+    if (debugSceneKind === "sx") return null; // login相当
+    if (!isDebugHold) return null; // holdしない=ストーリー走らない
+    return debugPhaseSafe ?? "first";
+  }, [isDebugScene, debugSceneKind, isDebugHold, debugPhaseSafe]);
+
   const [hydrated, setHydrated] = useState(false);
   const [phase, setPhase] = useState<FlowPhase | null>(null);
 
@@ -181,6 +218,12 @@ export default function AuthCallbackPage() {
       returnToRaw,
       nonceFromQuery,
       isSilentTransit,
+
+      // debug
+      isDebugScene,
+      debugSceneKind,
+      isDebugHold,
+      debugPhaseSafe,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -189,17 +232,30 @@ export default function AuthCallbackPage() {
   // ✅ effectivePhase: “pが無い /auth/callback” を first として救済
   // --------------------
   const effectivePhase: FlowPhase | null = useMemo(() => {
+    // ✅ Debugが指定されているときは SoT を debug に固定
+    if (isDebugScene) return debugEffectivePhase;
+
+    // ✅ URL(p) があればそれが絶対SoT
     if (phaseFromQuerySafe) return phaseFromQuerySafe;
 
-    // code がある場合は OIDC callback → IdaasProvider が hold に飛ばすのが正
+    // ✅ code がある場合は OIDC callback → IdaasProvider が hold に飛ばすのが正
     if (code) return null;
 
-    // error は login へ戻すUIにしたいなら null のままでOK
+    // ✅ error は login へ戻すUIにしたいなら null のままでOK
     if (error) return null;
 
-    // ✅ それ以外で /auth/callback に来た = verify link戻りを first として救済
-    return "first";
-  }, [phaseFromQuerySafe, code, error]);
+    // ✅ p無しで /auth/callback に来た = 迷子/verify link戻り
+    // いきなり first 固定にせず、localStorage(FLOW_KEY)で最後に確定したphaseを優先
+    // phase state は hydrate の readFlowState() 由来
+    return phase ?? "first";
+  }, [
+    isDebugScene,
+    debugEffectivePhase,
+    phaseFromQuerySafe,
+    code,
+    error,
+    phase, // ✅ 追加
+  ]);
 
   // --------------------
   // ✅ phase の SoT: p があれば採用。p無しだけど effectivePhase=first なら holdへ正規化
@@ -207,7 +263,13 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     if (!hydrated) return;
 
-    // p があるならそれをSoTにする
+    // ✅ Debug中は URL/flow をいじらない（眺めるだけ）
+    if (isDebugScene) {
+      d("debug:skip_phase_sync", { debugSceneKind, isDebugHold });
+      return;
+    }
+
+    // ✅ p があるならそれをSoTにする
     if (phaseFromQuerySafe) {
       d("phase:adopt_from_query", {
         phaseFromQuerySafe,
@@ -225,25 +287,40 @@ export default function AuthCallbackPage() {
       return;
     }
 
-    // ✅ p無し救済：effectivePhase=first なら URL を hold に正規化して「p付き」にする
-    if (!code && !error && effectivePhase === "first") {
+    // ✅ p無し + code無し + error無し：迷子救済 → hold(p=...)に正規化
+    // effectivePhase は localStorage(flow)優先になっているので巻き戻りしない
+    if (!code && !error && effectivePhase) {
+      let nonce: string | null = null;
+
+      // second_pending の時は nonce が必要になりがち（別タブで sessionStorage 空対策）
+      if (effectivePhase === "second_pending") {
+        nonce = getNonceFromSession();
+        if (!nonce) {
+          nonce = genNonce();
+          setNonceToSession(nonce);
+          d("nonce:generated_for_repair", { nonce });
+        }
+      }
+
       const hold = buildHoldUrl({
-        phase: "first",
+        phase: effectivePhase,
         finalReturnTo: returnToRaw,
-        nonce: null,
+        nonce,
       });
 
       d("phase:repair_no_p_no_code", {
         action: "router.replace(hold)",
         to: hold,
+        effectivePhase,
         returnToRaw,
+        nonce,
       });
 
       router.replace(hold);
       return;
     }
 
-    // p無し + codeあり は何もしない（IdaasProvider が hold に飛ばす）
+    // ✅ p無し + codeあり は何もしない（IdaasProvider が hold に飛ばす）
     d("phase:no_p", {
       hasCode: !!code,
       hasError: !!error,
@@ -252,6 +329,9 @@ export default function AuthCallbackPage() {
     });
   }, [
     hydrated,
+    isDebugScene,
+    debugSceneKind,
+    isDebugHold,
     phaseFromQuerySafe,
     nonceFromQuery,
     code,
@@ -262,34 +342,51 @@ export default function AuthCallbackPage() {
   ]);
 
   // --------------------
-  // screen/duration: effectivePhase 基準
+  // screen/duration: effectivePhase 基準（Debug時は override）
   // --------------------
   const screen: Screen = useMemo(() => {
+    // ✅ Debug
+    if (isDebugScene) {
+      if (debugSceneKind === "sx") return "login";
+      if (debugEffectivePhase === "second_done") return "verify_done";
+      return "verify";
+    }
+
     if (effectivePhase === "first") return "verify";
     if (effectivePhase === "second_pending") return "verify";
     if (effectivePhase === "second_done") return "verify_done";
     return "login";
-  }, [effectivePhase]);
+  }, [isDebugScene, debugSceneKind, debugEffectivePhase, effectivePhase]);
 
   const isVerify = screen === "verify" || screen === "verify_done";
 
   const durationMs = useMemo(() => {
+    // ✅ Debug: debugHold=1 の時だけストーリーを走らせる
+    if (isDebugScene) {
+      if (!isDebugHold) return 0;
+      if (debugEffectivePhase === "second_done") return STEP2_MS;
+      return STEP1_MS;
+    }
+
     if (effectivePhase === "second_done") return STEP2_MS;
     if (effectivePhase === "first" || effectivePhase === "second_pending")
       return STEP1_MS;
     return 0;
-  }, [effectivePhase]);
+  }, [isDebugScene, isDebugHold, debugEffectivePhase, effectivePhase]);
 
   // --------------------
   // ✅ Scene selection (S1 / S1R / S3 / SX)
   // --------------------
   const sceneKind = useMemo<"s1" | "s1r" | "s3" | "sx">(() => {
+    // ✅ Debug
+    if (isDebugScene && debugSceneKind) return debugSceneKind;
+
     if (!isVerify) return "sx";
     if (effectivePhase === "first") return "s1"; // 1つ目：現状
     if (effectivePhase === "second_pending") return "s1r"; // 2つ目：逆走
     if (effectivePhase === "second_done") return "s3"; // 3つ目：PC+Phone+Lang
     return "sx";
-  }, [isVerify, effectivePhase]);
+  }, [isDebugScene, debugSceneKind, isVerify, effectivePhase]);
 
   // --------------------
   // ✅ UI texts (phaseごとにテキストのみ変える)
@@ -304,7 +401,7 @@ export default function AuthCallbackPage() {
   const title = useMemo(() => {
     if (effectivePhase === "first") return "メール認証 1/2";
     if (effectivePhase === "second_pending") return "メール認証 1.5/2";
-    if (effectivePhase === "second_done") return "メール認証 2/2";
+    if (effectivePhase === "second_done") return "メール認証 2/2(待ち時間,言語をhoverできます。)";
     return "Signing in…";
   }, [effectivePhase]);
 
@@ -384,6 +481,10 @@ export default function AuthCallbackPage() {
    * callback 後は必ず second_pending の hold に戻す（=10秒表示）
    */
   const goToAuth0SignupForSecond = useCallback(async () => {
+    if (isDebugScene) {
+      d("debug:block_action:goToAuth0SignupForSecond");
+      return;
+    }
     if (onceRef.current) return;
     onceRef.current = true;
 
@@ -396,32 +497,40 @@ export default function AuthCallbackPage() {
       nonce,
     });
 
-    // ✅ AuthProvider が callback 完了後に読む returnTo を hold に固定
+    // ✅ ここは「毎回上書き」なので古いのを消してから入れるのが安全
+    clearReturnToFromSession();
     setReturnToToSession(holdPending);
 
-    // 画面側も合わせる
     writeFlow("second_pending");
     setPhase("second_pending");
 
-    d("action:goToAuth0SignupForSecond", {
-      nonce,
-      holdPending,
-      returnToRaw,
-    });
+    d("action:goToAuth0SignupForSecond", { nonce, holdPending, returnToRaw });
 
     try {
       await login({ type: "oidc", returnTo: holdPending });
     } catch (e) {
       console.error(e);
+
+      // ✅ 失敗時は詰まりを消す（再試行可能に）
+      onceRef.current = false;
+      clearFlow();
+      clearNonceFromSession();
+      clearReturnToFromSession();
+      setPhase(null);
+
       router.replace(`/login?oidc_error=1`);
     }
-  }, [login, router, returnToRaw]);
+  }, [isDebugScene, login, router, returnToRaw]);
 
   /**
    * ✅ second_pending になったら、次の callback 後の着地点を “second_done hold” に仕込む
    */
   useEffect(() => {
     if (!hydrated) return;
+
+    // ✅ Debug中は外部遷移準備もしない
+    if (isDebugScene) return;
+
     if (effectivePhase !== "second_pending") return;
 
     const nonce = getNonceFromSession();
@@ -442,23 +551,27 @@ export default function AuthCallbackPage() {
     setReturnToToSession(holdDone);
 
     d("arm:second_done_hold:ok", { holdDone, nonce, returnToRaw });
-  }, [hydrated, effectivePhase, returnToRaw]);
+  }, [hydrated, isDebugScene, effectivePhase, returnToRaw]);
 
   /**
    * ✅ 2/2 完走後 → 最終ログイン（callback後は final returnTo へ）
    */
   const finalizeAfterSecondDone = useCallback(async () => {
+    if (isDebugScene) {
+      d("debug:block_action:finalizeAfterSecondDone");
+      return;
+    }
     if (onceRef.current) return;
     onceRef.current = true;
 
-    // flow掃除
+    // ✅ flow掃除（ここを強化）
     clearFlow();
     clearNonceFromSession();
+    clearReturnToFromSession();
     setPhase(null);
 
     d("action:finalizeAfterSecondDone", { returnToRaw });
 
-    // ✅ ここでme同期だけ取って終わる（Auth0へ戻らない）
     let me: any = null;
     try {
       me = await refresh?.();
@@ -466,7 +579,7 @@ export default function AuthCallbackPage() {
 
     const next = resolvePostVerifyReturnTo(me, returnToRaw);
     router.replace(next || "/");
-  }, [refresh, router, returnToRaw]);
+  }, [isDebugScene, refresh, router, returnToRaw]);
 
   // --------------------
   // story runner
@@ -485,6 +598,9 @@ export default function AuthCallbackPage() {
       durationMs: dur,
       returnToRaw,
       href: typeof window !== "undefined" ? window.location.href : "",
+      isDebugScene,
+      debugSceneKind,
+      isDebugHold,
     });
 
     setCssVar("--p", "0");
@@ -517,7 +633,10 @@ export default function AuthCallbackPage() {
         setDomText(`[data-el="statusText"]`, "READY");
         setDomText(`[data-el="hintText"]`, "準備完了");
 
-        d("story:ready", { effectivePhase });
+        d("story:ready", { effectivePhase, isDebugScene });
+
+        // ✅ Debug中は “自動遷移” を完全に無効化（眺めるだけ）
+        if (isDebugScene) return;
 
         afterReadyTimerRef.current = window.setTimeout(() => {
           if (effectivePhase === "first") void goToAuth0SignupForSecond();
@@ -544,6 +663,9 @@ export default function AuthCallbackPage() {
     baseMessage,
     goToAuth0SignupForSecond,
     finalizeAfterSecondDone,
+    isDebugScene,
+    debugSceneKind,
+    isDebugHold,
   ]);
 
   // --------------------
@@ -573,6 +695,12 @@ export default function AuthCallbackPage() {
       nonce_query: nonceFromQuery,
       sceneKind,
       isSilentTransit,
+
+      // debug
+      isDebugScene,
+      debugSceneKind,
+      isDebugHold,
+      debugPhaseSafe,
     });
 
     if (isVerify && isHold) {
@@ -599,12 +727,24 @@ export default function AuthCallbackPage() {
     clearTimers,
     sceneKind,
     isSilentTransit,
+
+    // debug
+    isDebugScene,
+    debugSceneKind,
+    isDebugHold,
+    debugPhaseSafe,
   ]);
 
   // --------------------
   // continue
   // --------------------
   const onContinue = useCallback(async () => {
+    // ✅ Debug中はボタン押しても何もしない（眺めるだけ）
+    if (isDebugScene) {
+      d("debug:block_ui:onContinue");
+      return;
+    }
+
     if (!readyRef.current) return;
 
     d("ui:continue_clicked", { effectivePhase, returnToRaw });
@@ -622,20 +762,28 @@ export default function AuthCallbackPage() {
         nonce,
       });
 
-      // ✅ 次の callback 後の着地点は second_done
+      clearReturnToFromSession();
       setReturnToToSession(holdDone);
 
       d("ui:continue_second_pending_to_done", { nonce, holdDone });
 
       try {
-        await login({ type: "oidc", returnTo: holdDone }); // ✅ ここが重要
+        await login({ type: "oidc", returnTo: holdDone });
       } catch (e) {
         console.error(e);
+
+        onceRef.current = false;
+        clearFlow();
+        clearNonceFromSession();
+        clearReturnToFromSession();
+        setPhase(null);
+
         router.replace(`/login?oidc_error=1`);
       }
       return;
     }
   }, [
+    isDebugScene,
     effectivePhase,
     returnToRaw,
     goToAuth0SignupForSecond,
@@ -649,7 +797,8 @@ export default function AuthCallbackPage() {
   // - 4枚目（codeあり & p無し）の瞬間は“透明”だけ返す
   // --------------------
   if (!hydrated) {
-    if (isSilentTransit) {
+    // ✅ Debug中は常に描画する（透明にしない）
+    if (!isDebugScene && isSilentTransit) {
       return (
         <div className={styles.silentTransit} role="status" aria-live="polite">
           <span className={styles.srOnly}>Signing in…</span>
@@ -684,7 +833,7 @@ export default function AuthCallbackPage() {
   // --------------------
   // ✅ hydrated後も 4枚目（codeあり & p無し）は“透明”だけ返す
   // --------------------
-  if (isSilentTransit) {
+  if (!isDebugScene && isSilentTransit) {
     return (
       <div className={styles.silentTransit} role="status" aria-live="polite">
         <span className={styles.srOnly}>Signing in…</span>
@@ -806,37 +955,172 @@ export default function AuthCallbackPage() {
 
                   <div className={styles.emitParticles} />
 
-                  <div className={styles.devices}>
-                    <div className={styles.laptop}>
-                      <div className={styles.laptopTop} />
-                      <div className={styles.laptopScreen} />
-                      <div className={styles.laptopBase} />
-                    </div>
-                    <div className={styles.phone}>
-                      <div className={styles.phoneBody} />
-                      <div className={styles.phoneScreen} />
-                      <div className={styles.phoneCam} />
+                  <div className={styles.devicesCast}>
+                    <div className={styles.devicesFloat}>
+                      <div className={styles.devices}>
+                        <div className={styles.laptop}>
+                          <div className={styles.laptopTop} />
+                          <div className={styles.laptopScreen} />
+                          <div className={styles.laptopBase} />
+                        </div>
+                        <div className={styles.phone}>
+                          <div className={styles.phoneBody} />
+                          <div className={styles.phoneScreen} />
+                          <div className={styles.phoneCam} />
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  <div className={styles.langCloud}>
-                    <span className={`${styles.lang} ${styles.lJava}`}>
-                      Java
-                    </span>
-                    <span className={`${styles.lang} ${styles.lPython}`}>
-                      Python
-                    </span>
-                    <span className={`${styles.lang} ${styles.lPHP}`}>PHP</span>
-                    <span className={`${styles.lang} ${styles.lRuby}`}>
-                      Ruby
-                    </span>
-                    <span className={`${styles.lang} ${styles.lKotlin}`}>
-                      Kotlin
-                    </span>
-                    <span className={`${styles.lang} ${styles.lGo}`}>GO</span>
-                    <span className={`${styles.lang} ${styles.lElixir}`}>
-                      Elixir
-                    </span>
+                  {/* =========================================================
+                     ✅ Lang (FIXED): cast と float を wrapper 分離
+                     - .langWrap: 位置だけ (left/top var)
+                     - .langCast: 射出 transform (s3LangCast) + aura
+                     - .langFloat: ふわふわ transform (langFloatA/B/C)
+                     - .lang: 崩壊 (opacity/blur) etc
+                     ========================================================= */}
+
+                  <div className={`${styles.langWrap} ${styles.lJava}`}>
+                    <div className={styles.langCast}>
+                      <div className={styles.langFloat}>
+                        <span
+                          className={`${styles.lang} ${styles.langHoverSwap}`}
+                        >
+                          <span className={styles.langFace}>Java</span>
+                          <span className={styles.langAlt} aria-hidden="true">
+                            <span className={styles.langAltTop}>Canada</span>
+                            <span className={styles.langAltBottom}>
+                              ジェームズ・ゴズリング
+                            </span>
+                          </span>
+                        </span>
+                        <i className={styles.starBurst} aria-hidden="true" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`${styles.langWrap} ${styles.lPython}`}>
+                    <div className={styles.langCast}>
+                      <div className={styles.langFloat}>
+                        <span
+                          className={`${styles.lang} ${styles.langHoverSwap}`}
+                        >
+                          <span className={styles.langFace}>Python</span>
+                          <span className={styles.langAlt} aria-hidden="true">
+                            <span className={styles.langAltTop}>
+                              Netherlands
+                            </span>
+                            <span className={styles.langAltBottom}>
+                              グイド・ヴァン・ロッサム
+                            </span>
+                          </span>
+                        </span>
+                        <i className={styles.starBurst} aria-hidden="true" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`${styles.langWrap} ${styles.lPHP}`}>
+                    <div className={styles.langCast}>
+                      <div className={styles.langFloat}>
+                        <span
+                          className={`${styles.lang} ${styles.langHoverSwap}`}
+                        >
+                          <span className={styles.langFace}>PHP</span>
+                          <span className={styles.langAlt} aria-hidden="true">
+                            <span className={styles.langAltTop}>
+                              Greenland / Denmark
+                            </span>
+                            <span className={styles.langAltBottom}>
+                              ラスマス・ラードフ
+                            </span>
+                          </span>
+                        </span>
+                        <i className={styles.starBurst} aria-hidden="true" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`${styles.langWrap} ${styles.lRuby}`}>
+                    <div className={styles.langCast}>
+                      <div className={styles.langFloat}>
+                        <span
+                          className={`${styles.lang} ${styles.langHoverSwap}`}
+                        >
+                          <span className={styles.langFace}>Ruby</span>
+
+                          <span className={styles.langAlt} aria-hidden="true">
+                            <span className={styles.langAltTop}>日本</span>
+                            <span className={styles.langAltBottom}>
+                              まつもとゆきひろ
+                            </span>
+                          </span>
+                        </span>
+
+                        <i className={styles.starBurst} aria-hidden="true" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`${styles.langWrap} ${styles.lKotlin}`}>
+                    <div className={styles.langCast}>
+                      <div className={styles.langFloat}>
+                        <span
+                          className={`${styles.lang} ${styles.langHoverSwap}`}
+                        >
+                          <span className={styles.langFace}>Kotlin</span>
+                          <span className={styles.langAlt} aria-hidden="true">
+                            <span className={styles.langAltTop}>
+                              Russia / Czech
+                            </span>
+                            <span className={styles.langAltBottom}>
+                              ジェットブレインズ社
+                            </span>
+                          </span>
+                        </span>
+                        <i className={styles.starBurst} aria-hidden="true" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`${styles.langWrap} ${styles.lGo}`}>
+                    <div className={styles.langCast}>
+                      <div className={styles.langFloat}>
+                        <span
+                          className={`${styles.lang} ${styles.langHoverSwap}`}
+                        >
+                          <span className={styles.langFace}>GO</span>
+                          <span className={styles.langAlt} aria-hidden="true">
+                            <span className={styles.langAltTop}>
+                              United States
+                            </span>
+                            <span className={styles.langAltBottom}>
+                              ロバート・グリースマー
+                            </span>
+                          </span>
+                        </span>
+                        <i className={styles.starBurst} aria-hidden="true" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`${styles.langWrap} ${styles.lElixir}`}>
+                    <div className={styles.langCast}>
+                      <div className={styles.langFloat}>
+                        <span
+                          className={`${styles.lang} ${styles.langHoverSwap}`}
+                        >
+                          <span className={styles.langFace}>Elixir</span>
+                          <span className={styles.langAlt} aria-hidden="true">
+                            <span className={styles.langAltTop}>Brazil</span>
+                            <span className={styles.langAltBottom}>
+                              ジョゼ・ヴァリム
+                            </span>
+                          </span>
+                        </span>
+                        <i className={styles.starBurst} aria-hidden="true" />
+                      </div>
+                    </div>
                   </div>
                 </>
               ) : null}
