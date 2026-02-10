@@ -117,8 +117,9 @@
           </td>
 
           <td>
-            <a href="/admin/trustledger/postings?from=<%= from_q %>&to=<%= to_q %>&shop_id=<%= s["shop_id"] %>">仕訳を見る</a>
-          </td>
+  <%= link_to "仕訳を見る",
+    admin_postings_path(from: from_q, to: to_q, shop_id: s["shop_id"]) %>
+</td>
         </tr>
       <% end %>
     </tbody>

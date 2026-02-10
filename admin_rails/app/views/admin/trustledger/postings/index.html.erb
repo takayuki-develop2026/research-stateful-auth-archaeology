@@ -93,6 +93,15 @@
     <%= s %>
   <% end %>
 
+  <%# ✅ sale金額の索引（手数料率を逆算するため） %>
+  <% sale_amount_by_key = {} %>
+  <% @items.each do |row| %>
+    <% t = (row["posting_type"] || row["type"]).to_s %>
+    <% next unless t == "sale" %>
+    <% k = [row["shop_id"], row["order_id"], row["payment_id"]].join(":") %>
+    <% sale_amount_by_key[k] = row["amount"].to_f %>
+  <% end %>
+
   <p style="margin:8px 0; color:#555;">
     表示件数: <strong><%= @items.length %></strong>
   </p>
@@ -111,10 +120,33 @@
         <th>source_event_id</th>
       </tr>
     </thead>
+
     <tbody>
       <% @items.each do |p| %>
         <% prov = (p["source_provider"] || "unknown").to_s %>
         <% st = provider_style(prov) %>
+
+        <% posting_type = (p["posting_type"] || p["type"]).to_s %>
+        <% is_fee = (posting_type == "fee") %>
+
+        <%# オレンジ系（通常/濃い） %>
+        <% fee_orange = "#d97706" %>
+        <% fee_orange_strong = "#5a2f24" %>
+        <span style="color:<%= fee_orange_strong %>; font-weight:900; font-size:12px; text-shadow: 0 0 1px <%= fee_orange_strong %>;">
+
+        <% fee_style = "color:#{fee_orange}; font-weight:800;" %>
+
+        <%# ✅ 手数料率（%）を sale から逆算 %>
+        <% fee_rate_pct = nil %>
+        <% if is_fee %>
+          <% key = [p["shop_id"], p["order_id"], p["payment_id"]].join(":") %>
+          <% base = sale_amount_by_key[key] %>
+          <% if base && base > 0 %>
+            <% fee_rate_pct = (p["amount"].to_f / base * 100.0) %>
+          <% end %>
+        <% end %>
+
+        <% fee_rate_label = fee_rate_pct ? ("%.2f" % fee_rate_pct).sub(/\.00$/, "") : nil %>
 
         <tr>
           <td>
@@ -122,12 +154,48 @@
               <%= p["posting_id"] || p["id"] %>
             </a>
           </td>
+
           <td><%= fmt_jst(p["occurred_at"]) %></td>
+
+          <%# =========================
+             種別セル：手数料(fee) / (手数料率) / fee の3段
+             ========================= %>
           <td>
-            <div><%= jp_posting_type(p["posting_type"] || p["type"]) %></div>
-            <div style="color:#666; font-size:12px;"><%= (p["posting_type"] || p["type"]) %></div>
+            <div>
+              <span style="<%= is_fee ? fee_style : "" %>">
+                <%= jp_posting_type(posting_type) %>
+              </span>
+            </div>
+
+
+            <div style="font-size:11px; margin-top:1px;">
+              <span style="<%= is_fee ? "color:#{fee_orange}; font-weight:700;" : "color:#666;" %>">
+                <%= posting_type %>
+              </span>
+            </div>
           </td>
-          <td><%= p["amount"] %></td>
+
+          <%# =========================
+             金額セル：fee のときだけ右下に（%）を濃い色で
+             ========================= %>
+          <td>
+            <% if is_fee %>
+              <div style="display:inline-block; line-height:1.05;">
+                <div style="<%= fee_style %>"><%= p["amount"] %></div>
+                <div style="text-align:right; font-size:11px; margin-top:2px;">
+                  <% if fee_rate_label %>
+                    <span style="color:<%= fee_orange_strong %>; font-weight:900;">
+                      （<%= fee_rate_label %>%）
+                    </span>
+                  <% else %>
+                    <span style="color:<%= fee_orange_strong %>; font-weight:900;">（-%）</span>
+                  <% end %>
+                </div>
+              </div>
+            <% else %>
+              <%= p["amount"] %>
+            <% end %>
+          </td>
 
           <%# ✅ KPIと同じ色で provider 名を表示 %>
           <td>
