@@ -255,7 +255,7 @@ def _run_and_pick_best(
     analyze_fn,
     tokens: List[str],
     raw_text: str,
-    policy,
+    policy_engine,
     ctx: Context,
     req_ctx: Dict[str, Any],
     known_assets_ref: str,
@@ -279,7 +279,7 @@ def _run_and_pick_best(
                     known_assets_ref=known_assets_ref,
                     context=req_ctx,
                 ),
-                policy,
+                policy_engine,
                 ctx,
             )
             name, conf, _ = _extract_name_conf_tokens(r)
@@ -311,7 +311,7 @@ def _run_and_pick_best(
                 known_assets_ref=known_assets_ref,
                 context=req_ctx,
             ),
-            policy,
+            policy_engine,
             ctx,
         )
         name, conf, _ = _extract_name_conf_tokens(r)
@@ -339,7 +339,7 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
     ✅ スペース無し結合は “辞書ファイル” の語彙で救う（brands/conditions/colors）
     """
     engine_name = os.getenv("ATLAS_POLICY_ENGINE", "v1")
-    policy = PolicyEngineV2() if engine_name == "v2" else PolicyEngine()
+    policy_engine = PolicyEngineV2() if engine_name == "v2" else PolicyEngine()
     ctx: Context = ContextBuilder().build(base={}, multimodal=None)
 
     req_ctx = getattr(request, "context", {}) or {}
@@ -385,7 +385,7 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
         analyze_fn=analyze_brand,
         tokens=brand_tokens,
         raw_text=raw_text,
-        policy=policy,
+        policy_engine=policy_engine,
         ctx=ctx,
         req_ctx=req_ctx,
         known_assets_ref="brands_v1",
@@ -397,7 +397,7 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
         analyze_fn=analyze_condition,
         tokens=condition_tokens,
         raw_text=raw_text,
-        policy=policy,
+        policy_engine=policy_engine,
         ctx=ctx,
         req_ctx=req_ctx,
         known_assets_ref="conditions_v1",
@@ -409,7 +409,7 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
         analyze_fn=analyze_color,
         tokens=color_tokens,
         raw_text=raw_text,
-        policy=policy,
+        policy_engine=policy_engine,
         ctx=ctx,
         req_ctx=req_ctx,
         known_assets_ref="colors_v1",
@@ -505,7 +505,10 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
         tokens_out["color"] = [t for t in (tokens_out.get("color") or []) if t != "__fulltext__"]
         tokens_out["color"] = list(dict.fromkeys([cl_force] + (tokens_out.get("color") or [])))
 
-    return {
+    # ---------------------------------------------------------
+    # schema validate (best effort / non-blocking)
+    # ---------------------------------------------------------
+    payload = {
         "brand": {"name": brand_name, "source": "ai_provisional"},
         "condition": {"name": cond_name, "source": "ai_provisional"},
         "color": {"name": color_name, "source": "ai_provisional"},
@@ -514,3 +517,18 @@ def analyze(request: AnalysisRequest) -> Dict[str, Any]:
         "overall_confidence": overall_confidence,
         "source": "ai_provisional",
     }
+
+    try:
+        # If you have a validator utility, use it. Otherwise no-op.
+        from atlaskernel.services import schema_validate  # type: ignore
+
+        # try common function names
+        if hasattr(schema_validate, "validate_entity_analysis"):
+            schema_validate.validate_entity_analysis(payload)
+        elif hasattr(schema_validate, "validate_json"):
+            # schema path fallback (repo local)
+            schema_validate.validate_json(payload, "schema/entity_analysis.v1.json")
+    except Exception as e:
+        _d(f"[AK] schema_validate skipped err={e}")
+
+    return payload

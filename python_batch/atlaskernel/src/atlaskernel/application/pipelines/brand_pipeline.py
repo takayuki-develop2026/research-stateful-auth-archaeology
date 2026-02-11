@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from atlaskernel.domain.request import AnalysisRequest
-from atlaskernel.domain.result import AnalysisResult, Candidate as ResultCandidate
 from atlaskernel.domain.candidate import Candidate as InternalCandidate
+from atlaskernel.domain.result import AnalysisResult, Candidate as ResultCandidate
 from atlaskernel.services.normalize import normalize
 from atlaskernel.services.similarity import similarity
 from atlaskernel.adapters.assets_loader import load_assets
@@ -53,25 +53,36 @@ def _alias_prefix(norm: str) -> Optional[str]:
 
 
 def _canonicalize_any(s: str) -> str:
-    """
-    何が来ても alias map で canonical へ寄せる（最後の仕上げ）
-    """
     n = normalize(s)
     return _alias_exact(n) or _alias_prefix(n) or s
 
 
 def analyze_brand(req: AnalysisRequest, policy_engine, ctx=None) -> AnalysisResult:
+    """
+    ✅ Contract:
+      - candidates: List[ResultCandidate]
+      - extensions.policy_trace 必須
+      - needs_review / rejected なら extensions.escalation 必須
+      - brand は has_alias を policy input に渡す（強推奨）
+    """
     norm = normalize(req.raw_value)
 
+    # alias fast path
     canonical = _alias_exact(norm) or _alias_prefix(norm)
+    has_alias = bool(canonical)
 
+    internal: List[InternalCandidate] = []
     if canonical:
         top_value = canonical
         top_score = 0.95
         internal = [InternalCandidate(value=canonical, score=float(top_score))]
+        explanation: List[dict] = [{
+            "rule": "alias_map",
+            "detail": f"alias hit ({req.raw_value} -> {canonical})",
+            "trace": {"alias_hit": True, "alias_canonical": canonical},
+        }]
     else:
         assets = load_assets(req.known_assets_ref or "brands_v1")
-        internal: List[InternalCandidate] = []
         for a in assets:
             score = similarity(norm, normalize(a))
             internal.append(InternalCandidate(value=a, score=float(score)))
@@ -79,31 +90,43 @@ def analyze_brand(req: AnalysisRequest, policy_engine, ctx=None) -> AnalysisResu
         internal.sort(key=lambda c: c.score, reverse=True)
         top = internal[0] if internal else InternalCandidate(value=req.raw_value, score=0.0)
 
-        # ✅ similarityで拾った値も最後にcanonicalへ寄せる
         top_value = _canonicalize_any(top.value)
         top_score = float(top.score)
 
+        explanation = [{
+            "rule": "similarity",
+            "detail": f"top={top_score}",
+            "trace": {"top_raw": top.value, "top_canonicalized": top_value},
+        }]
+
+    # policy
     decision, reason, trace = policy_engine.evaluate(
         policy_engine.load("brand"),
-        {"score": float(top_score)},
+        {"score": float(top_score), "has_alias": has_alias},
     )
 
-    result_candidates = [
-        ResultCandidate(value=_canonicalize_any(c.value), score=float(c.score))
-        for c in internal[:5]
-    ]
+    rule_id = (trace.get("rule_id") if isinstance(trace, dict) else None) or ("alias_map" if canonical else "policy")
 
-    rule_id = trace.get("rule_id") if isinstance(trace, dict) else None
-    rule_id = rule_id or ("alias_map" if canonical else "policy")
-
-    explanation = [{
-        "rule": rule_id,
-        "detail": reason or ("alias hit" if canonical else "n/a"),
+    explanation.append({
+        "rule": "policy",
+        "detail": reason or "n/a",
         "trace": trace,
-    }]
+    })
 
-    extensions = {"policy_trace": trace, "alias_hit": bool(canonical)}
+    # candidates (output)
+    result_candidates: List[ResultCandidate] = [
+        ResultCandidate(value=_canonicalize_any(c.value), score=float(c.score))
+        for c in (internal[:5] if internal else [])
+    ]
+    if not result_candidates:
+        result_candidates = [ResultCandidate(value=top_value, score=float(top_score))]
+
+    extensions: Dict[str, Any] = {  # type: ignore[name-defined]
+        "policy_trace": trace,
+        "has_alias": has_alias,
+    }
     if canonical:
+        extensions["alias_hit"] = True
         extensions["alias_canonical"] = canonical
 
     if decision in ("needs_review", "rejected"):
