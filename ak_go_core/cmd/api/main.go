@@ -36,6 +36,7 @@ type analyzeReq struct {
 	ProjectID       string `json:"project_id"`
 	PolicyVersion   string `json:"policy_version"`
 	PipelineVersion string `json:"pipeline_version"`
+	Mode            *int   `json:"mode"`
 }
 
 func newTraceID() string {
@@ -236,13 +237,20 @@ r.Post("/v1/analyze", func(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Append event seq=1: run.enqueued
-	payload := map[string]any{
-		"project_id":       in.ProjectID,
-		"policy_version":   in.PolicyVersion,
-		"pipeline_version": in.PipelineVersion,
-	}
-	pb, _ := json.Marshal(payload)
+
+
+	mode := 0
+if in.Mode != nil {
+  mode = *in.Mode
+}
+
+payload := map[string]any{
+  "project_id":       in.ProjectID,
+  "policy_version":   in.PolicyVersion,
+  "pipeline_version": in.PipelineVersion,
+  "mode":             mode, // v3.2
+}
+pb, _ := json.Marshal(payload)
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
@@ -358,6 +366,59 @@ r.Post("/v1/analyze", func(w http.ResponseWriter, req *http.Request) {
 
 	writeJSON(w, 200, out, tid)
 	})
+
+
+
+	r.Get("/v1/runs/{run_id}/artifacts", func(w http.ResponseWriter, req *http.Request) {
+  tid := traceIDFromContext(req.Context())
+  runID := chi.URLParam(req, "run_id")
+  if runID == "" {
+    writeError(w, 400, "BadRequest", "run_id is required", tid)
+    return
+  }
+
+  ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+  defer cancel()
+
+  rows, err := db.Query(ctx, `
+    SELECT artifact_kind, content_json, created_at, updated_at
+    FROM run_artifacts
+    WHERE run_id = $1
+    ORDER BY artifact_kind ASC
+  `, runID)
+  if err != nil {
+    writeError(w, 500, "DbError", "query failed", tid)
+    return
+  }
+  defer rows.Close()
+
+  type a struct {
+    Kind      string          `json:"artifact_kind"`
+    Content   json.RawMessage `json:"content_json"`
+    CreatedAt time.Time       `json:"created_at"`
+    UpdatedAt time.Time       `json:"updated_at"`
+  }
+
+  out := struct {
+    RunID     string `json:"run_id"`
+    Artifacts []a    `json:"artifacts"`
+  }{RunID: runID, Artifacts: []a{}}
+
+  for rows.Next() {
+    var x a
+    if err := rows.Scan(&x.Kind, &x.Content, &x.CreatedAt, &x.UpdatedAt); err != nil {
+      writeError(w, 500, "DbError", "scan failed", tid)
+      return
+    }
+    out.Artifacts = append(out.Artifacts, x)
+  }
+  if err := rows.Err(); err != nil {
+    writeError(w, 500, "DbError", "rows error", tid)
+    return
+  }
+
+  writeJSON(w, 200, out, tid)
+})
 
 	port := os.Getenv("PORT")
 	if port == "" {
