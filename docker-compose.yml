@@ -228,6 +228,7 @@ services:
     build:
       context: ./ak_go_core
       dockerfile: Dockerfile
+    image: research-stateful-auth-archaeology/ak-go-core:v3
     ports:
       - "9000:9000"
     environment:
@@ -244,20 +245,44 @@ services:
         condition: service_healthy
     networks:
       - simulation1_network
+    restart: unless-stopped
 
-
+  # ============================================================
+  # worker「常時2台」設定（buildなし：同一imageを参照）
+  # ============================================================
   ak_go_worker:
-    build: ./ak_go_core
+    image: research-stateful-auth-archaeology/ak-go-core:v3
     environment:
       AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
       AK_REDIS_ADDR: ak_redis:6379
+      AK_WORKER_NAME: worker-1
       TZ: Asia/Tokyo
     command: ["/app/worker"]
     depends_on:
-      - ak_postgres
-      - ak_redis
+      ak_postgres:
+        condition: service_healthy
+      ak_redis:
+        condition: service_healthy
     networks:
       - simulation1_network
+    restart: unless-stopped
+
+  ak_go_worker_2:
+    image: research-stateful-auth-archaeology/ak-go-core:v3
+    environment:
+      AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
+      AK_REDIS_ADDR: ak_redis:6379
+      AK_WORKER_NAME: worker-2
+      TZ: Asia/Tokyo
+    command: ["/app/worker"]
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+      ak_redis:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    restart: unless-stopped
 # ============================================================
 # Network
 # ============================================================
