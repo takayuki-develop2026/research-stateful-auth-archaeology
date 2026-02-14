@@ -1050,7 +1050,7 @@ export default function AuthCallbackPage() {
                           <span className={styles.langFace}>Ruby</span>
 
                           <span className={styles.langAlt} aria-hidden="true">
-                            <span className={styles.langAltTop}>日本</span>
+                            <span className={styles.langAltTop}>JAPAN</span>
                             <span className={styles.langAltBottom}>
                               まつもとゆきひろ
                             </span>
