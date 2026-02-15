@@ -735,3 +735,21 @@ use App\Modules\Auth\Presentation\Http\Controllers\SendEmailVerificationTicketCo
 
 Route::middleware(['auth.occ'])
   ->post('/auth/send-email-verification', SendEmailVerificationTicketController::class);
+
+
+
+use App\Modules\AtlasKernel\Presentation\Http\Controllers\RunArtifactsController;
+
+Route::prefix('atlas')->group(function () {
+    Route::get('runs/{runId}/artifacts', [RunArtifactsController::class, 'index']);
+    Route::get('runs/{runId}/artifacts/{artifactKind}', [RunArtifactsController::class, 'show']);
+});
+
+
+use App\Modules\AtlasKernel\Presentation\Http\Controllers\Admin\AdminRunArtifactsController;
+
+Route::middleware(['admin.fixed_or_key']) // ← あなたの admin.fixed_or_key 等に合わせてここは後で強化
+    ->prefix('admin/atlaskernel')
+    ->group(function () {
+        Route::get('run-artifacts', [AdminRunArtifactsController::class, 'index']);
+    });

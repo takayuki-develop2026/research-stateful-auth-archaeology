@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://occore.local/schemas/run_artifact_content.v1.json",
+  "title": "RunArtifactContentV1",
+  "type": "object",
+  "additionalProperties": true,
+
+  "$comment": [
+    "Single source of truth: schema_version=1.0",
+    "Cross-field invariants (enforced in app/runtime + DB CHECKs):",
+    "- artifact_ref.kind == run_artifacts.artifact_kind",
+    "- artifact_ref.run_id == run_artifacts.run_id",
+    "- trace.trace_id == run_artifacts.trace_id",
+    "- artifact_ref.trace_id == run_artifacts.trace_id",
+    "Evidence refs ref prefix pattern enforced in runtime (recommended) and optionally via schema pattern."
+  ],
+
+  "required": [
+    "schema_version",
+    "artifact_ref",
+    "produced_by",
+    "policy_version",
+    "pipeline_version",
+    "evidence_refs",
+    "trace"
+  ],
+
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "kind", "run_id", "trace_id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "run_id": { "type": "string", "minLength": 1 },
+        "trace_id": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "produced_by": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["system", "user", "job", "tool"]
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+
+    "pipeline_version": {
+      "type": "string",
+      "minLength": 1
+    },
+
+    "trace": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["trace_id"],
+      "properties": {
+        "trace_id": { "type": "string", "minLength": 1 },
+        "span_id": { "type": "string", "minLength": 1 },
+        "correlation_id": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ref", "type"],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(sha256:[a-fA-F0-9]{64}|s3:\\/\\/.+|https:\\/\\/.+|db:.+)$"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "html",
+              "pdf",
+              "image",
+              "text",
+              "api_response",
+              "log",
+              "unknown"
+            ]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "mime": { "type": "string", "minLength": 1 },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

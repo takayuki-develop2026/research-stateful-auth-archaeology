@@ -1,0 +1,92 @@
+<%= render "admin/trustledger/nav" %>
+
+<h1>Run Artifacts</h1>
+
+<% if @error %>
+  <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
+    <strong>API Error</strong><br>
+    <div>message: <%= @error[:message] %></div>
+    <div>status: <%= @error[:status] %></div>
+    <pre style="white-space:pre-wrap;"><%= @error[:body] %></pre>
+  </div>
+<% end %>
+
+<form method="get"
+      action="/admin/dashboard/atlaskernel/run-artifacts"
+      data-controller="run-artifacts-filter"
+      data-action="submit->run-artifacts-filter#submit"
+      style="display:flex; gap:10px; align-items:end; margin:12px 0;">
+  <div>
+    <div style="font-size:12px; color:#666;">Kind</div>
+    <select name="kind" style="min-width:260px;">
+      <option value="">(all)</option>
+      <% @known_kinds.each do |k| %>
+        <option value="<%= k %>" <%= "selected" if @kind == k %>><%= RunArtifacts::ArtifactKind.label(k) %></option>
+      <% end %>
+      <% if @kind.present? && !@known_kinds.include?(@kind) %>
+        <option value="<%= @kind %>" selected><%= @kind %> (unknown)</option>
+      <% end %>
+    </select>
+  </div>
+
+  <div style="flex:1;">
+    <div style="font-size:12px; color:#666;">Search</div>
+    <input type="text" name="q" value="<%= @q %>" placeholder="run_id / trace_id / kind keyword..."
+           style="width:100%;">
+  </div>
+
+  <div>
+    <div style="font-size:12px; color:#666;">Limit</div>
+    <input type="number" name="limit" value="<%= @limit %>" min="1" max="200" style="width:90px;">
+  </div>
+
+  <div style="display:flex; gap:8px;">
+    <button type="submit">Apply</button>
+    <a href="/admin/dashboard/atlaskernel/run-artifacts"
+   style="display:inline-block; padding:6px 10px; border:1px solid #ddd; text-decoration:none;">Reset</a>
+  </div>
+</form>
+
+<% items = (@data["items"] || []) %>
+<% next_cursor = @data["next_cursor"].to_s %>
+
+<div style="font-size:12px; color:#666; margin:8px 0;">
+  count: <%= items.length %>
+  <% if next_cursor.present? %> / more: yes <% end %>
+</div>
+
+<table style="width:100%; border-collapse:collapse;">
+  <thead>
+    <tr>
+      <th style="text-align:left; border-bottom:1px solid #eee; padding:6px;">run_id</th>
+      <th style="text-align:left; border-bottom:1px solid #eee; padding:6px;">trace_id</th>
+      <th style="text-align:left; border-bottom:1px solid #eee; padding:6px;">kind</th>
+      <th style="text-align:left; border-bottom:1px solid #eee; padding:6px;">created_at</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% items.each do |it| %>
+      <tr>
+        <td style="border-bottom:1px solid #f5f5f5; padding:6px;"><%= it["run_id"] %></td>
+        <td style="border-bottom:1px solid #f5f5f5; padding:6px;"><%= it["trace_id"] %></td>
+        <td style="border-bottom:1px solid #f5f5f5; padding:6px;"><%= it["artifact_kind"] %></td>
+        <td style="border-bottom:1px solid #f5f5f5; padding:6px;"><%= it["created_at"] %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<% if next_cursor.present? %>
+  <div style="margin-top:12px;">
+    <% qs = {
+      kind: @kind.presence,
+      q: @q.presence,
+      limit: @limit,
+      cursor: next_cursor
+    }.compact %>
+
+    <a href="/admin/dashboard/atlaskernel/run-artifacts?<%= Rack::Utils.build_query(qs) %>">
+      Next →
+    </a>
+  </div>
+<% end %>

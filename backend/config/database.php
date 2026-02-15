@@ -111,6 +111,20 @@ return [
             'prefix_indexes' => true,
         ],
 
+        'ak_pgsql' => [
+    'driver' => 'pgsql',
+    'host' => env('AK_PG_HOST', 'ak_postgres'),
+    'port' => env('AK_PG_PORT', '5432'),
+    'database' => env('AK_PG_DATABASE', 'ak'),
+    'username' => env('AK_PG_USERNAME', 'ak'),
+    'password' => env('AK_PG_PASSWORD', 'ak'),
+    'charset' => 'utf8',
+    'prefix' => '',
+    'prefix_indexes' => true,
+    'search_path' => 'public',
+    'sslmode' => env('AK_PG_SSLMODE', 'prefer'),
+],
+
     ],
 
     /*

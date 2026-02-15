@@ -256,6 +256,7 @@ services:
       AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
       AK_REDIS_ADDR: ak_redis:6379
       AK_WORKER_NAME: worker-1
+      AK_WORKER_ID: worker-1
       TZ: Asia/Tokyo
     command: ["/app/worker"]
     depends_on:
@@ -273,6 +274,7 @@ services:
       AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
       AK_REDIS_ADDR: ak_redis:6379
       AK_WORKER_NAME: worker-2
+      AK_WORKER_ID: worker-2
       TZ: Asia/Tokyo
     command: ["/app/worker"]
     depends_on:

@@ -12,11 +12,14 @@ RUN apt-get update \
      libpng-dev \
      libjpeg-dev \
      libwebp-dev \
+     libpq-dev \
      unzip \
   && docker-php-ext-configure gd --with-jpeg --with-webp \
   && docker-php-ext-install -j$(nproc) \
      gd \
      pdo_mysql \
+     pdo_pgsql \
+     pgsql \
      zip \
      bcmath \
   && apt-get clean \

@@ -20,7 +20,9 @@ module TrustLedger
           @instance ||= new
         end
 
-        # Health
+        # -----------------------------
+        # TrustLedger (Go/SpringBoot) APIs
+        # -----------------------------
         def get_health = instance.get_health
 
         # Webhook
@@ -43,29 +45,27 @@ module TrustLedger
         # Shops
         def list_shops(params = {}) = instance.list_shops(params)
         def get_shop(shop_id)
-  # 1) shops一覧から該当shopを探す
-  shops_res = list_shops
-  shops =
-    if shops_res.is_a?(Hash)
-      shops_res["shops"] || shops_res["items"] || shops_res["data"] || []
-    else
-      shops_res
-    end
+          shops_res = list_shops
+          shops =
+            if shops_res.is_a?(Hash)
+              shops_res["shops"] || shops_res["items"] || shops_res["data"] || []
+            else
+              shops_res
+            end
 
-  shop = shops.find { |s| s["id"].to_i == shop_id.to_i }
+          shop = shops.find { |s| s["id"].to_i == shop_id.to_i }
+          provider = get_shop_payment_provider(shop_id)
 
-  # 2) payment-provider を別APIで取得
-  provider = get_shop_payment_provider(shop_id)
+          {
+            "shop" => shop,
+            "payment_provider" => provider,
+          }
+        end
 
-  # 3) まとめて返す（画面側は @data["shop"], @data["payment_provider"] を見る）
-  {
-    "shop" => shop,
-    "payment_provider" => provider,
-  }
-end
-def get_shop_payment_provider(shop_id)
-  get_json("/api/admin/trustledger/shops/#{shop_id}/payment-provider")
-end
+        def get_shop_payment_provider(shop_id)
+          instance.get_shop_payment_provider(shop_id)
+        end
+
         def update_shop_payment_provider(shop_id, provider:, mode: "row") =
           instance.update_shop_payment_provider(shop_id, provider: provider, mode: mode)
 
@@ -74,26 +74,50 @@ end
         def get_review_queue_item(id) = instance.get_review_queue_item(id)
         def decide_review_queue_item(id, payload = {}) = instance.decide_review_queue_item(id, payload)
 
-        # ProviderIntel (optional: documents/diffs)
+        # ProviderIntel
         def get_providerintel_document(id) = instance.get_providerintel_document(id)
         def get_providerintel_diff(id) = instance.get_providerintel_diff(id)
 
-        # ✅ ProviderIntel: Catalog Sources
+        # ProviderIntel: Catalog Sources
         def list_catalog_sources(params = {}) = instance.list_catalog_sources(params)
         def get_catalog_source(source_id) = instance.get_catalog_source(source_id)
         def upsert_catalog_source(payload = {}) = instance.upsert_catalog_source(payload)
         def run_catalog_source(source_id) = instance.run_catalog_source(source_id)
+
+        # Budget
+        def gate_and_reserve_budget(payload = {}) = instance.gate_and_reserve_budget(payload)
+
+        # -----------------------------
+        # AtlasKernel (Laravel) APIs
+        # -----------------------------
+        def list_run_artifacts(params = {}) = instance.list_run_artifacts(params)
       end
 
+      # TRUSTLEDGER_ADMIN_API_BASE_URL:
+      #   TrustLedger Admin API (Go/SpringBoot) base
+      # ATLASKERNEL_ADMIN_API_BASE_URL:
+      #   AtlasKernel Admin API (Laravel) base
+      #
+      # 例（docker compose 内）:
+      #   TRUSTLEDGER_ADMIN_API_BASE_URL=http://payment_core:8081
+      #   ATLASKERNEL_ADMIN_API_BASE_URL=http://nginx
+      #
       def initialize(
         base_url: ENV.fetch("TRUSTLEDGER_ADMIN_API_BASE_URL", "http://localhost:8081"),
+        atlas_base_url: ENV.fetch(
+          "ATLASKERNEL_ADMIN_API_BASE_URL",
+          ENV.fetch("TRUSTLEDGER_ADMIN_API_BASE_URL", "http://localhost:8081")
+        ),
         admin_key: ENV.fetch("TRUSTLEDGER_ADMIN_X_ADMIN_KEY", "")
       )
-        @base_url = base_url.to_s.sub(%r{/\z}, "")
+        @base_url = normalize_base_url(base_url)
+        @atlas_base_url = normalize_base_url(atlas_base_url)
         @admin_key = admin_key.to_s
       end
 
-      # Health
+      # -----------------------------
+      # TrustLedger APIs (Go/SpringBoot)
+      # -----------------------------
       def get_health
         get_json("/api/admin/trustledger/health")
       end
@@ -147,6 +171,10 @@ end
         get_json("/api/admin/trustledger/shops/#{shop_id}")
       end
 
+      def get_shop_payment_provider(shop_id)
+        get_json("/api/admin/trustledger/shops/#{shop_id}/payment-provider")
+      end
+
       def update_shop_payment_provider(shop_id, provider:, mode: "row")
         post_json(
           "/api/admin/trustledger/shops/payment-provider",
@@ -171,58 +199,86 @@ end
         post_json("#{review_queue_path}/#{id}/decide", payload)
       end
 
-      # ProviderIntel (Laravel確定ルート)
-def providerintel_path
-  ENV.fetch("TRUSTLEDGER_ADMIN_PROVIDERINTEL_PATH", "/api/admin/providerintel")
-end
+      # ProviderIntel
+      def providerintel_path
+        ENV.fetch("TRUSTLEDGER_ADMIN_PROVIDERINTEL_PATH", "/api/admin/providerintel")
+      end
 
-def get_providerintel_document(id)
-  get_json("#{providerintel_path}/documents/#{id}")
-end
+      def get_providerintel_document(id)
+        get_json("#{providerintel_path}/documents/#{id}")
+      end
 
-def get_providerintel_diff(id)
-  get_json("#{providerintel_path}/diffs/#{id}")
-end
+      def get_providerintel_diff(id)
+        get_json("#{providerintel_path}/diffs/#{id}")
+      end
 
-      # Catalog Sources (ProviderIntel)
-def providerintel_sources_path
-  ENV.fetch("TRUSTLEDGER_ADMIN_PROVIDERINTEL_SOURCES_PATH", "#{providerintel_path}/sources")
-end
+      # Catalog Sources
+      def providerintel_sources_path
+        ENV.fetch("TRUSTLEDGER_ADMIN_PROVIDERINTEL_SOURCES_PATH", "#{providerintel_path}/sources")
+      end
 
-def list_catalog_sources(params = {})
-  get_json(with_query(providerintel_sources_path, params))
-end
+      def list_catalog_sources(params = {})
+        get_json(with_query(providerintel_sources_path, params))
+      end
 
-def get_catalog_source(source_id)
-  get_json("#{providerintel_sources_path}/#{source_id}")
-end
+      def get_catalog_source(source_id)
+        get_json("#{providerintel_sources_path}/#{source_id}")
+      end
 
-def upsert_catalog_source(payload = {})
-  post_json(providerintel_sources_path, payload)
-end
+      def upsert_catalog_source(payload = {})
+        post_json(providerintel_sources_path, payload)
+      end
 
-def run_catalog_source(source_id)
-  post_json("#{providerintel_sources_path}/#{source_id}/run", {})
-end
+      def run_catalog_source(source_id)
+        post_json("#{providerintel_sources_path}/#{source_id}/run", {})
+      end
 
+      # Budget
+      def gate_and_reserve_budget(payload = {})
+        post_json("/api/admin/trustledger/budgets/reserve", payload)
+      end
+
+      # -----------------------------
+      # AtlasKernel APIs (Laravel)
+      # -----------------------------
+      #
+      # ✅ Run Artifacts は Laravel 側へ必ず流す
+      #
+      def list_run_artifacts(params = {})
+        get_json_atlas(with_query("/api/admin/atlaskernel/run-artifacts", params))
+      end
 
       private
 
+      def normalize_base_url(v)
+        v.to_s.sub(%r{/\z}, "")
+      end
+
       def with_query(path, params)
-        q = URI.encode_www_form(params.compact)
+        q = URI.encode_www_form((params || {}).compact)
         q.empty? ? path : "#{path}?#{q}"
       end
 
+      # TrustLedger base_url へ
       def get_json(path)
-        request_json(Net::HTTP::Get, path)
+        request_json(Net::HTTP::Get, path, base_url: @base_url)
       end
 
       def post_json(path, payload)
-        request_json(Net::HTTP::Post, path, payload: payload)
+        request_json(Net::HTTP::Post, path, payload: payload, base_url: @base_url)
       end
 
-      def request_json(klass, path, payload: nil)
-        uri  = URI.parse(@base_url + path)
+      # AtlasKernel base_url へ
+      def get_json_atlas(path)
+        request_json(Net::HTTP::Get, path, base_url: @atlas_base_url)
+      end
+
+      def post_json_atlas(path, payload)
+        request_json(Net::HTTP::Post, path, payload: payload, base_url: @atlas_base_url)
+      end
+
+      def request_json(klass, path, payload: nil, base_url:)
+        uri  = URI.parse(base_url + path)
         http = Net::HTTP.new(uri.host, uri.port)
         http.open_timeout = 5
         http.read_timeout = 10

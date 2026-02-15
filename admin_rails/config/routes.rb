@@ -23,46 +23,45 @@ Rails.application.routes.draw do
       get  "/reconciliation/missing-sales", to: "reconciliation#missing_sales"
       post "/reconciliation/replay/sale",   to: "reconciliation#replay_sale"
 
-      # Provider Settings (PSP per shop)
-get  "/provider-settings",            to: "provider_settings#index"
-post "/provider-settings/update",     to: "provider_settings#update"   # bulk/row update両対応
+      get  "/provider-settings",        to: "provider_settings#index"
+      post "/provider-settings/update", to: "provider_settings#update"
 
-# ProviderIntel (Catalog Sources)
-get  "/providerintel/sources",                 to: "providerintel_sources#index"
-get  "/providerintel/sources/new",             to: "providerintel_sources#new"
-post "/providerintel/sources",                 to: "providerintel_sources#create"
+      get  "/providerintel/sources",                 to: "providerintel_sources#index"
+      get  "/providerintel/sources/new",             to: "providerintel_sources#new"
+      post "/providerintel/sources",                 to: "providerintel_sources#create"
+      get  "/providerintel/sources/:source_id",      to: "providerintel_sources#show"
+      get  "/providerintel/sources/:source_id/edit", to: "providerintel_sources#edit"
+      post "/providerintel/sources/:source_id",      to: "providerintel_sources#update"
+      post "/providerintel/sources/:source_id/run",  to: "providerintel_sources#run"
 
-get  "/providerintel/sources/:source_id",      to: "providerintel_sources#show"
-get  "/providerintel/sources/:source_id/edit", to: "providerintel_sources#edit"
-post "/providerintel/sources/:source_id",      to: "providerintel_sources#update"
-
-post "/providerintel/sources/:source_id/run",  to: "providerintel_sources#run"
-
-# Review Queue
-get  "/review-queue",            to: "review_queue#index"
-get  "/review-queue/:id",        to: "review_queue#show"
-post "/review-queue/:id/decide", to: "review_queue#decide"
+      get  "/review-queue",            to: "review_queue#index"
+      get  "/review-queue/:id",        to: "review_queue#show"
+      post "/review-queue/:id/decide", to: "review_queue#decide"
     end
 
-    # ✅ AtlasKernel dashboard（今はトップだけ用意。後で増やす）
+    # ✅ AtlasKernel dashboard
     scope "/dashboard/atlaskernel", module: "atlaskernel" do
       get "/", to: "dashboard#show"
-      # 例：review queue / runs / projects などを後で追加
-      # get "/review-queue", to: "review_queue#index"
+
+      # ✅ canonical
+      get "/run-artifacts", to: "run_artifacts#index"
     end
 
     # -----------------------------
     # 旧URL互換（当面redirect）
     # -----------------------------
+    # ✅ 旧: /admin/run-artifacts -> 新: /admin/dashboard/atlaskernel/run-artifacts
+    get "/run-artifacts", to: redirect("/admin/dashboard/atlaskernel/run-artifacts")
+
     namespace :trustledger do
       get "/", to: redirect("/admin/dashboard/trustledger")
       get "/health", to: redirect("/admin/dashboard/trustledger/health")
 
       get "/webhook-events", to: redirect("/admin/dashboard/trustledger/webhook-events")
-      get "/webhook-events/:event_id", to: redirect { |p, req|
+      get "/webhook-events/:event_id", to: redirect { |_, req|
         "/admin/dashboard/trustledger/webhook-events/#{req.params[:event_id]}"
       }
-      post "/webhook-events/:event_id/replay", to: redirect { |p, req|
+      post "/webhook-events/:event_id/replay", to: redirect { |_, req|
         "/admin/dashboard/trustledger/webhook-events/#{req.params[:event_id]}/replay"
       }
 
@@ -70,7 +69,7 @@ post "/review-queue/:id/decide", to: "review_queue#decide"
       get "/kpis/shops",  to: redirect("/admin/dashboard/trustledger/kpis/shops")
 
       get "/postings", to: redirect("/admin/dashboard/trustledger/postings")
-      get "/postings/:posting_id", to: redirect { |p, req|
+      get "/postings/:posting_id", to: redirect { |_, req|
         "/admin/dashboard/trustledger/postings/#{req.params[:posting_id]}"
       }
 
