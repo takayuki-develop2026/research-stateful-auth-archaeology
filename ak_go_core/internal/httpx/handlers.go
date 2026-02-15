@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
-
 	"github.com/go-chi/chi/v5"
-
 	"example.com/ak_go_core/internal/app/runs"
+	"bytes"
+ 	"io"
+  	"log"
 )
 
 /*
@@ -39,30 +40,48 @@ func (h *Handlers) PostRuns(w http.ResponseWriter, req *http.Request) {
 func (h *Handlers) postCreateRun(w http.ResponseWriter, req *http.Request, source string) {
 	tid := TraceIDFromContext(req.Context())
 
-	// method guard (defensive)
+	// 1. Method Guard
 	if req.Method != http.MethodPost {
 		WriteError(w, http.StatusMethodNotAllowed, "MethodNotAllowed", "method not allowed", tid)
 		return
 	}
 
-	// body safety (1MB; adjust if you expect bigger)
+	// 2. Body Safety (1MB)
 	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	defer req.Body.Close()
 
+	// 3. Decode with Diagnostic Logging
 	var in CreateRunReq
-	dec := json.NewDecoder(req.Body)
+	var bodyBuf bytes.Buffer
+	// Bodyを読みながら同時にBufにも書き込む（エラー時の調査用）
+	tee := io.TeeReader(req.Body, &bodyBuf)
+
+	dec := json.NewDecoder(tee)
 	dec.DisallowUnknownFields()
+
 	if err := dec.Decode(&in); err != nil {
-		WriteError(w, http.StatusBadRequest, "BadRequest", "invalid json", tid)
+		raw := bodyBuf.Bytes()
+		head := raw
+		if len(head) > 1024 {
+			head = head[:1024]
+		}
+		// 徹底した調査ログ: エラーの型、Content-Type、生のBody（先頭）を記録
+		log.Printf("[runs.create] tid=%s ERROR: decode_failed err=%T %v ct=%q cl=%d head=%q head_hex=%x",
+			tid, err, err, req.Header.Get("Content-Type"), req.ContentLength, string(head), head)
+
+		WriteError(w, http.StatusBadRequest, "BadRequest", "invalid json: "+err.Error(), tid)
 		return
 	}
 
-	// Optional: reject trailing garbage (e.g. "{}{}")
-	if dec.More() {
-		WriteError(w, http.StatusBadRequest, "BadRequest", "invalid json", tid)
+	// 4. Trailing Garbage Check (正確な検知)
+	// io.EOF 以外が返ってきたら、JSONの後に余計なデータがある
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		log.Printf("[runs.create] tid=%s ERROR: trailing_garbage err=%v", tid, err)
+		WriteError(w, http.StatusBadRequest, "BadRequest", "invalid json: trailing garbage", tid)
 		return
 	}
 
+	// 5. Logic Execution
 	ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
 	defer cancel()
 
@@ -72,21 +91,24 @@ func (h *Handlers) postCreateRun(w http.ResponseWriter, req *http.Request, sourc
 		PipelineVersion: in.PipelineVersion,
 		Mode:            in.Mode,
 		RequestKey:      ReadIdempotencyKey(req),
-		TraceID:         tid, // TraceMiddleware generated (or upstream)
+		TraceID:         tid,
 		Source:          source,
 	})
+
 	if apiErr != nil {
+		// サービス層のエラーも詳細にログ
+		log.Printf("[runs.create] tid=%s ERROR: service_error type=%s msg=%s", tid, apiErr.Type, apiErr.Message)
 		WriteError(w, apiErr.HTTPStatus, apiErr.Type, apiErr.Message, tid)
 		return
 	}
 
-	// P0: return state/status/result (do NOT overload "status" with blocked)
+	// 6. Response
 	WriteJSON(w, http.StatusAccepted, CreateRunResp{
 		RunID:   out.RunID,
 		TraceID: out.TraceID,
 		State:   out.State,
-		Status:  out.Status, // review_required / failed / "" => omitted
-		Result:  out.Result, // pending/success/failed
+		Status:  out.Status,
+		Result:  out.Result,
 		Note:    out.Note,
 	}, tid)
 }

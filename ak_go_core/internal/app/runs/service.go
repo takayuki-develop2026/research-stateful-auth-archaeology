@@ -146,10 +146,10 @@ func normalizeRunState(dbState string) string {
 // derivePublicStatusAndResult derives API status/result from normalized state.
 // - status: only for public notable terminal-ish states (review_required/failed)
 // - result: pending/success/failed (public simple)
-func derivePublicStatusAndResult(dbState string) (publicStatus string, result string) {
-	st := strings.TrimSpace(dbState)
+func derivePublicStatusAndResult(normalizedState string) (publicStatus string, result string) {
+	st := strings.TrimSpace(normalizedState)
 
-	// 1. ブロック判定（blocked は public status を出さない / result は pending）
+	// 1) blocked => public status omitted / result pending
 	if strings.HasPrefix(st, "run.blocked.") || strings.HasPrefix(st, "blocked") {
 		return "", "pending"
 	}
@@ -165,8 +165,9 @@ func derivePublicStatusAndResult(dbState string) (publicStatus string, result st
 	case "queued", "running", "":
 		return "", "pending"
 	default:
-		// 保守的なフォールバック
-		if strings.Contains(st, "fail") || strings.Contains(st, "error") {
+		// conservative fallback
+		ls := strings.ToLower(st)
+		if strings.Contains(ls, "fail") || strings.Contains(ls, "error") {
 			return "failed", "failed"
 		}
 		return "", "pending"
@@ -232,6 +233,7 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 			return CreateRunOutput{}, apiErr
 		}
 		if ok {
+			// existing.State is already normalized inside getRunByRequestKey
 			pubStatus, result := derivePublicStatusAndResult(existing.State)
 			return CreateRunOutput{
 				RunID:   existing.RunID,
@@ -245,7 +247,7 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 	}
 
 	// ---------------------------------------------------------
-	// 2) トランザクション開始: runs挿入 + event挿入 + sequence更新
+	// 2) トランザクション: runs挿入 + event挿入 + next_event_seq更新
 	// ---------------------------------------------------------
 	tctx, cancel := context.WithTimeout(ctx, 7*time.Second)
 	defer cancel()
@@ -254,7 +256,11 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 	if err != nil {
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "begin failed"}
 	}
-	defer tx.Rollback(tctx)
+
+	// P0: rollback should not depend on canceled context
+	defer func() {
+		_ = tx.Rollback(context.Background())
+	}()
 
 	// Workerが期待する ULID (26文字) を生成
 	runID := ulid.Make().String()
@@ -266,23 +272,26 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 
 	// 2-a) runs テーブルに基本情報を挿入 (state='queued' で開始)
 	_, err = tx.Exec(tctx, `
-        INSERT INTO runs(
-            run_id, trace_id, project_id, policy_version, pipeline_version,
-            state, request_key
-        )
-        VALUES ($1, $2, $3, $4, $5, 'queued', $6)
-    `, runID, traceID, projectID, policy, pipeline, rk)
+		INSERT INTO runs(
+			run_id, trace_id, project_id, policy_version, pipeline_version,
+			state, request_key
+		)
+		VALUES ($1, $2, $3, $4, $5, 'queued', $6)
+	`, runID, traceID, projectID, policy, pipeline, rk)
 
 	if err != nil {
-		// INSERT直後のレースコンディション対策
-		if requestKey != "" && isPgUniqueViolation(err) {
+		// request_key由来のunique違反のみを “冪等再利用” として扱う
+		if requestKey != "" && isPgUniqueViolationOnRequestKey(err) {
 			existing, ok, apiErr := s.getRunByRequestKey(ctx, requestKey)
 			if ok && apiErr == nil {
 				pubStatus, result := derivePublicStatusAndResult(existing.State)
 				return CreateRunOutput{
-					RunID: existing.RunID, TraceID: existing.TraceID,
-					State: existing.State, Status: pubStatus, Result: result,
-					Note: "idempotent_reuse",
+					RunID:   existing.RunID,
+					TraceID: existing.TraceID,
+					State:   existing.State,
+					Status:  pubStatus,
+					Result:  result,
+					Note:    "idempotent_reuse",
 				}, nil
 			}
 		}
@@ -300,26 +309,25 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 	pb := marshalJSONOrEmpty(payload)
 
 	_, err = tx.Exec(tctx, `
-        INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
-        VALUES ($1, $2, 1, 'run.enqueued', $3::jsonb)
-    `, runID, traceID, pb)
+		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
+		VALUES ($1, $2, 1, 'run.enqueued', $3::jsonb)
+	`, runID, traceID, pb)
 	if err != nil {
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "insert run_events failed"}
 	}
 
 	// 2-c) ★最重要: runs テーブルの next_event_seq を 2 に進める
-	// 同一トランザクション内で実行することで整合性を担保
 	_, err = tx.Exec(tctx, `
-        UPDATE runs
-        SET next_event_seq = 2,
-            updated_at = now()
-        WHERE run_id = $1
-    `, runID)
+		UPDATE runs
+		SET next_event_seq = 2,
+			updated_at = now()
+		WHERE run_id = $1
+	`, runID)
 	if err != nil {
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "update sequence failed"}
 	}
 
-	// 2-d) コミット
+	// 2-d) commit
 	if err := tx.Commit(tctx); err != nil {
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "commit failed"}
 	}
@@ -327,11 +335,13 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 	// ---------------------------------------------------------
 	// 3) 初期状態の返却
 	// ---------------------------------------------------------
-	pubStatus, result := derivePublicStatusAndResult("queued")
+	st := normalizeRunState("queued")
+	pubStatus, result := derivePublicStatusAndResult(st)
+
 	return CreateRunOutput{
 		RunID:   runID,
 		TraceID: traceID,
-		State:   "queued",
+		State:   st,
 		Status:  pubStatus,
 		Result:  result,
 	}, nil
@@ -494,6 +504,28 @@ func isPgUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) {
 		return pe.Code == "23505"
+	}
+	return false
+}
+
+// isPgUniqueViolationOnRequestKey returns true only when the unique violation is likely caused by request_key uniqueness.
+// This avoids mis-classifying run_id PK collision (extremely rare) as an idempotency hit.
+func isPgUniqueViolationOnRequestKey(err error) bool {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		if pe.Code != "23505" {
+			return false
+		}
+		cn := strings.ToLower(strings.TrimSpace(pe.ConstraintName))
+		// Heuristic: constraint/index name contains request_key
+		if strings.Contains(cn, "request_key") {
+			return true
+		}
+		// If constraint name isn't available, fall back to generic unique violation
+		// ONLY when request_key is non-empty at the call site.
+		if cn == "" {
+			return true
+		}
 	}
 	return false
 }

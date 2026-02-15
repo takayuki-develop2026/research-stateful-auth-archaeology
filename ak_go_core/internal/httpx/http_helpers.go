@@ -9,8 +9,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
-
 	"github.com/jackc/pgx/v5/pgconn"
+	"bytes"
+	"fmt"
+	"io"
 )
 
 const TraceHeader = "X-Trace-Id"
@@ -25,6 +27,41 @@ type ErrorEnvelope struct {
 		Message string `json:"message"`
 		TraceID string `json:"trace_id"`
 	} `json:"error"`
+}
+
+func decodeJSON(r *http.Request, dst any) error {
+	// 1MBまで（必要なら増やす）
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		log.Printf("[http] read body failed: %v", err)
+		return err
+	}
+	_ = r.Body.Close()
+
+	// ★ここが最重要：受信した生bodyを残す（先頭だけ）
+	head := raw
+	if len(head) > 1024 {
+		head = head[:1024]
+	}
+	log.Printf("[http] decodeJSON: %s %s ct=%q cl=%d body_head=%q body_head_hex=%s",
+		r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.ContentLength,
+		string(head), hex.EncodeToString(head),
+	)
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(dst); err != nil {
+		log.Printf("[http] decodeJSON FAILED: err=%T %v", err, err)
+		return fmt.Errorf("decode json: %w", err)
+	}
+
+	// “余計なゴミ”が後ろに付いてないか検知
+	if dec.More() {
+		log.Printf("[http] decodeJSON WARNING: extra tokens remain")
+	}
+
+	return nil
 }
 
 func NewTraceID() string {
