@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	// "github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -45,13 +45,44 @@ type projectSettingsRow struct {
 	AllowedModesPolicy  string
 	AllowedRoutesPolicy string
 }
+
 const BuildTag = "worker-attempt-20260214-02"
+
+// ------------------------
+// RunArtifacts contract (DDL-aligned)
+// ------------------------
+//
+// NOTE: Your run_artifacts has ck_run_artifacts_schema_version_v1:
+//   CHECK (schema_version = '1.0')
+//
+// Even if the column default shows 'v1.0', the check constraint wins.
+// We MUST write '1.0'.
+const (
+	RunArtifactSchemaVersion = "1.0"
+)
+
+// ------------------------
+// main
+// ------------------------
+
 func main() {
 	dsn := mustEnv("AK_DB_DSN")
 
 	// NOTE: compose has AK_WORKER_NAME but code uses AK_WORKER_ID.
-	// Keep current behavior (no breaking change).
-	workerID := getenvDefault("AK_WORKER_ID", hostnameFallback())
+	// Keep current behavior but ensure uniqueness for observability.
+	rawID := strings.TrimSpace(os.Getenv("AK_WORKER_ID"))
+	if rawID == "" {
+		rawID = strings.TrimSpace(os.Getenv("AK_WORKER_NAME"))
+	}
+	host := hostnameFallback()
+	workerID := rawID
+	if workerID == "" {
+		workerID = host
+	}
+	// Make it unique even if compose accidentally duplicates AK_WORKER_ID.
+	if !strings.Contains(workerID, "@") {
+		workerID = fmt.Sprintf("%s@%s", workerID, host)
+	}
 
 	db, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
@@ -61,15 +92,15 @@ func main() {
 
 	redisAddr := getenvDefault("AK_REDIS_ADDR", "ak_redis:6379")
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	poll := getenvDurationMS("AK_WORKER_POLL_MS", 500*time.Millisecond)
 	cost := getenvInt64("AK_RUN_COST", 10)
 
 	log.Printf(
-  "AK Go Worker started. build=%s worker_id=%s redis=%s poll=%s cost=%d",
-  BuildTag, workerID, redisAddr, poll, cost,
-)
+		"AK Go Worker started. build=%s worker_id=%s redis=%s poll=%s cost=%d",
+		BuildTag, workerID, redisAddr, poll, cost,
+	)
 
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -116,6 +147,20 @@ func main() {
 		func() {
 			defer func() { _ = redisDel(context.Background(), rdb, lockKey) }()
 
+			// Final sanity: if someone changed the run state after we picked it, stop.
+			st, stErr := getRunState(context.Background(), db, run.RunID)
+			if stErr != nil {
+				holdForReview(context.Background(), db, run.RunID, run.TraceID, workerID,
+					"state_lookup_failed",
+					map[string]any{"error_detail": stErr.Error()},
+				)
+				return
+			}
+			if st != "running" {
+				// Do not write additional events if not running.
+				return
+			}
+
 			projectID, err := getRunProjectID(context.Background(), db, run.RunID)
 			if err != nil {
 				holdForReview(context.Background(), db, run.RunID, run.TraceID, workerID,
@@ -128,7 +173,7 @@ func main() {
 
 			pickedAt := time.Now().UTC().Format(time.RFC3339Nano)
 
-			// run.running is observability ONLY (status already set to 'running' by pickQueuedRun)
+			// run.running is observability ONLY (state already set to 'running' by pickQueuedRun)
 			if err := appendEvent(context.Background(), db, run.RunID, run.TraceID,
 				"run.running",
 				map[string]any{
@@ -200,7 +245,7 @@ func main() {
 					},
 				)
 
-				_ = upsertRunArtifact(context.Background(), db, run.RunID, "review_required_reason", map[string]any{
+				_ = upsertRunArtifact(context.Background(), db, run.RunID, run.TraceID, "review_required_reason", map[string]any{
 					"reason":     gateReason,
 					"project_id": projectID,
 					"mode":       mode,
@@ -230,7 +275,7 @@ func main() {
 				map[string]any{"mode": mode, "worker_id": workerID, "attempt": attempt},
 			)
 
-			_ = upsertRunArtifact(context.Background(), db, run.RunID, "route_decision", map[string]any{
+			_ = upsertRunArtifact(context.Background(), db, run.RunID, run.TraceID, "route_decision", map[string]any{
 				"mode":      mode,
 				"route_id":  routeDecision.RouteID,
 				"provider":  routeDecision.Provider,
@@ -305,7 +350,7 @@ func main() {
 					},
 				)
 
-				_ = upsertRunArtifact(context.Background(), db, run.RunID, "review_required_reason", map[string]any{
+				_ = upsertRunArtifact(context.Background(), db, run.RunID, run.TraceID, "review_required_reason", map[string]any{
 					"reason":       "budget_block",
 					"project_id":   projectID,
 					"worker_id":    workerID,
@@ -335,7 +380,7 @@ func main() {
 			// ----------------
 			time.Sleep(200 * time.Millisecond)
 
-			_ = upsertRunArtifact(context.Background(), db, run.RunID, "analysis_result", map[string]any{
+			_ = upsertRunArtifact(context.Background(), db, run.RunID, run.TraceID, "analysis_result", map[string]any{
 				"ok":      true,
 				"mode":    mode,
 				"stub":    "result_v3_2",
@@ -391,6 +436,8 @@ func main() {
 				return
 			}
 		}()
+
+		// next loop
 	}
 }
 
@@ -406,9 +453,14 @@ func decideRoute(mode int) RouteDecision {
 // pickQueuedRun:
 // - DB final guard: atomically moves one queued run to running (SKIP LOCKED)
 // - ensures trace_id is non-empty (generate + persist if empty)
-// - returns the selected run row
+// - sets state to running
+//
+// NOTE(P0): runs.status is "public 2-value or empty" in API layer.
+//           So DB should NOT store "running" into status. Keep status empty except:
+//           - review_required
+//           - failed
 func pickQueuedRun(ctx context.Context, db *pgxpool.Pool, workerID string) (runRow, bool, error) {
-	_ = workerID // currently unused; kept for future without breaking signature.
+	_ = workerID // reserved for future: picked_by column, etc.
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -423,12 +475,11 @@ func pickQueuedRun(ctx context.Context, db *pgxpool.Pool, workerID string) (runR
 	err = tx.QueryRow(ctx, `
 		SELECT run_id, trace_id
 		FROM runs
-		WHERE status = 'queued'
+		WHERE state = 'queued'
 		ORDER BY created_at ASC
 		FOR UPDATE SKIP LOCKED
 		LIMIT 1
 	`).Scan(&r.RunID, &r.TraceID)
-
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return runRow{}, false, nil
@@ -436,44 +487,46 @@ func pickQueuedRun(ctx context.Context, db *pgxpool.Pool, workerID string) (runR
 		return runRow{}, false, err
 	}
 
-	// normalize run_id immediately (CHAR(26) padding)
 	r.RunID = normalizeRunID(r.RunID)
 	r.TraceID = strings.TrimSpace(r.TraceID)
 
-	// validate run_id: must be exactly 26 chars (your DB is character(26))
 	if !isValidRunID(r.RunID) {
-		// move to review_required to prevent poison loop
+		// move to review_required safely; do not proceed
 		_, _ = tx.Exec(ctx, `
 			UPDATE runs
-			SET status='review_required', updated_at=now()
+			SET state='review_required', status='review_required', result=COALESCE(NULLIF(result,''),'pending'), updated_at=now()
 			WHERE run_id=$1
 		`, r.RunID)
-
 		_ = tx.Commit(ctx)
 		return runRow{}, false, fmt.Errorf("invalid run_id length: %q", r.RunID)
 	}
 
-	// ensure trace_id (runs.trace_id is NOT NULL, but keep guard anyway)
-	if strings.TrimSpace(r.TraceID) == "" {
+	// Ensure trace_id exists (Tx-safe).
+	// NOTE: runs.trace_id is NOT NULL, but might be '' depending on insert path.
+	if r.TraceID == "" {
 		r.TraceID = newTraceID()
 		_, err = tx.Exec(ctx, `
 			UPDATE runs
-			SET trace_id = $2
-			WHERE run_id = $1
+			SET trace_id=$2
+			WHERE run_id=$1
 		`, r.RunID, r.TraceID)
 		if err != nil {
 			return runRow{}, false, err
 		}
 	}
 
-	// IMPORTANT: move to running here (DB final guard)
-	_, err = tx.Exec(ctx, `
+	// State transition must affect exactly 1 row.
+	tag, err := tx.Exec(ctx, `
 		UPDATE runs
-		SET status = 'running', updated_at = now()
-		WHERE run_id = $1 AND status = 'queued'
+		SET state='running', status=NULL, result=COALESCE(NULLIF(result,''),'pending'), updated_at=now()
+		WHERE run_id=$1 AND state='queued'
 	`, r.RunID)
 	if err != nil {
 		return runRow{}, false, err
+	}
+	if tag.RowsAffected() != 1 {
+		// someone else took it (should not happen due to lock, but keep safe)
+		return runRow{}, false, nil
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -483,9 +536,9 @@ func pickQueuedRun(ctx context.Context, db *pgxpool.Pool, workerID string) (runR
 }
 
 // appendEvent:
-// - serializes per-run event writes by locking runs row FOR UPDATE
-// - assigns next event_seq safely
-// - DOES NOT update runs.status
+// - locks runs row FOR UPDATE
+// - uses runs.next_event_seq as SoT
+// - increments runs.next_event_seq in the same Tx
 func appendEvent(ctx context.Context, db *pgxpool.Pool, runID, traceID, eventName string, payload map[string]any) error {
 	runID = normalizeRunID(runID)
 	traceID = strings.TrimSpace(traceID)
@@ -499,40 +552,51 @@ func appendEvent(ctx context.Context, db *pgxpool.Pool, runID, traceID, eventNam
 	}
 	defer tx.Rollback(ctx)
 
-	// serialize same-run event writes
-	_, err = tx.Exec(ctx, `SELECT 1 FROM runs WHERE run_id=$1 FOR UPDATE`, runID)
+	seq, err := nextEventSeqTx(ctx, tx, runID)
 	if err != nil {
 		return err
 	}
 
-	var nextSeq int64
-	err = tx.QueryRow(ctx, `
-		SELECT COALESCE(MAX(event_seq), 0) + 1
-		FROM run_events
-		WHERE run_id = $1
-	`, runID).Scan(&nextSeq)
-	if err != nil {
-		return err
+	// Ensure trace_id exists in runs too (SoT alignment).
+	if traceID != "" {
+		_, _ = tx.Exec(ctx, `
+			UPDATE runs
+			SET trace_id = CASE WHEN COALESCE(NULLIF(BTRIM(trace_id),''),'') = '' THEN $2 ELSE trace_id END
+			WHERE run_id=$1
+		`, runID, traceID)
 	}
 
-	pb := marshalJSONOrEmpty(payload)
+	pb := marshalJSONOrEmptyMap(payload)
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
 		VALUES ($1,$2,$3,$4,$5::jsonb)
-	`, runID, traceID, nextSeq, eventName, pb)
+	`, runID, traceID, seq, eventName, pb)
 	if err != nil {
 		return err
 	}
 
-	_, _ = tx.Exec(ctx, `UPDATE runs SET updated_at=now() WHERE run_id=$1`, runID)
+	// advance next_event_seq and touch updated_at
+	_, err = tx.Exec(ctx, `
+		UPDATE runs
+		SET next_event_seq=$2, updated_at=now()
+		WHERE run_id=$1
+	`, runID, seq+1)
+	if err != nil {
+		return err
+	}
 
 	return tx.Commit(ctx)
 }
 
 // appendEventAndStatus:
-// - same as appendEvent, but also updates runs.status atomically in the same Tx
-func appendEventAndStatus(ctx context.Context, db *pgxpool.Pool, runID, traceID, eventName, newStatus string, payload map[string]any) error {
+// - same as appendEvent, but also updates runs.state/status/result
+//
+// P0 policy:
+// - state is internal progress (queued/running/done/review_required/failed/blocked...)
+// - status is public 2-value: review_required/failed or NULL (empty)
+// - result is pending/success/failed
+func appendEventAndStatus(ctx context.Context, db *pgxpool.Pool, runID, traceID, eventName, newState string, payload map[string]any) error {
 	runID = normalizeRunID(runID)
 	traceID = strings.TrimSpace(traceID)
 
@@ -545,42 +609,132 @@ func appendEventAndStatus(ctx context.Context, db *pgxpool.Pool, runID, traceID,
 	}
 	defer tx.Rollback(ctx)
 
-	// serialize same-run event writes
-	_, err = tx.Exec(ctx, `SELECT 1 FROM runs WHERE run_id=$1 FOR UPDATE`, runID)
+	seq, err := nextEventSeqTx(ctx, tx, runID)
 	if err != nil {
 		return err
 	}
 
-	var nextSeq int64
-	err = tx.QueryRow(ctx, `
-		SELECT COALESCE(MAX(event_seq), 0) + 1
-		FROM run_events
-		WHERE run_id = $1
-	`, runID).Scan(&nextSeq)
-	if err != nil {
-		return err
+	if traceID != "" {
+		_, _ = tx.Exec(ctx, `
+			UPDATE runs
+			SET trace_id = CASE WHEN COALESCE(NULLIF(BTRIM(trace_id),''),'') = '' THEN $2 ELSE trace_id END
+			WHERE run_id=$1
+		`, runID, traceID)
 	}
 
-	pb := marshalJSONOrEmpty(payload)
+	pb := marshalJSONOrEmptyMap(payload)
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
 		VALUES ($1,$2,$3,$4,$5::jsonb)
-	`, runID, traceID, nextSeq, eventName, pb)
+	`, runID, traceID, seq, eventName, pb)
 	if err != nil {
 		return err
 	}
 
-	_, err = tx.Exec(ctx, `
-		UPDATE runs
-		SET status = $2, updated_at = now()
-		WHERE run_id = $1
-	`, runID, newStatus)
+	// derive status/result from newState (DB-level safety)
+	var status any = nil
+	var result any = nil
+
+	switch newState {
+	case "done":
+		status = nil
+		result = "success"
+	case "failed":
+		status = "failed"
+		result = "failed"
+	case "review_required":
+		status = "review_required"
+		result = "pending"
+	default:
+		// queued/running/blocked/...
+		status = nil
+		// keep existing or pending
+		result = nil
+	}
+
+	var tag pgconn.CommandTag
+	if result == nil {
+		tag, err = tx.Exec(ctx, `
+			UPDATE runs
+			SET state=$2,
+			    status=$3,
+			    next_event_seq=$4,
+			    updated_at=now()
+			WHERE run_id=$1
+		`, runID, newState, status, seq+1)
+	} else {
+		tag, err = tx.Exec(ctx, `
+			UPDATE runs
+			SET state=$2,
+			    status=$3,
+			    result=$4,
+			    next_event_seq=$5,
+			    updated_at=now()
+			WHERE run_id=$1
+		`, runID, newState, status, result, seq+1)
+	}
 	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("runs update affected=%d (run_id=%s)", tag.RowsAffected(), runID)
 	}
 
 	return tx.Commit(ctx)
+}
+
+// nextEventSeqTx:
+// - locks runs row
+// - reads next_event_seq (default 1 if null/0)
+// - reads max(event_seq) for safety
+// - repairs runs.next_event_seq if needed
+func nextEventSeqTx(ctx context.Context, tx pgx.Tx, runID string) (int64, error) {
+	runID = normalizeRunID(runID)
+
+	// 1) lock runs row
+	var next int64
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(next_event_seq,0), 1)
+		FROM runs
+		WHERE run_id=$1
+		FOR UPDATE
+	`, runID).Scan(&next)
+	if err != nil {
+		return 0, err
+	}
+
+	// 2) read max(event_seq) (same tx, safe enough because runs row is locked)
+	var maxSeq int64
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(event_seq), 0)
+		FROM run_events
+		WHERE run_id=$1
+	`, runID).Scan(&maxSeq)
+	if err != nil {
+		return 0, err
+	}
+
+	// 3) choose the safe seq
+	safe := next
+	if maxSeq+1 > safe {
+		safe = maxSeq + 1
+	}
+
+	// 4) repair if needed
+	if safe != next {
+		_, err = tx.Exec(ctx, `
+			UPDATE runs
+			SET next_event_seq = $2,
+			    updated_at = now()
+			WHERE run_id = $1
+		`, runID, safe)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return safe, nil
 }
 
 func getRunProjectID(ctx context.Context, db *pgxpool.Pool, runID string) (string, error) {
@@ -596,6 +750,24 @@ func getRunProjectID(ctx context.Context, db *pgxpool.Pool, runID string) (strin
 		WHERE run_id = $1
 	`, runID).Scan(&projectID)
 	return projectID, err
+}
+
+func getRunState(ctx context.Context, db *pgxpool.Pool, runID string) (string, error) {
+	runID = normalizeRunID(runID)
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var st string
+	err := db.QueryRow(ctx, `
+		SELECT state
+		FROM runs
+		WHERE run_id=$1
+	`, runID).Scan(&st)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(st), nil
 }
 
 // ---- v3.3 gate (policy-aware) ----
@@ -655,7 +827,7 @@ func gateByProjectSettings(
 			}, nil
 		}
 	default:
-		// unknown policy => review (deny)
+		// unknown policy => deny (safe)
 		return false, "mode_not_allowed", map[string]any{
 			"project_id": projectID,
 			"mode":       mode,
@@ -667,7 +839,7 @@ func gateByProjectSettings(
 	// ---- routes gate ----
 	switch normalizePolicy(ps.AllowedRoutesPolicy) {
 	case PolicyAllowAll:
-		// pass (even if allowed_routes == [])
+		// pass
 	case PolicyDenyAll:
 		return false, "route_not_allowed", map[string]any{
 			"project_id":     projectID,
@@ -714,13 +886,7 @@ func gateByProjectSettings(
 }
 
 func normalizePolicy(s string) string {
-	s = strings.TrimSpace(strings.ToLower(s))
-	switch s {
-	case PolicyAllowAll, PolicyDenyAll, PolicyAllowList:
-		return s
-	default:
-		return s
-	}
+	return strings.TrimSpace(strings.ToLower(s))
 }
 
 func loadProjectSettings(ctx context.Context, db *pgxpool.Pool, projectID string) (projectSettingsRow, bool, error) {
@@ -758,7 +924,7 @@ func loadProjectSettings(ctx context.Context, db *pgxpool.Pool, projectID string
 		return projectSettingsRow{}, true, fmt.Errorf("invalid allowed_routes json: %w (raw=%s)", urErr, allowedRoutesJSON)
 	}
 
-	// if empty policy somehow stored, default to allow_list (matches your table default)
+	// if empty policy somehow stored, default to allow_list (matches typical table default)
 	modesPolicy = strings.TrimSpace(modesPolicy)
 	routesPolicy = strings.TrimSpace(routesPolicy)
 	if modesPolicy == "" {
@@ -795,18 +961,10 @@ func containsStr(xs []string, v string) bool {
 	return false
 }
 
-// ---- v3.1 budget: reserve/capture/release ----
-//
-// Strategy with current schema:
-// - reserve inserts +cost into budget_ledger with unique (run_id, reason)
-// - release inserts -cost into budget_ledger with unique (run_id, reason)
-// - capture is optional; here we insert 0 (keeps vocabulary without double charge)
-//
-// gateAndReserveBudgetTx:
-// - Locks project_budgets row (FOR UPDATE) to make gate+reserve atomic per project
-// - Enforces per_run_limit and daily_limit
-// - Inserts budget_ledger (append-only) as "reserve" (+amount).
-// - 23505 is treated as success ONLY when the unique constraint is ux_budget_ledger_run_reason.
+// ----------------------------------------------------------------------
+// v3.1 budget: reserve/capture/release
+// ----------------------------------------------------------------------
+
 func gateAndReserveBudgetTx(
 	ctx context.Context,
 	db *pgxpool.Pool,
@@ -832,15 +990,16 @@ func gateAndReserveBudgetTx(
 	}
 	defer tx.Rollback(ctx)
 
-	// --- 1. プロジェクト設定の取得 (ロック) ---
+	// --- 1) load+lock project budget row ---
 	var perRunLimit int64
 	var dailyLimit int64
+	var monthlyLimit int64
 	err = tx.QueryRow(ctx, `
-        SELECT per_run_limit, daily_limit
-        FROM project_budgets
-        WHERE project_id = $1
-        FOR UPDATE
-    `, projectID).Scan(&perRunLimit, &dailyLimit)
+		SELECT per_run_limit, daily_limit, monthly_limit
+		FROM project_budgets
+		WHERE project_id = $1
+		FOR UPDATE
+	`, projectID).Scan(&perRunLimit, &dailyLimit, &monthlyLimit)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "run.blocked.budget", map[string]any{
@@ -851,17 +1010,72 @@ func gateAndReserveBudgetTx(
 		return "", nil, err
 	}
 
-	// --- 2. 予算チェック (Per-Run & Daily) ---
-	// (中略：既存の spentRun と spentToday のロジックをここに維持)
-	// ※長くなるので省略していますが、元のチェック処理をそのまま置いてください
+	// --- 2) per-run limit ---
+	if perRunLimit > 0 && cost > perRunLimit {
+		return "run.blocked.budget", map[string]any{
+			"project_id":     projectID,
+			"reason":         "per_run_limit_exceeded",
+			"cost":           cost,
+			"per_run_limit":  perRunLimit,
+			"daily_limit":    dailyLimit,
+			"monthly_limit":  monthlyLimit,
+			"reserve_reason": reasonReserve,
+		}, nil
+	}
 
-	// --- 3. 予約（Reserve）の実行：ON CONFLICT 版 ---
-	// 以前の P0 (SELECT EXISTS) と 最後の INSERT は、この一つのSQLで完結します。
+	// --- 3) daily limit gate ---
+	var spentToday int64
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM budget_ledger
+		WHERE project_id = $1
+		  AND created_at >= date_trunc('day', now())
+		  AND created_at <  date_trunc('day', now()) + interval '1 day'
+	`, projectID).Scan(&spentToday)
+	if err != nil {
+		return "", nil, err
+	}
+	if dailyLimit > 0 && (spentToday+cost) > dailyLimit {
+		return "run.blocked.budget", map[string]any{
+			"project_id":     projectID,
+			"reason":         "daily_limit_exceeded",
+			"cost":           cost,
+			"spent_today":    spentToday,
+			"daily_limit":    dailyLimit,
+			"monthly_limit":  monthlyLimit,
+			"reserve_reason": reasonReserve,
+		}, nil
+	}
+
+	// --- 4) monthly limit gate ---
+	var spentThisMonth int64
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM budget_ledger
+		WHERE project_id = $1
+		  AND created_at >= date_trunc('month', now())
+		  AND created_at <  date_trunc('month', now()) + interval '1 month'
+	`, projectID).Scan(&spentThisMonth)
+	if err != nil {
+		return "", nil, err
+	}
+	if monthlyLimit > 0 && (spentThisMonth+cost) > monthlyLimit {
+		return "run.blocked.budget", map[string]any{
+			"project_id":       projectID,
+			"reason":           "monthly_limit_exceeded",
+			"cost":             cost,
+			"spent_this_month": spentThisMonth,
+			"monthly_limit":    monthlyLimit,
+			"reserve_reason":   reasonReserve,
+		}, nil
+	}
+
+	// --- 5) reserve ledger insert (idempotent by UNIQUE(run_id, reason)) ---
 	_, err = tx.Exec(ctx, `
-        INSERT INTO budget_ledger(run_id, trace_id, project_id, amount, unit, reason)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (run_id, reason) DO NOTHING
-    `, runID, traceID, projectID, cost, "credits", reasonReserve)
+		INSERT INTO budget_ledger(run_id, trace_id, project_id, amount, unit, reason)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (run_id, reason) DO NOTHING
+	`, runID, traceID, projectID, cost, "credits", reasonReserve)
 	if err != nil {
 		return "", nil, err
 	}
@@ -898,7 +1112,6 @@ func releaseBudgetTx(
 }
 
 func captureBudgetTx(
-
 	ctx context.Context,
 	db *pgxpool.Pool,
 	runID, traceID, projectID string,
@@ -937,7 +1150,7 @@ func getRunModeFromEnqueuedEvent(ctx context.Context, db *pgxpool.Pool, runID st
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// ✅ enqueued missing => mode=0 (safe default)
+			// enqueued missing => mode=0 (safe default)
 			return 0, nil
 		}
 		return 0, err
@@ -950,25 +1163,95 @@ func getRunModeFromEnqueuedEvent(ctx context.Context, db *pgxpool.Pool, runID st
 
 	n, err := strconv.Atoi(modeText)
 	if err != nil {
+		// invalid => safe default
 		return 0, nil
 	}
 	return n, nil
 }
 
-func upsertRunArtifact(ctx context.Context, db *pgxpool.Pool, runID, kind string, content any) error {
+// ------------------------
+// Run Artifacts (DDL-aligned UPSERT)
+// ------------------------
+//
+// DDL requires NOT NULL:
+// - schema_version must be '1.0'
+// - trace_id non-empty
+// - artifact_ref_kind = artifact_kind
+// - artifact_ref_run_id = run_id::text
+// - artifact_ref_trace_id = trace_id
+// - trace_trace_id = trace_id
+//
+// Also checks:
+// - artifact_kind must match regex
+func upsertRunArtifact(ctx context.Context, db *pgxpool.Pool, runID, traceID, kind string, content any) error {
 	runID = normalizeRunID(runID)
+	traceID = strings.TrimSpace(traceID)
+	kind = strings.TrimSpace(kind)
+
+	if traceID == "" {
+		// cannot satisfy NOT NULL + check constraints; treat as hard error
+		return fmt.Errorf("trace_id is required for run_artifacts (run_id=%s kind=%s)", runID, kind)
+	}
+	if kind == "" {
+		return fmt.Errorf("artifact_kind is required")
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	b, _ := json.Marshal(content)
+	b, err := json.Marshal(content)
+	if err != nil {
+		b = []byte(`{}`)
+	}
 
-	_, err := db.Exec(ctx, `
-		INSERT INTO run_artifacts(run_id, artifact_kind, content_json, created_at, updated_at)
-		VALUES ($1,$2,$3::jsonb, now(), now())
+	// IMPORTANT:
+	// - run_artifacts.run_id is character(26) (bpchar)
+	// - artifact_ref_run_id is text
+	// If we reuse the same parameter ($1) for both bpchar and text in one statement,
+	// Postgres can throw: "inconsistent types deduced for parameter $1 (42P08)".
+	// So we pass run_id twice with separate placeholders.
+	runIDText := runID
+
+	_, err = db.Exec(ctx, `
+		INSERT INTO run_artifacts(
+			run_id,
+			artifact_kind,
+			content_json,
+			created_at,
+			updated_at,
+			schema_version,
+			trace_id,
+			artifact_ref_kind,
+			artifact_ref_run_id,
+			artifact_ref_trace_id,
+			trace_trace_id
+		)
+		VALUES (
+			$1,
+			$2,
+			$3::jsonb,
+			now(),
+			now(),
+			$4,
+			$5,
+			$2,
+			$6,
+			$5,
+			$5
+		)
 		ON CONFLICT (run_id, artifact_kind)
-		DO UPDATE SET content_json = EXCLUDED.content_json, updated_at = now()
-	`, runID, kind, string(b))
+		DO UPDATE SET
+			content_json = EXCLUDED.content_json,
+			updated_at  = now(),
+			-- keep these aligned (defensive)
+			schema_version        = EXCLUDED.schema_version,
+			trace_id              = EXCLUDED.trace_id,
+			artifact_ref_kind     = EXCLUDED.artifact_ref_kind,
+			artifact_ref_run_id   = EXCLUDED.artifact_ref_run_id,
+			artifact_ref_trace_id = EXCLUDED.artifact_ref_trace_id,
+			trace_trace_id        = EXCLUDED.trace_trace_id
+	`, runID, kind, string(b), RunArtifactSchemaVersion, traceID, runIDText)
+
 	return err
 }
 
@@ -979,7 +1262,7 @@ func insertLearnSignal(ctx context.Context, db *pgxpool.Pool, runID, projectID, 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	pb := marshalJSONOrEmpty(payload)
+	pb := marshalJSONOrEmptyMap(payload)
 
 	_, err := db.Exec(ctx, `
 		INSERT INTO learn_signals(run_id, project_id, signal_type, payload)
@@ -989,14 +1272,18 @@ func insertLearnSignal(ctx context.Context, db *pgxpool.Pool, runID, projectID, 
 }
 
 // beginAttemptTx:
-// - locks runs row FOR UPDATE (serializes per-run state)
+// - locks runs row FOR UPDATE via nextEventSeqTx (serializes per-run state)
 // - reads run_artifacts(kind='attempt_state') => {attempt:N}
-// - increments attempt and upserts artifact
-// - appends run.attempt_started event with next seq (in the same tx)
+// - increments attempt and upserts artifact (DDL-aligned)
+// - appends run.attempt_started event using runs.next_event_seq (in the same tx)
 func beginAttemptTx(ctx context.Context, db *pgxpool.Pool, runID, traceID, projectID, workerID string) (int, error) {
 	runID = normalizeRunID(runID)
 	traceID = strings.TrimSpace(traceID)
 	projectID = strings.TrimSpace(projectID)
+
+	if traceID == "" {
+		return 0, fmt.Errorf("trace_id is required for beginAttemptTx")
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1007,7 +1294,8 @@ func beginAttemptTx(ctx context.Context, db *pgxpool.Pool, runID, traceID, proje
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `SELECT 1 FROM runs WHERE run_id=$1 FOR UPDATE`, runID)
+	// lock + read seq
+	seq, err := nextEventSeqTx(ctx, tx, runID)
 	if err != nil {
 		return 0, err
 	}
@@ -1050,46 +1338,85 @@ func beginAttemptTx(ctx context.Context, db *pgxpool.Pool, runID, traceID, proje
 		"updated_at": nowRFC3339Nano(),
 	}
 
-	// upsert attempt_state
-	b, _ := json.Marshal(attemptState)
+	b, jerr := json.Marshal(attemptState)
+	if jerr != nil {
+		b = []byte(`{}`)
+	}
+
+	// IMPORTANT (same as upsertRunArtifact):
+	// - run_id is bpchar(26)
+	// - artifact_ref_run_id is text
+	// Do NOT reuse the same parameter for both types in one SQL statement.
+	runIDText := runID
+
 	_, err = tx.Exec(ctx, `
-		INSERT INTO run_artifacts(run_id, artifact_kind, content_json, created_at, updated_at)
-		VALUES ($1,'attempt_state',$2::jsonb, now(), now())
+		INSERT INTO run_artifacts(
+			run_id,
+			artifact_kind,
+			content_json,
+			created_at,
+			updated_at,
+			schema_version,
+			trace_id,
+			artifact_ref_kind,
+			artifact_ref_run_id,
+			artifact_ref_trace_id,
+			trace_trace_id
+		)
+		VALUES (
+			$1,
+			'attempt_state',
+			$2::jsonb,
+			now(),
+			now(),
+			$3,
+			$4,
+			'attempt_state',
+			$5,
+			$4,
+			$4
+		)
 		ON CONFLICT (run_id, artifact_kind)
-		DO UPDATE SET content_json = EXCLUDED.content_json, updated_at = now()
-	`, runID, string(b))
+		DO UPDATE SET
+			content_json = EXCLUDED.content_json,
+			updated_at  = now(),
+			schema_version        = EXCLUDED.schema_version,
+			trace_id              = EXCLUDED.trace_id,
+			artifact_ref_kind     = EXCLUDED.artifact_ref_kind,
+			artifact_ref_run_id   = EXCLUDED.artifact_ref_run_id,
+			artifact_ref_trace_id = EXCLUDED.artifact_ref_trace_id,
+			trace_trace_id        = EXCLUDED.trace_trace_id
+	`, runID, string(b), RunArtifactSchemaVersion, traceID, runIDText)
 	if err != nil {
 		return 0, err
 	}
 
 	// append run.attempt_started within same tx
-	var nextSeq int64
-	err = tx.QueryRow(ctx, `
-		SELECT COALESCE(MAX(event_seq), 0) + 1
-		FROM run_events
-		WHERE run_id = $1
-	`, runID).Scan(&nextSeq)
-	if err != nil {
-		return 0, err
-	}
-
 	payload := map[string]any{
 		"attempt":    nextAttempt,
 		"project_id": projectID,
 		"worker_id":  workerID,
 		"started_at": nowRFC3339Nano(),
 	}
-	pb := marshalJSONOrEmpty(payload)
+	pb := marshalJSONOrEmptyMap(payload)
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
 		VALUES ($1,$2,$3,$4,$5::jsonb)
-	`, runID, traceID, nextSeq, "run.attempt_started", pb)
+	`, runID, traceID, seq, "run.attempt_started", pb)
 	if err != nil {
 		return 0, err
 	}
 
-	_, _ = tx.Exec(ctx, `UPDATE runs SET updated_at=now() WHERE run_id=$1`, runID)
+	// advance next_event_seq + touch updated_at
+	_, err = tx.Exec(ctx, `
+		UPDATE runs
+		SET next_event_seq=$2, updated_at=now()
+		WHERE run_id=$1
+	`, runID, seq+1)
+	if err != nil {
+		return 0, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err
@@ -1116,7 +1443,8 @@ func holdForReview(ctx context.Context, db *pgxpool.Pool, runID, traceID, worker
 		},
 	)
 
-	_ = upsertRunArtifact(ctx, db, runID, "review_required_reason", map[string]any{
+	// best-effort; if trace_id empty it will return error, but MUST NOT crash
+	_ = upsertRunArtifact(ctx, db, runID, traceID, "review_required_reason", map[string]any{
 		"reason":    reason,
 		"details":   detail,
 		"worker_id": workerID,
@@ -1188,7 +1516,8 @@ func hostnameFallback() string {
 	return h
 }
 
-func marshalJSONOrEmpty(payload map[string]any) string {
+// marshalJSONOrEmptyMap returns a JSON string (not bytes) to use with ::jsonb
+func marshalJSONOrEmptyMap(payload map[string]any) string {
 	if payload == nil {
 		return "{}"
 	}

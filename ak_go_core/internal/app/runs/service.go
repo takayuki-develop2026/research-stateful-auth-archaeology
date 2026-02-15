@@ -52,23 +52,36 @@ type CreateRunInput struct {
 	Source          string
 }
 
+/*
+P0 contract (API):
+- state: internal progress (queued/running/done/failed/review_required/blocked...)
+- status: public 2-value status (review_required/failed) OR omitted when not applicable
+- result: pending/success/failed
+*/
 type CreateRunOutput struct {
 	RunID   string `json:"run_id"`
 	TraceID string `json:"trace_id"`
-	Status  string `json:"status"`
+	State   string `json:"state"`
+	Status  string `json:"status,omitempty"`
+	Result  string `json:"result"`
 	Note    string `json:"note,omitempty"`
 }
 
 type Run struct {
-	RunID           string    `json:"run_id"`
-	TraceID         string    `json:"trace_id"`
-	ProjectID       string    `json:"project_id"`
-	PolicyVersion   string    `json:"policy_version"`
-	PipelineVersion string    `json:"pipeline_version"`
-	Status          string    `json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	RequestKey      *string   `json:"request_key,omitempty"`
+	RunID           string `json:"run_id"`
+	TraceID         string `json:"trace_id"`
+	ProjectID       string `json:"project_id"`
+	PolicyVersion   string `json:"policy_version"`
+	PipelineVersion string `json:"pipeline_version"`
+
+	// P0: normalized output
+	State  string `json:"state"`
+	Status string `json:"status,omitempty"`
+	Result string `json:"result"`
+
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	RequestKey *string   `json:"request_key,omitempty"`
 }
 
 type RunEvent struct {
@@ -96,6 +109,89 @@ type RunArtifactsOut struct {
 	Artifacts []RunArtifact `json:"artifacts"`
 }
 
+// --------------------
+// P0 normalization helpers
+// --------------------
+
+func normalizeRunID(s string) string {
+	// runs.run_id is CHAR(26) in some designs; or ULID(26) string. Trim spaces defensively.
+	return strings.TrimSpace(s)
+}
+
+func normalizeTraceID(s string) string {
+	return strings.TrimSpace(s)
+}
+
+// normalizeRunState normalizes DB "state" into known buckets but does not destroy unknown values.
+func normalizeRunState(dbState string) string {
+	s := strings.TrimSpace(dbState)
+	if s == "" {
+		return "queued"
+	}
+
+	// treat "run.blocked.*" and "blocked*" as state=blocked
+	if strings.HasPrefix(s, "run.blocked.") || strings.HasPrefix(s, "blocked") {
+		return "blocked"
+	}
+
+	switch s {
+	case "queued", "running", "done", "failed", "review_required":
+		return s
+	}
+
+	// fallback: keep as-is (API must not break)
+	return s
+}
+
+// derivePublicStatusAndResult derives API status/result from normalized state.
+// - status: only for public notable terminal-ish states (review_required/failed)
+// - result: pending/success/failed (public simple)
+func derivePublicStatusAndResult(dbState string) (publicStatus string, result string) {
+	st := strings.TrimSpace(dbState)
+
+	// 1. ブロック判定（blocked は public status を出さない / result は pending）
+	if strings.HasPrefix(st, "run.blocked.") || strings.HasPrefix(st, "blocked") {
+		return "", "pending"
+	}
+
+	switch st {
+	case "done":
+		return "", "success"
+	case "failed":
+		return "failed", "failed"
+	case "review_required":
+		// P0 contract: review_required is NOT success; it is "pending human decision"
+		return "review_required", "pending"
+	case "queued", "running", "":
+		return "", "pending"
+	default:
+		// 保守的なフォールバック
+		if strings.Contains(st, "fail") || strings.Contains(st, "error") {
+			return "failed", "failed"
+		}
+		return "", "pending"
+	}
+}
+
+func marshalJSONOrEmpty(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte(`{}`)
+	}
+	return b
+}
+
+func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if d <= 0 {
+		d = 5 * time.Second
+	}
+	return context.WithTimeout(ctx, d)
+}
+
+// --------------------
+// Service methods
+// --------------------
+
 func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOutput, *APIError) {
 	projectID := strings.TrimSpace(in.ProjectID)
 	if projectID == "" {
@@ -122,60 +218,78 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 		requestKey = ""
 	}
 
-	traceID := strings.TrimSpace(in.TraceID)
+	traceID := normalizeTraceID(in.TraceID)
 	if traceID == "" {
-		traceID = newTraceID() // ✅ 必ず生成
+		traceID = newTraceID()
 	}
 
-	// idempotency reuse (request_key)
+	// ---------------------------------------------------------
+	// 1) 冪等性チェック (Idempotency pre-check)
+	// ---------------------------------------------------------
 	if requestKey != "" {
-		var rid, rtid, st string
-		err := s.db.QueryRow(ctx, `
-			SELECT run_id, trace_id, status
-			FROM runs
-			WHERE request_key = $1
-		`, requestKey).Scan(&rid, &rtid, &st)
-
-		if err == nil {
-			return CreateRunOutput{RunID: rid, TraceID: rtid, Status: st, Note: "idempotent_reuse"}, nil
+		existing, ok, apiErr := s.getRunByRequestKey(ctx, requestKey)
+		if apiErr != nil {
+			return CreateRunOutput{}, apiErr
 		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "idempotency lookup failed"}
+		if ok {
+			pubStatus, result := derivePublicStatusAndResult(existing.State)
+			return CreateRunOutput{
+				RunID:   existing.RunID,
+				TraceID: existing.TraceID,
+				State:   existing.State,
+				Status:  pubStatus,
+				Result:  result,
+				Note:    "idempotent_reuse",
+			}, nil
 		}
 	}
 
-	tx, err := s.db.Begin(ctx)
+	// ---------------------------------------------------------
+	// 2) トランザクション開始: runs挿入 + event挿入 + sequence更新
+	// ---------------------------------------------------------
+	tctx, cancel := context.WithTimeout(ctx, 7*time.Second)
+	defer cancel()
+
+	tx, err := s.db.Begin(tctx)
 	if err != nil {
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "begin failed"}
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(tctx)
 
-	runID := ulid.Make().String() // ✅ 26 chars
+	// Workerが期待する ULID (26文字) を生成
+	runID := ulid.Make().String()
 
 	var rk any = nil
 	if requestKey != "" {
 		rk = requestKey
 	}
 
-	_, err = tx.Exec(ctx, `
-		INSERT INTO runs(run_id, trace_id, project_id, policy_version, pipeline_version, status, request_key)
-		VALUES ($1,$2,$3,$4,$5,'queued',$6)
-	`, runID, traceID, projectID, policy, pipeline, rk)
+	// 2-a) runs テーブルに基本情報を挿入 (state='queued' で開始)
+	_, err = tx.Exec(tctx, `
+        INSERT INTO runs(
+            run_id, trace_id, project_id, policy_version, pipeline_version,
+            state, request_key
+        )
+        VALUES ($1, $2, $3, $4, $5, 'queued', $6)
+    `, runID, traceID, projectID, policy, pipeline, rk)
+
 	if err != nil {
+		// INSERT直後のレースコンディション対策
 		if requestKey != "" && isPgUniqueViolation(err) {
-			var rid, rtid, st string
-			err2 := s.db.QueryRow(ctx, `
-				SELECT run_id, trace_id, status
-				FROM runs
-				WHERE request_key = $1
-			`, requestKey).Scan(&rid, &rtid, &st)
-			if err2 == nil {
-				return CreateRunOutput{RunID: rid, TraceID: rtid, Status: st, Note: "idempotent_reuse"}, nil
+			existing, ok, apiErr := s.getRunByRequestKey(ctx, requestKey)
+			if ok && apiErr == nil {
+				pubStatus, result := derivePublicStatusAndResult(existing.State)
+				return CreateRunOutput{
+					RunID: existing.RunID, TraceID: existing.TraceID,
+					State: existing.State, Status: pubStatus, Result: result,
+					Note: "idempotent_reuse",
+				}, nil
 			}
 		}
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "insert runs failed"}
 	}
 
+	// 2-b) run_events に最初のイベント 'run.enqueued' (seq=1) を挿入
 	payload := map[string]any{
 		"project_id":       projectID,
 		"policy_version":   policy,
@@ -183,42 +297,79 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (CreateRunOu
 		"mode":             mode,
 		"source":           strings.TrimSpace(in.Source),
 	}
-	pb, _ := json.Marshal(payload)
+	pb := marshalJSONOrEmpty(payload)
 
-	_, err = tx.Exec(ctx, `
-		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
-		VALUES ($1,$2,1,'run.enqueued',$3::jsonb)
-	`, runID, traceID, string(pb))
+	_, err = tx.Exec(tctx, `
+        INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
+        VALUES ($1, $2, 1, 'run.enqueued', $3::jsonb)
+    `, runID, traceID, pb)
 	if err != nil {
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "insert run_events failed"}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	// 2-c) ★最重要: runs テーブルの next_event_seq を 2 に進める
+	// 同一トランザクション内で実行することで整合性を担保
+	_, err = tx.Exec(tctx, `
+        UPDATE runs
+        SET next_event_seq = 2,
+            updated_at = now()
+        WHERE run_id = $1
+    `, runID)
+	if err != nil {
+		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "update sequence failed"}
+	}
+
+	// 2-d) コミット
+	if err := tx.Commit(tctx); err != nil {
 		return CreateRunOutput{}, &APIError{HTTPStatus: 500, Type: "DbError", Message: "commit failed"}
 	}
 
-	return CreateRunOutput{RunID: runID, TraceID: traceID, Status: "queued"}, nil
+	// ---------------------------------------------------------
+	// 3) 初期状態の返却
+	// ---------------------------------------------------------
+	pubStatus, result := derivePublicStatusAndResult("queued")
+	return CreateRunOutput{
+		RunID:   runID,
+		TraceID: traceID,
+		State:   "queued",
+		Status:  pubStatus,
+		Result:  result,
+	}, nil
 }
 
 func (s *Service) GetRun(ctx context.Context, runID string) (Run, bool, *APIError) {
 	var out Run
 	var requestKey *string
+	var dbState string
 
-	err := s.db.QueryRow(ctx, `
-		SELECT run_id, trace_id, project_id, policy_version, pipeline_version, status, created_at, updated_at, request_key
+	tctx, cancel := withTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	err := s.db.QueryRow(tctx, `
+		SELECT
+			run_id, trace_id, project_id, policy_version, pipeline_version,
+			state, created_at, updated_at, request_key
 		FROM runs
 		WHERE run_id = $1
 	`, strings.TrimSpace(runID)).Scan(
 		&out.RunID, &out.TraceID, &out.ProjectID, &out.PolicyVersion, &out.PipelineVersion,
-		&out.Status, &out.CreatedAt, &out.UpdatedAt, &requestKey,
+		&dbState, &out.CreatedAt, &out.UpdatedAt, &requestKey,
 	)
+
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, false, nil
 	}
 	if err != nil {
 		return Run{}, false, &APIError{HTTPStatus: 500, Type: "DbError", Message: "query failed"}
 	}
+
+	out.RunID = normalizeRunID(out.RunID)
+	out.TraceID = normalizeTraceID(out.TraceID)
 	out.RequestKey = requestKey
+
+	out.State = normalizeRunState(dbState)
+	out.Status, out.Result = derivePublicStatusAndResult(out.State)
+
 	return out, true, nil
 }
 
@@ -231,7 +382,10 @@ func (s *Service) GetRunEvents(ctx context.Context, runID string) (RunEventsOut,
 		return RunEventsOut{}, false, nil
 	}
 
-	rows, err := s.db.Query(ctx, `
+	tctx, cancel := withTimeout(ctx, 7*time.Second)
+	defer cancel()
+
+	rows, err := s.db.Query(tctx, `
 		SELECT event_seq, event_name, trace_id, occurred_at, payload
 		FROM run_events
 		WHERE run_id = $1
@@ -242,12 +396,13 @@ func (s *Service) GetRunEvents(ctx context.Context, runID string) (RunEventsOut,
 	}
 	defer rows.Close()
 
-	out := RunEventsOut{RunID: strings.TrimSpace(runID), Events: []RunEvent{}}
+	out := RunEventsOut{RunID: normalizeRunID(runID), Events: []RunEvent{}}
 	for rows.Next() {
 		var e RunEvent
 		if err := rows.Scan(&e.EventSeq, &e.EventName, &e.TraceID, &e.OccurredAt, &e.Payload); err != nil {
 			return RunEventsOut{}, false, &APIError{HTTPStatus: 500, Type: "DbError", Message: "scan failed"}
 		}
+		e.TraceID = normalizeTraceID(e.TraceID)
 		out.Events = append(out.Events, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -266,7 +421,10 @@ func (s *Service) GetRunArtifacts(ctx context.Context, runID string) (RunArtifac
 		return RunArtifactsOut{}, false, nil
 	}
 
-	rows, err := s.db.Query(ctx, `
+	tctx, cancel := withTimeout(ctx, 7*time.Second)
+	defer cancel()
+
+	rows, err := s.db.Query(tctx, `
 		SELECT artifact_kind, content_json, created_at, updated_at
 		FROM run_artifacts
 		WHERE run_id = $1
@@ -277,7 +435,7 @@ func (s *Service) GetRunArtifacts(ctx context.Context, runID string) (RunArtifac
 	}
 	defer rows.Close()
 
-	out := RunArtifactsOut{RunID: strings.TrimSpace(runID), Artifacts: []RunArtifact{}}
+	out := RunArtifactsOut{RunID: normalizeRunID(runID), Artifacts: []RunArtifact{}}
 	for rows.Next() {
 		var a RunArtifact
 		if err := rows.Scan(&a.ArtifactKind, &a.ContentJSON, &a.CreatedAt, &a.UpdatedAt); err != nil {
@@ -288,6 +446,46 @@ func (s *Service) GetRunArtifacts(ctx context.Context, runID string) (RunArtifac
 	if err := rows.Err(); err != nil {
 		return RunArtifactsOut{}, false, &APIError{HTTPStatus: 500, Type: "DbError", Message: "rows error"}
 	}
+
+	return out, true, nil
+}
+
+// --------------------
+// Internal helpers
+// --------------------
+
+func (s *Service) getRunByRequestKey(ctx context.Context, requestKey string) (Run, bool, *APIError) {
+	var out Run
+	var dbState string
+	var rk *string
+
+	tctx, cancel := withTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	err := s.db.QueryRow(tctx, `
+		SELECT
+			run_id, trace_id, project_id, policy_version, pipeline_version,
+			state, created_at, updated_at, request_key
+		FROM runs
+		WHERE request_key = $1
+	`, requestKey).Scan(
+		&out.RunID, &out.TraceID, &out.ProjectID, &out.PolicyVersion, &out.PipelineVersion,
+		&dbState, &out.CreatedAt, &out.UpdatedAt, &rk,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Run{}, false, nil
+	}
+	if err != nil {
+		return Run{}, false, &APIError{HTTPStatus: 500, Type: "DbError", Message: "idempotency lookup failed"}
+	}
+
+	out.RunID = normalizeRunID(out.RunID)
+	out.TraceID = normalizeTraceID(out.TraceID)
+	out.RequestKey = rk
+
+	out.State = normalizeRunState(dbState)
+	out.Status, out.Result = derivePublicStatusAndResult(out.State)
 
 	return out, true, nil
 }
