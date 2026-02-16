@@ -285,6 +285,24 @@ services:
     networks:
       - simulation1_network
     restart: unless-stopped
+
+  # ============================================================
+  # 13) CloudBeaver（DB GUI: Postgres/MySQL）
+  # ============================================================
+  cloudbeaver:
+    image: dbeaver/cloudbeaver:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8978:8978"   # 外に公開しない（ローカルのみ）
+    volumes:
+      - cloudbeaver_workspace:/opt/cloudbeaver/workspace
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_started
+    networks:
+      - simulation1_network
 # ============================================================
 # Network
 # ============================================================
@@ -299,3 +317,4 @@ volumes:
   mysql_data:
   ak_pgdata:
   ak_redisdata:
+  cloudbeaver_workspace:

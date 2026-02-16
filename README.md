@@ -175,4 +175,5 @@ WEBサイトにも良く反映されて景気の波にも負けないような�
   - ユーザー登録： http://localhost/register
   - phpMyAdmin:http://localhost:8080/index.php
   - meilhog： http://localhost:8025/
+  - cloudbeaver:http://localhost:8978/
 
