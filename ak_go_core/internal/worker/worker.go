@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http" // 追加
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
-	"example.com/ak_go_core/internal/infra/redis"
+	"example.com/pisag_go/pisag" 
+    "example.com/pisag_go/ports" // 追加
+
+	redisx "example.com/ak_go_core/internal/infra/redis"
 )
 
 type Config struct {
@@ -24,16 +28,28 @@ type Worker struct {
 	cfg   Config
 
 	logger *log.Logger
+
+	// PISAG v4: セキュリティ基盤を構造体に保持
+	pisagClient *http.Client
+	policy      ports.Policy
 }
 
-func NewWorker(store *Store, rdb *redis.Client, cfg Config, logger *log.Logger) *Worker {
+// NewWorker: PISAG関連の引数を追加
+func NewWorker(store *Store, rdb *redis.Client, cfg Config, logger *log.Logger, pClient *http.Client, pol ports.Policy) *Worker {
 	if cfg.Poll <= 0 {
 		cfg.Poll = 500 * time.Millisecond
 	}
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Worker{store: store, rdb: rdb, cfg: cfg, logger: logger}
+	return &Worker{
+		store:       store,
+		rdb:         rdb,
+		cfg:         cfg,
+		logger:      logger,
+		pisagClient: pClient, // 注入
+		policy:      pol,     // 注入
+	}
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -196,7 +212,7 @@ func (w *Worker) processOnce(ctx context.Context) {
 		},
 	)
 
-	// ---- v3.1 budget reserve/capture/release (attempt-aware) ----
+	// ---- v3.1 budget reserve/capture/release ----
 	reserved := false
 	captured := false
 	reasonReserve := fmt.Sprintf("reserve_run_cost_a%d", attempt)
@@ -244,11 +260,39 @@ func (w *Worker) processOnce(ctx context.Context) {
 		map[string]any{"project_id": projectID, "amount": w.cfg.Cost, "unit": "credits", "reason": reasonReserve, "attempt": attempt, "worker_id": w.cfg.WorkerID},
 	)
 
-	// ---- stub external work ----
-	time.Sleep(200 * time.Millisecond)
+	// ---- PISAG v4: 保護された外部通信の実行 ----
+	// 以前の stub(time.Sleep) を、検閲付きの実際のフェッチに置き換えます
+	targetURL := "https://oracle.singularity.local/v1/catalog/pricing_v1.json"
+
+	// 1. Policyに基づいてURLを検閲・正規化
+	u, err := pisag.RequestGuard(targetURL, w.policy)
+	if err != nil {
+		w.logger.Printf("PISAG SSRF Blocked: %v", err)
+		w.holdForReview(context.Background(), run.RunID, run.TraceID, "ssrf_protection_triggered",
+			map[string]any{"attempt": attempt, "blocked_url": targetURL, "error": err.Error()},
+		)
+		return
+	}
+
+	// 2. 物理ロックされた専用Clientでリクエスト送信
+	req, _ := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	resp, err := w.pisagClient.Do(req)
+	if err != nil {
+		w.logger.Printf("PISAG Fetch Error: %v", err)
+		// ネットワークエラー等はリトライを考慮しつつ一旦ログ出力
+	} else {
+		defer resp.Body.Close()
+		w.logger.Printf("PISAG Fetch Success: status=%d URL=%s", resp.StatusCode, u.String())
+	}
 
 	_ = w.store.UpsertRunArtifact(context.Background(), run.RunID, run.TraceID, "analysis_result",
-		map[string]any{"ok": true, "mode": mode, "stub": "result_v3_2", "attempt": attempt},
+		map[string]any{
+			"ok":      err == nil,
+			"mode":    mode,
+			"stub":    "result_v3_2_with_pisag",
+			"attempt": attempt,
+			"status":  resp.StatusCode,
+		},
 	)
 
 	_ = w.store.InsertLearnSignal(context.Background(), run.RunID, projectID, "route_selected",

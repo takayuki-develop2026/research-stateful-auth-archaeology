@@ -226,9 +226,9 @@ services:
   # ============================================================
   ak_go_core:
     build:
-      context: ./ak_go_core
-      dockerfile: Dockerfile
-    image: research-stateful-auth-archaeology/ak-go-core:v3
+      context: .  # プロジェクトのルートディレクトリに広げる
+      dockerfile: ak_go_core/Dockerfile # Dockerfileへのパスを正しく指定
+    image: research-stateful-auth-archaeology/ak-go-core:v4 # バージョンをv4へ
     ports:
       - "9000:9000"
     environment:
@@ -303,15 +303,31 @@ services:
         condition: service_started
     networks:
       - simulation1_network
+
+
+  # ============================================================
+  # 14)シミュレーター (Oracle: データの源泉)
+  # ============================================================
+  oracle:
+    image: nginx:alpine  # 最初は軽量なnginxで pricing_v1.json を返すのが楽です
+    restart: unless-stopped
+    volumes:
+      - ./oracle_static:/usr/share/nginx/html:ro # ここにデータを置く
+    networks:
+      simulation1_network:
+        aliases:
+          - oracle.singularity.local
+
 # ============================================================
-# Network
+# Network Definition
 # ============================================================
 networks:
   simulation1_network:
+    name: simulation1_network # 名前を固定
     driver: bridge
 
 # ============================================================
-# Volumes
+# Volumes Definition
 # ============================================================
 volumes:
   mysql_data:

@@ -156,6 +156,8 @@ WEBサイトにも良く反映されて景気の波にも負けないような�
   - PHP: 8.4.17
   - Laravel: 11.47.0
   - Python: 3.14
+  - Go: 1.25.1
+  - ginkgo: 2.12.0
   - Ruby: 4.0.1
   - Rails: 8.1.2
   - Java: toolchain 25
