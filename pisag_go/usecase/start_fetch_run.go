@@ -2,9 +2,14 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/url"
+	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,19 +23,25 @@ type StartFetchRunInput struct {
 	SourceID        *string
 	PipelineVersion string
 	AllowlistKey    *string
+
+	// debug/local only: enqueue後に同期fetchまで実行したい場合だけtrue
+	ImmediateFetch bool
+
+	// v4.2: 同一目的のrunを再利用する（推奨: デフォルト true）
+	// nil => true
+	ReuseRun *bool
 }
 
 type StartFetchRunOutput struct {
 	RunID        string
 	TraceID      string
-	Status       string // done/failed
+	Status       string // enqueued/done/failed
 	ErrorCode    *string
 	ErrorMessage *string
 }
 
-// StartFetchRunUseCase はフェッチ実行のオーケストレーションを行う
 type StartFetchRunUseCase struct {
-	Fetcher      Fetcher // ★ PISAGFetcher 注入（allow/denyの真実はここ）
+	Fetcher      Fetcher
 	RunRepo      run.RunRepo
 	RunInputRepo run.RunInputRepo
 	RunEventRepo run.RunEventRepo
@@ -47,46 +58,105 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		in.PipelineVersion = "v4.1"
 	}
 
-	// ✅ validateURL は「https必須」だけ
-	// host/port/path/allowlist/redirect/ip/tls 等は PISAG(RequestGuard) を唯一の真実に寄せる
+	// ここは https/host 必須だけ。詳細ガードはPISAGに一任
 	if err := validateURL(in.TargetURL); err != nil {
 		return StartFetchRunOutput{}, err
 	}
 
-	runID := uuid.New().String()
-	traceID := uuid.New().String()
-
-	r := run.Run{
-		RunID:           runID,
-		ProjectID:       in.ProjectID,
-		TraceID:         traceID,
-		PipelineVersion: in.PipelineVersion,
-		Status:          run.StatusRunning,
+	method := "GET"
+	allow := ""
+	if in.AllowlistKey != nil {
+		allow = strings.TrimSpace(*in.AllowlistKey)
 	}
 
-	// 1) runs 作成（ak_worker）
-	_, err := uc.RunRepo.Create(ctx, r)
-	if err != nil {
+	// enqueue/run key用にURL正規化（PISAGガードの代替ではない）
+	nurl, nerr := normalizeURLForEnqueueKey(in.TargetURL)
+	if nerr != nil {
+		return StartFetchRunOutput{}, nerr
+	}
+
+	// v4.2: run_key（同一目的なら同一run）
+	runKey := hashHex("run|" + in.PipelineVersion + "|" + method + "|" + allow + "|" + nurl)
+
+	// ✅ ReuseRun デフォルト true を確定
+	reuse := boolDefaultTrue(in.ReuseRun)
+
+	// run作成 or 再利用
+	var r run.Run
+	var reused bool
+
+	if reuse {
+		rr, found, err := uc.RunRepo.CreateOrGetByRunKey(ctx, in.ProjectID, runKey, func() run.Run {
+			runID := uuid.New().String()
+			traceID := uuid.New().String()
+			return run.Run{
+				RunID:           runID,
+				ProjectID:       in.ProjectID,
+				TraceID:         traceID,
+				PipelineVersion: in.PipelineVersion,
+				Status:          run.StatusRunning,
+				RunKey:          ptr(runKey),
+			}
+		})
+		if err != nil {
+			return StartFetchRunOutput{}, err
+		}
+		r = rr
+		reused = found
+	} else {
+		runID := uuid.New().String()
+		traceID := uuid.New().String()
+		r = run.Run{
+			RunID:           runID,
+			ProjectID:       in.ProjectID,
+			TraceID:         traceID,
+			PipelineVersion: in.PipelineVersion,
+			Status:          run.StatusRunning,
+			RunKey:          ptr(runKey),
+		}
+		if _, err := uc.RunRepo.Create(ctx, r); err != nil {
+			return StartFetchRunOutput{}, err
+		}
+		reused = false
+	}
+
+	// enqueue_key（同一run内で同一入力を1回に潰す）
+	enqueueKey := hashHex("fetch|" + method + "|" + allow + "|" + nurl)
+
+	headersJSON := []byte(`{}`)
+	if err := uc.RunInputRepo.Insert(ctx, run.RunInput{
+		RunID:        r.RunID,
+		SourceID:     in.SourceID,
+		TargetURL:    in.TargetURL, // raw保持（証拠）
+		Method:       method,
+		HeadersJSON:  headersJSON,
+		AllowlistKey: in.AllowlistKey,
+		EnqueueKey:   enqueueKey,
+	}); err != nil {
 		return StartFetchRunOutput{}, err
 	}
 
-	// 2) run_inputs
-	headersJSON := []byte(`{}`)
-	_ = uc.RunInputRepo.Insert(ctx, run.RunInput{
-		RunID:        runID,
-		SourceID:     in.SourceID,
-		TargetURL:    in.TargetURL,
-		Method:       "GET",
-		HeadersJSON:  headersJSON,
-		AllowlistKey: in.AllowlistKey,
+	_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_enqueued", "fetch", "ok", nil, map[string]any{
+		"target_url":       in.TargetURL,
+		"normalized_url":   nurl,
+		"enqueue_key":      enqueueKey,
+		"run_key":          runKey,
+		"run_reused":       reused,
+		"reuse_run":        reuse,
+		"pipeline_version": in.PipelineVersion,
+		"ts":               time.Now().UTC().Format(time.RFC3339Nano),
 	})
 
-	_ = uc.appendEvent(ctx, runID, traceID, "fetch_started", "fetch", "ok", nil, map[string]any{
-		"target_url": in.TargetURL,
-		"ts":         time.Now().UTC().Format(time.RFC3339Nano),
-	})
+	// worker主体ならここで終了（正道）
+	if !in.ImmediateFetch {
+		return StartFetchRunOutput{
+			RunID:   r.RunID,
+			TraceID: r.TraceID,
+			Status:  "enqueued",
+		}, nil
+	}
 
-	// 3) フェッチ（PISAGが唯一の真実）
+	// debug/local only: immediate fetch
 	res, ferr := uc.Fetcher.Fetch(ctx, in.TargetURL)
 	if ferr != nil {
 		code := "fetch_failed"
@@ -94,24 +164,20 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		if errors.Is(ferr, ErrDenied) {
 			code = "fetch_denied"
 		}
-
-		_ = uc.appendEvent(ctx, runID, traceID, "fetch_failed", "fetch", "failed", &msg, map[string]any{
+		_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_failed", "fetch", "failed", &msg, map[string]any{
 			"error_code": code,
 		})
-
-		_ = uc.RunRepo.MarkFailed(ctx, runID, code, msg)
-
-		// 重要: infra以外は panic しない。UseCase は成功応答(=failed)で返す。
+		_ = uc.RunRepo.MarkFailed(ctx, r.RunID, code, msg)
 		return StartFetchRunOutput{
-			RunID:        runID,
-			TraceID:      traceID,
+			RunID:        r.RunID,
+			TraceID:      r.TraceID,
 			Status:       "failed",
 			ErrorCode:    &code,
 			ErrorMessage: &msg,
 		}, nil
 	}
 
-	_ = uc.appendEvent(ctx, runID, traceID, "fetch_done", "fetch", "ok", nil, map[string]any{
+	_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_done", "fetch", "ok", nil, map[string]any{
 		"final_url":      res.FinalURL,
 		"status_code":    res.StatusCode,
 		"content_type":   res.ContentType,
@@ -119,11 +185,11 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		"fetched_at_utc": time.Now().UTC().Format(time.RFC3339Nano),
 	})
 
-	_ = uc.RunRepo.MarkDone(ctx, runID)
+	_ = uc.RunRepo.MarkDone(ctx, r.RunID)
 
 	return StartFetchRunOutput{
-		RunID:   runID,
-		TraceID: traceID,
+		RunID:   r.RunID,
+		TraceID: r.TraceID,
 		Status:  "done",
 	}, nil
 }
@@ -146,8 +212,6 @@ func (uc *StartFetchRunUseCase) appendEvent(
 	})
 }
 
-// validateURL は「https必須」だけ。
-// host/port/path/allowlist/redirect/ip/tls の制約は PISAG(RequestGuard) に一本化する。
 func validateURL(s string) error {
 	u, err := url.Parse(strings.TrimSpace(s))
 	if err != nil {
@@ -156,5 +220,114 @@ func validateURL(s string) error {
 	if u.Scheme != "https" {
 		return errors.New("only https is allowed")
 	}
+	if u.Host == "" {
+		return errors.New("host is required")
+	}
 	return nil
+}
+
+// normalizeURLForEnqueueKey: enqueue/run key生成用（PISAGガードの代替ではない）
+// 方針（強め・安定）:
+// - scheme固定 https
+// - host lowercase
+// - default port(:443)除去
+// - fragment除去
+// - path clean（dot-segment除去）+ 空は "/"
+// - query: key sort + values sort + encode
+func normalizeURLForEnqueueKey(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "https" {
+		return "", errors.New("only https is allowed")
+	}
+	if u.Host == "" {
+		return "", errors.New("host is required")
+	}
+
+	u.Fragment = ""
+
+	// host normalize
+	host := strings.ToLower(u.Host)
+	if h, p, e := net.SplitHostPort(host); e == nil {
+		if p == "443" {
+			host = h
+		} else {
+			host = net.JoinHostPort(h, p)
+		}
+	}
+	u.Host = host
+
+	// path normalize
+	if u.Path == "" {
+		u.Path = "/"
+	} else {
+		cp := path.Clean(u.Path)
+		if cp == "." {
+			cp = "/"
+		}
+		// 末尾スラッシュは「落として統一」（/a と /a/ を同一視）
+		if cp != "/" {
+			cp = strings.TrimRight(cp, "/")
+			if cp == "" {
+				cp = "/"
+			}
+		}
+		u.Path = cp
+	}
+
+	// query normalize
+	if u.RawQuery != "" {
+		q := u.Query()
+		keys := make([]string, 0, len(q))
+		for k := range q {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		var b strings.Builder
+		first := true
+		for _, k := range keys {
+			vals := q[k]
+			sort.Strings(vals)
+			for _, v := range vals {
+				if !first {
+					b.WriteByte('&')
+				}
+				first = false
+				b.WriteString(url.QueryEscape(k))
+				b.WriteByte('=')
+				b.WriteString(url.QueryEscape(v))
+			}
+		}
+		u.RawQuery = b.String()
+	}
+
+	out := u.Scheme + "://" + u.Host + u.Path
+	if u.RawQuery != "" {
+		out += "?" + u.RawQuery
+	}
+	return out, nil
+}
+
+func hashHex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+func ptr(s string) *string { return &s }
+
+// ✅ nil => true
+func boolDefaultTrue(p *bool) bool {
+	if p == nil {
+		return true
+	}
+	return *p
+}
+
+// NormalizeURLForEnqueueKey_ForTest exposes the internal normalization for tests.
+// production code should keep using normalizeURLForEnqueueKey internally.
+func NormalizeURLForEnqueueKey_ForTest(raw string) (string, error) {
+	return normalizeURLForEnqueueKey(raw)
 }

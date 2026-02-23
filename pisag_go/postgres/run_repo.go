@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+	"strings"
 
 	"example.com/pisag_go/run"
 )
@@ -13,12 +14,11 @@ type RunRepository struct{ db *sql.DB }
 type RunInputRepository struct{ db *sql.DB }
 type RunEventRepository struct{ db *sql.DB }
 
-func NewRunRepository(db *sql.DB) *RunRepository         { return &RunRepository{db: db} }
+func NewRunRepository(db *sql.DB) *RunRepository           { return &RunRepository{db: db} }
 func NewRunInputRepository(db *sql.DB) *RunInputRepository { return &RunInputRepository{db: db} }
 func NewRunEventRepository(db *sql.DB) *RunEventRepository { return &RunEventRepository{db: db} }
 
 func (r *RunRepository) Create(ctx context.Context, rr run.Run) (run.Run, error) {
-	// Repoは「主語を作らない」。UseCase側で run_id/trace_id を確定して渡す前提。
 	if rr.RunID == "" {
 		return run.Run{}, errors.New("run_id is required")
 	}
@@ -35,18 +35,98 @@ func (r *RunRepository) Create(ctx context.Context, rr run.Run) (run.Run, error)
 		return run.Run{}, errors.New("status is required")
 	}
 
-	// SELECT権限が無い前提なので RETURNING は使わず Exec のみ
+	// ✅ *string をそのまま渡さない（nil or string に落とす）
+	var runKey any = nil
+	if rr.RunKey != nil && strings.TrimSpace(*rr.RunKey) != "" {
+		runKey = strings.TrimSpace(*rr.RunKey)
+	}
+
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO runs(run_id, project_id, trace_id, pipeline_version, status)
-		VALUES ($1, $2, $3, $4, $5)
-	`, rr.RunID, rr.ProjectID, rr.TraceID, rr.PipelineVersion, string(rr.Status))
+		INSERT INTO runs(run_id, project_id, trace_id, pipeline_version, status, run_key)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, rr.RunID, rr.ProjectID, rr.TraceID, rr.PipelineVersion, string(rr.Status), runKey)
 	if err != nil {
 		return run.Run{}, err
 	}
 
-	// DB now() とは厳密一致しないが、呼び出し側のログ用途にUTCを入れて返す（不要ならゼロでもOK）
 	rr.StartedAt = time.Now().UTC()
 	return rr, nil
+}
+
+// v4.2: stable run reuse
+// foundExisting=true なら既存runを再利用（同一目的）
+func (r *RunRepository) CreateOrGetByRunKey(
+	ctx context.Context,
+	projectID string,
+	runKey string,
+	newRun func() run.Run, // run_id/trace_id/pipeline_version/status 生成
+) (rr run.Run, foundExisting bool, err error) {
+	if projectID == "" {
+		return run.Run{}, false, errors.New("project_id is required")
+	}
+	if runKey == "" {
+		return run.Run{}, false, errors.New("run_key is required")
+	}
+
+	// 1) try select existing
+	var runID, traceID, pipelineVersion, status string
+	err = r.db.QueryRowContext(ctx, `
+		SELECT run_id, trace_id, pipeline_version, status
+		FROM runs
+		WHERE project_id=$1 AND run_key=$2
+		LIMIT 1
+	`, projectID, runKey).Scan(&runID, &traceID, &pipelineVersion, &status)
+
+	if err == nil {
+		rk := runKey
+		return run.Run{
+			RunID:           runID,
+			ProjectID:       projectID,
+			TraceID:         traceID,
+			PipelineVersion: pipelineVersion,
+			Status:          run.Status(status),
+			RunKey:          &rk,
+		}, true, nil
+	}
+	if err != sql.ErrNoRows {
+		return run.Run{}, false, err
+	}
+
+	// 2) create new
+	rr = newRun()
+	if rr.RunID == "" || rr.TraceID == "" || rr.PipelineVersion == "" {
+		return run.Run{}, false, errors.New("newRun must set run_id/trace_id/pipeline_version")
+	}
+	if rr.ProjectID == "" {
+		rr.ProjectID = projectID
+	}
+	rk := runKey
+	rr.RunKey = &rk
+
+	if _, err := r.Create(ctx, rr); err == nil {
+		return rr, false, nil
+	}
+
+	// 3) conflict (someone created first) => select again
+	err2 := r.db.QueryRowContext(ctx, `
+		SELECT run_id, trace_id, pipeline_version, status
+		FROM runs
+		WHERE project_id=$1 AND run_key=$2
+		LIMIT 1
+	`, projectID, runKey).Scan(&runID, &traceID, &pipelineVersion, &status)
+	if err2 == nil {
+		rk := runKey
+		return run.Run{
+			RunID:           runID,
+			ProjectID:       projectID,
+			TraceID:         traceID,
+			PipelineVersion: pipelineVersion,
+			Status:          run.Status(status),
+			RunKey:          &rk,
+		}, true, nil
+	}
+
+	return run.Run{}, false, err // original insert error
 }
 
 func (r *RunRepository) MarkDone(ctx context.Context, runID string) error {
@@ -76,6 +156,12 @@ func (r *RunRepository) MarkFailed(ctx context.Context, runID string, code strin
 	return err
 }
 
+func (r *RunRepository) GetTraceID(ctx context.Context, runID string) (string, error) {
+	var traceID string
+	err := r.db.QueryRowContext(ctx, `SELECT trace_id FROM runs WHERE run_id=$1`, runID).Scan(&traceID)
+	return traceID, err
+}
+
 func (ri *RunInputRepository) Insert(ctx context.Context, in run.RunInput) error {
 	if in.RunID == "" {
 		return errors.New("run_id is required")
@@ -86,14 +172,19 @@ func (ri *RunInputRepository) Insert(ctx context.Context, in run.RunInput) error
 	if in.Method == "" {
 		return errors.New("method is required")
 	}
+	if in.EnqueueKey == "" {
+		return errors.New("enqueue_key is required")
+	}
 	if len(in.HeadersJSON) == 0 {
 		in.HeadersJSON = []byte(`{}`)
 	}
 
 	_, err := ri.db.ExecContext(ctx, `
-		INSERT INTO run_inputs(run_id, source_id, target_url, method, headers_json, allowlist_key)
-		VALUES ($1, $2, $3, $4, $5::jsonb, $6)
-	`, in.RunID, in.SourceID, in.TargetURL, in.Method, string(in.HeadersJSON), in.AllowlistKey)
+		INSERT INTO run_inputs(run_id, source_id, target_url, method, headers_json, allowlist_key, enqueue_key)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+		ON CONFLICT (run_id, enqueue_key) DO NOTHING
+	`, in.RunID, in.SourceID, in.TargetURL, in.Method, string(in.HeadersJSON), in.AllowlistKey, in.EnqueueKey)
+
 	return err
 }
 

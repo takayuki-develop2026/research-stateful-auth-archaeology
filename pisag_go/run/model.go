@@ -17,6 +17,8 @@ type Run struct {
 	PipelineVersion string
 	Status          Status
 
+	RunKey *string
+
 	StartedAt  time.Time
 	FinishedAt *time.Time
 
@@ -25,12 +27,17 @@ type Run struct {
 }
 
 type RunInput struct {
-	RunID        string
-	SourceID     *string
-	TargetURL    string
-	Method       string
-	HeadersJSON  []byte // raw json bytes
+	ID          int64
+	RunID       string
+	SourceID    *string
+	TargetURL   string
+	Method      string
+	HeadersJSON []byte // raw json bytes
+
 	AllowlistKey *string
+
+	// enqueue idempotency key (deterministic)
+	EnqueueKey string
 }
 
 type RunEvent struct {

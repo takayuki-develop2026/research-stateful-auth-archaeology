@@ -5,9 +5,7 @@ import (
 	"errors"
 )
 
-// Fetcher は外部へのフェッチを担当（StartFetchRunUseCase が依存）
-// - 本番: PISAGFetcher
-// - テスト: FakeFetcher
+// Fetcher は外部へのフェッチを担当するインターフェース（StartFetchRunUseCase/worker が依存）
 type Fetcher interface {
 	Fetch(ctx context.Context, targetURL string) (FetchResult, error)
 }
@@ -19,6 +17,5 @@ type FetchResult struct {
 	BodySize    int
 }
 
-// ErrDenied は「PISAGポリシーにより拒否」されたことを示す。
-// StartFetchRunUseCase は errors.Is(err, ErrDenied) で判定する。
+// ErrDenied は allowlist/Policy による拒否を表す統一エラー
 var ErrDenied = errors.New("fetch_denied")

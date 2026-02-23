@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -537,4 +538,30 @@ func newTraceID() string {
 		return "trace-" + ulid.Make().String()
 	}
 	return hex.EncodeToString(b)
+}
+
+// GetTraceID は指定された runID に紐づく trace_id を runs テーブルから取得します。
+// ワーカーがエビデンスを保存する際のメタデータ取得に使用します。
+func (s *Service) GetTraceID(ctx context.Context, runID string) (string, error) {
+    var traceID string
+
+    tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+
+    // DB側の run_id が uuid 型であっても、引数の runID が正しい形式の文字列であれば
+    // pgx が適切に型変換してクエリを実行してくれます。
+    err := s.db.QueryRow(tctx, `
+        SELECT trace_id 
+        FROM runs 
+        WHERE run_id = $1
+    `, strings.TrimSpace(runID)).Scan(&traceID)
+
+    if err != nil {
+        if errors.Is(err, pgx.ErrNoRows) {
+            return "", fmt.Errorf("run not found: %s", runID)
+        }
+        return "", fmt.Errorf("failed to query trace_id: %w", err)
+    }
+
+    return normalizeTraceID(traceID), nil
 }

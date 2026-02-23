@@ -19,7 +19,7 @@ import (
 // - This fetcher NEVER reads env vars.
 // - TLS behavior is controlled only by Policy.TLSRootCAs (nil => system roots).
 // - All host/port/path/ip/redirect constraints are enforced by pisag.RequestGuard + pisag.NewClient policy.
-// - Any policy/allowlist denial is normalized to ErrDenied (optionally wrapped with the original error).
+// - Any policy/allowlist denial is normalized to ErrDenied (wrapped with original cause).
 type PISAGFetcher struct {
 	Policy ports.Policy
 
@@ -33,15 +33,22 @@ type PISAGFetcher struct {
 	UserAgent string
 }
 
+// Fetch returns only metadata (drains body). Kept for backward compatibility.
 func (f *PISAGFetcher) Fetch(ctx context.Context, targetURL string) (FetchResult, error) {
+	_, res, err := f.FetchBytes(ctx, targetURL)
+	return res, err
+}
+
+// FetchBytes returns body bytes + metadata.
+// v4.3 evidence saver uses this.
+func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte, FetchResult, error) {
 	p := f.Policy
 	applyPolicyDefaults(&p)
 
 	// 1) URL normalize + allowlist enforce (single source of truth)
 	u, err := pisag.RequestGuard(targetURL, p)
 	if err != nil {
-		// Deny should be surfaced as ErrDenied while keeping the original cause for debugging.
-		return FetchResult{}, errors.Join(ErrDenied, err)
+		return nil, FetchResult{}, errors.Join(ErrDenied, err)
 	}
 
 	// 2) Prepare client (hardened transport)
@@ -49,8 +56,7 @@ func (f *PISAGFetcher) Fetch(ctx context.Context, targetURL string) (FetchResult
 	if client == nil {
 		c, cerr := pisag.NewClient(p)
 		if cerr != nil {
-			// Infra/setup error (not a deny)
-			return FetchResult{}, cerr
+			return nil, FetchResult{}, cerr
 		}
 		client = c
 	}
@@ -58,7 +64,7 @@ func (f *PISAGFetcher) Fetch(ctx context.Context, targetURL string) (FetchResult
 	// 3) Build request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return FetchResult{}, err
+		return nil, FetchResult{}, err
 	}
 	ua := f.UserAgent
 	if ua == "" {
@@ -70,36 +76,35 @@ func (f *PISAGFetcher) Fetch(ctx context.Context, targetURL string) (FetchResult
 	// 4) Do request
 	resp, err := client.Do(req)
 	if err != nil {
-		// Policy-related rejects should become ErrDenied.
-		// (Redirect host change / IP not allowed etc.)
 		if errors.Is(err, pisag.ErrRedirectNotAllowed) || errors.Is(err, pisag.ErrIPNotAllowed) {
-			return FetchResult{}, errors.Join(ErrDenied, err)
+			return nil, FetchResult{}, errors.Join(ErrDenied, err)
 		}
-		return FetchResult{}, err
+		return nil, FetchResult{}, err
 	}
 	defer resp.Body.Close()
-
-	// 5) Drain body up to limit (we only report size in FetchResult; content storage is v4.3+ evidence layer)
-	limit := f.MaxBodyBytes
-	if limit <= 0 {
-		limit = 5 << 20 // 5MB
-	}
-	n, derr := drainWithLimit(resp.Body, limit)
-	if derr != nil {
-		return FetchResult{}, derr
-	}
 
 	finalURL := ""
 	if resp.Request != nil && resp.Request.URL != nil {
 		finalURL = resp.Request.URL.String()
 	}
 
-	return FetchResult{
+	// 5) Read body up to limit
+	limit := f.MaxBodyBytes
+	if limit <= 0 {
+		limit = 5 << 20 // 5MB
+	}
+	b, n, rerr := readAllWithLimit(resp.Body, limit)
+	if rerr != nil {
+		return nil, FetchResult{}, rerr
+	}
+
+	res := FetchResult{
 		FinalURL:    finalURL,
 		StatusCode:  resp.StatusCode,
 		ContentType: resp.Header.Get("Content-Type"),
 		BodySize:    int(n),
-	}, nil
+	}
+	return b, res, nil
 }
 
 func applyPolicyDefaults(p *ports.Policy) {
@@ -109,21 +114,21 @@ func applyPolicyDefaults(p *ports.Policy) {
 	if p.Timeout <= 0 {
 		p.Timeout = 15 * time.Second
 	}
-	// TLSRootCAs: nil means "use system roots" (handled inside pisag.NewTransport/NewClient).
 }
 
-func drainWithLimit(r io.Reader, max int64) (int64, error) {
+// readAllWithLimit reads up to max bytes (+1 to detect overflow).
+func readAllWithLimit(r io.Reader, max int64) ([]byte, int64, error) {
 	if max <= 0 {
-		return 0, fmt.Errorf("invalid max body bytes: %d", max)
+		return nil, 0, fmt.Errorf("invalid max body bytes: %d", max)
 	}
-	// +1 to detect overflow
 	lr := &io.LimitedReader{R: r, N: max + 1}
-	n, err := io.Copy(io.Discard, lr)
+	b, err := io.ReadAll(lr)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
+	n := int64(len(b))
 	if n > max {
-		return n, fmt.Errorf("response too large: %d bytes (limit %d)", n, max)
+		return nil, n, fmt.Errorf("response too large: %d bytes (limit %d)", n, max)
 	}
-	return n, nil
+	return b, n, nil
 }
