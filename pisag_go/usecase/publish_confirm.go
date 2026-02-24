@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,7 @@ import (
 
 // PublishConfirmInput creates (idempotently) a publish commit proposal.
 // v4.6: SoT is catalog_publish_commits.
-// v4.7: approval ledger will gate confirmation.
+// v4.7: default-deny approval ledger gates confirmation.
 type PublishConfirmInput struct {
 	ProjectID string
 
@@ -34,19 +35,20 @@ type PublishConfirmInput struct {
 	// Optional meta snapshot (non-SoT, audit convenience)
 	Meta map[string]any
 
-	// dev/local only: allow immediate confirm (default false)
+	// dev/local only:
+	// - v4.7 default-deny: even if true, it confirms ONLY when approval is approved.
 	AutoConfirm *bool
 }
 
 type PublishConfirmOutput struct {
-	CommitID     string
-	ProjectID    string
-	CommitKey    string
-	Status       string // proposed/confirmed/failed
-	ManifestID   string
-	ManifestHash string
-	TraceID      string
-	Target       string
+	CommitID      string
+	ProjectID     string
+	CommitKey     string
+	Status        string // proposed/confirmed/failed
+	ManifestID    string
+	ManifestHash  string
+	TraceID       string
+	Target        string
 	FoundExisting bool
 
 	ErrorCode    *string
@@ -54,7 +56,8 @@ type PublishConfirmOutput struct {
 }
 
 type PublishConfirmUseCase struct {
-	PublishRepo run.PublishRepo
+	PublishRepo  run.PublishRepo
+	ApprovalRepo run.ApprovalRepo // v4.7: used for default-deny confirm gate (can be nil in v4.6)
 }
 
 func (uc *PublishConfirmUseCase) Handle(ctx context.Context, in PublishConfirmInput) (PublishConfirmOutput, error) {
@@ -96,17 +99,18 @@ func (uc *PublishConfirmUseCase) Handle(ctx context.Context, in PublishConfirmIn
 	}
 
 	pc := run.PublishCommit{
-		ProjectID:     strings.TrimSpace(in.ProjectID),
-		CommitKey:     commitKey,
-		ManifestID:    strings.TrimSpace(in.ManifestID),
-		ManifestHash:  strings.TrimSpace(in.ManifestHash),
-		RunID:         in.RunID,
-		TraceID:       strings.TrimSpace(in.TraceID),
-		Target:        target,
-		Status:        run.PublishStatusProposed,
-		MetaJSON:      metaJSON,
+		ProjectID:    strings.TrimSpace(in.ProjectID),
+		CommitKey:    commitKey,
+		ManifestID:   strings.TrimSpace(in.ManifestID),
+		ManifestHash: strings.TrimSpace(in.ManifestHash),
+		RunID:        in.RunID,
+		TraceID:      strings.TrimSpace(in.TraceID),
+		Target:       target,
+		Status:       run.PublishStatusProposed,
+		MetaJSON:     metaJSON,
 	}
 
+	// 1) Always create proposed commit (SoT), idempotent.
 	out, found, err := uc.PublishRepo.CreateProposed(ctx, pc)
 	if err != nil {
 		code := "publish_propose_failed"
@@ -126,11 +130,19 @@ func (uc *PublishConfirmUseCase) Handle(ctx context.Context, in PublishConfirmIn
 		}, nil
 	}
 
-	// dev/local only: optional auto confirm (default false)
+	// 2) v4.7 default-deny:
+	// Confirm ONLY if:
+	// - AutoConfirm=true (dev/local intent) AND
+	// - ApprovalRepo exists AND
+	// - approval_requests(project_id, commit_id).status == "approved"
 	if boolDefaultFalse(in.AutoConfirm) {
-		_ = uc.PublishRepo.MarkConfirmed(ctx, out.CommitID)
-		// read back for status (optional). To keep minimal, reflect confirmed here.
-		out.Status = run.PublishStatusConfirmed
+		if uc.ApprovalRepo != nil {
+			approved, _ := uc.isApproved(ctx, out.ProjectID, out.CommitID)
+			if approved {
+				_ = uc.PublishRepo.MarkConfirmed(ctx, out.CommitID)
+				out.Status = run.PublishStatusConfirmed
+			}
+		}
 	}
 
 	return PublishConfirmOutput{
@@ -146,6 +158,18 @@ func (uc *PublishConfirmUseCase) Handle(ctx context.Context, in PublishConfirmIn
 		ErrorCode:     out.ErrorCode,
 		ErrorMessage:  out.ErrorMessage,
 	}, nil
+}
+
+func (uc *PublishConfirmUseCase) isApproved(ctx context.Context, projectID string, commitID string) (bool, error) {
+	req, err := uc.ApprovalRepo.GetByProjectAndCommit(ctx, projectID, commitID)
+	if err != nil {
+		// not requested yet => not approved
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return req.Status == run.ApprovalStatusApproved, nil
 }
 
 // buildCommitKey MUST NOT include run_id.
