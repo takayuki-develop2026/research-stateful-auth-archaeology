@@ -7,9 +7,10 @@ import (
 )
 
 type Store struct {
-	RunRepo      *postgres.RunRepository
-	ClaimRepo    *postgres.RunInputClaimRepository
-	EvidenceRepo *postgres.EvidenceRepository
+	RunRepo       *postgres.RunRepository
+	ClaimRepo     *postgres.RunInputClaimRepository
+	EvidenceRepo  *postgres.EvidenceRepository
+	ManifestRepo  *postgres.EvidenceManifestRepository
 }
 
 func NewStore(db *sql.DB) *Store {
@@ -17,5 +18,6 @@ func NewStore(db *sql.DB) *Store {
 		RunRepo:      postgres.NewRunRepository(db),
 		ClaimRepo:    postgres.NewRunInputClaimRepository(db),
 		EvidenceRepo: postgres.NewEvidenceRepository(db),
+		ManifestRepo: postgres.NewEvidenceManifestRepository(db),
 	}
 }

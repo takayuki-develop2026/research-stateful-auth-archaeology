@@ -1,7 +1,9 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -14,12 +16,13 @@ import (
 )
 
 type Config struct {
-	WorkerID          string
-	Poll              time.Duration
-	ClaimStyle         postgres.ClaimStyle
-	EvidenceMaxBytes   int64
-	EvidenceBaseDir    string
-	IdleLogEvery       int
+	WorkerID         string
+	Poll             time.Duration
+	ClaimStyle        postgres.ClaimStyle
+	EvidenceMaxBytes int64
+	EvidenceBaseDir  string
+
+	IdleLogEvery int
 }
 
 type bodyFetcher interface {
@@ -32,6 +35,8 @@ type Worker struct {
 	logger  *log.Logger
 	cfg     Config
 	evStore EvidenceStore
+
+	mb *ManifestBuilder
 
 	idleCount int
 }
@@ -52,12 +57,16 @@ func NewWorker(store *Store, fetch bodyFetcher, logger *log.Logger, cfg Config) 
 	if cfg.IdleLogEvery <= 0 {
 		cfg.IdleLogEvery = 10
 	}
+
+	mb := NewManifestBuilder(store.ManifestRepo)
+
 	return &Worker{
 		store:   store,
 		fetch:   fetch,
 		logger:  logger,
 		cfg:     cfg,
 		evStore: NewFSEvidenceStore(cfg.EvidenceBaseDir),
+		mb:      mb,
 	}
 }
 
@@ -118,46 +127,128 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
-	storedRel, sha, size, serr := w.evStore.SaveFetchBody(ctx, in.RunID, resp.Body, w.cfg.EvidenceMaxBytes)
-	if serr != nil {
-		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_store_failed", serr.Error())
-		return serr
+	// --- derive final URL early (after redirects) ---
+	finalURL := in.TargetURL
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
 	}
+	status := resp.StatusCode
 
+	// content-type nullable
 	ct := resp.Header.Get("Content-Type")
 	var ctp *string
 	if ct != "" {
 		ctp = &ct
 	}
 
-	finalURL := in.TargetURL
-	if resp.Request != nil && resp.Request.URL != nil {
-		finalURL = resp.Request.URL.String()
+	// 1) Save BODY evidence (stream -> file)
+	bodyRel, bodySHA, bodyBytes, serr := w.evStore.SaveBlob(ctx, in.RunID, run.EvidenceKindFetchBody, "bin", resp.Body, w.cfg.EvidenceMaxBytes)
+	if serr != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_store_failed", serr.Error())
+		return serr
 	}
 
-	ev := run.EvidenceAsset{
+	bodyAsset := run.EvidenceAsset{
 		RunID:       in.RunID,
 		TraceID:     traceID,
-		Kind:        "fetch_body",
+		Kind:        run.EvidenceKindFetchBody,
 		ContentType: ctp,
-		ByteSize:    size,
-		SHA256:      sha,
+		ByteSize:    bodyBytes,
+		SHA256:      bodySHA,
 		FinalURL:    finalURL,
-		StoredPath:  storedRel,
+		StoredPath:  bodyRel,
 	}
-	if err := w.store.EvidenceRepo.InsertEvidence(ctx, ev); err != nil {
+	if err := w.store.EvidenceRepo.InsertEvidence(ctx, bodyAsset); err != nil {
 		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_insert_failed", err.Error())
 		return err
 	}
 
-	status := resp.StatusCode
+	// 2) Save META evidence (json -> file)
+	meta := FetchMeta{
+		Kind:          run.EvidenceKindFetchMeta,
+		TargetURL:     in.TargetURL,
+		FinalURL:      finalURL,
+		StatusCode:    status,
+		ContentType:   ct,
+		BodyBytes:     bodyBytes,
+		BodySHA256:    bodySHA,
+		StoredBodyRel: bodyRel,
+		FetchedAtUTC:  time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	metaJSON, _ := json.Marshal(meta)
 
+	metaRel, metaSHA, metaBytes, merr := w.evStore.SaveBlob(ctx, in.RunID, run.EvidenceKindFetchMeta, "json", bytes.NewReader(metaJSON), w.cfg.EvidenceMaxBytes)
+	if merr != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "meta_store_failed", merr.Error())
+		return merr
+	}
+
+	metaCT := "application/json"
+	metaCTP := &metaCT
+	metaAsset := run.EvidenceAsset{
+		RunID:       in.RunID,
+		TraceID:     traceID,
+		Kind:        run.EvidenceKindFetchMeta,
+		ContentType: metaCTP,
+		ByteSize:    metaBytes,
+		SHA256:      metaSHA,
+		FinalURL:    finalURL,
+		StoredPath:  metaRel,
+	}
+	if err := w.store.EvidenceRepo.InsertEvidence(ctx, metaAsset); err != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "meta_insert_failed", err.Error())
+		return err
+	}
+
+	// 3) Save HEADERS evidence (json -> file)
+	// WARNING: headers can be large; we still cap by EvidenceMaxBytes.
+	headersMap := make(map[string][]string, len(resp.Header))
+	for k, v := range resp.Header {
+		// canonicalize key: keep original casing? We'll lower for stable output
+		lk := http.CanonicalHeaderKey(k)
+		headersMap[lk] = append([]string(nil), v...)
+	}
+	headersJSON, _ := json.Marshal(headersMap)
+
+	hdrRel, hdrSHA, hdrBytes, herr := w.evStore.SaveBlob(ctx, in.RunID, run.EvidenceKindFetchHeaders, "json", bytes.NewReader(headersJSON), w.cfg.EvidenceMaxBytes)
+	if herr != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "headers_store_failed", herr.Error())
+		return herr
+	}
+
+	hdrCT := "application/json"
+	hdrCTP := &hdrCT
+	headersAsset := run.EvidenceAsset{
+		RunID:       in.RunID,
+		TraceID:     traceID,
+		Kind:        run.EvidenceKindFetchHeaders,
+		ContentType: hdrCTP,
+		ByteSize:    hdrBytes,
+		SHA256:      hdrSHA,
+		FinalURL:    finalURL,
+		StoredPath:  hdrRel,
+	}
+	if err := w.store.EvidenceRepo.InsertEvidence(ctx, headersAsset); err != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "headers_insert_failed", err.Error())
+		return err
+	}
+
+	// v4.5: manifest build & complete (DB links set is SoT)
+	assetsForManifest := []run.EvidenceAsset{bodyAsset, metaAsset, headersAsset}
+
+	manifest, mhash, berr := w.mb.BuildAndComplete(ctx, in.RunID, traceID, assetsForManifest)
+	if berr != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "manifest_failed", berr.Error())
+		return berr
+	}
+
+	// 4) done / retry decision
 	if status >= 200 && status < 300 {
 		if err := w.store.ClaimRepo.MarkDone(ctx, in.ID, w.cfg.WorkerID); err != nil {
 			return err
 		}
-		w.logger.Printf("done: input_id=%d run_id=%s trace_id=%s status=%d bytes=%d sha=%s",
-			in.ID, in.RunID, traceID, status, size, sha)
+		w.logger.Printf("done: input_id=%d run_id=%s trace_id=%s status=%d body_bytes=%d body_sha=%s manifest_id=%s manifest_hash=%s",
+			in.ID, in.RunID, traceID, status, bodyBytes, bodySHA, manifest.ManifestID, mhash)
 		return nil
 	}
 
@@ -168,12 +259,12 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 
 	if status >= 500 || status == 429 || status == 408 {
-		w.logger.Printf("retryable_http: input_id=%d run_id=%s trace_id=%s status=%d bytes=%d sha=%s url=%s",
-			in.ID, in.RunID, traceID, status, size, sha, finalURL)
+		w.logger.Printf("retryable_http: input_id=%d run_id=%s trace_id=%s status=%d url=%s manifest_id=%s manifest_hash=%s",
+			in.ID, in.RunID, traceID, status, finalURL, manifest.ManifestID, mhash)
 		return nil
 	}
 
-	w.logger.Printf("terminal_http: input_id=%d run_id=%s trace_id=%s status=%d url=%s",
-		in.ID, in.RunID, traceID, status, finalURL)
+	w.logger.Printf("terminal_http: input_id=%d run_id=%s trace_id=%s status=%d url=%s manifest_id=%s manifest_hash=%s",
+		in.ID, in.RunID, traceID, status, finalURL, manifest.ManifestID, mhash)
 	return nil
 }

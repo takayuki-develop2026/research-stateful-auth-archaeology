@@ -18,7 +18,7 @@ import (
 	"example.com/pisag_go/postgres"
 )
 
-const BuildTag = "ak-go-worker-v4.4-claim-evidence-execonly"
+const BuildTag = "ak-go-worker-v4.5-manifest-links"
 
 func main() {
 	ctx := context.Background()
@@ -153,15 +153,33 @@ func envInt64(k string, def int64) int64 {
 }
 
 func buildWorkerID() string {
-	rawID := strings.TrimSpace(os.Getenv("AK_WORKER_ID"))
 	host, _ := os.Hostname()
-	if rawID == "" {
-		rawID = host
+	host = strings.TrimSpace(host)
+
+	raw := strings.TrimSpace(os.Getenv("AK_WORKER_ID"))
+	if raw == "" {
+		// envが無いなら hostname そのまま（host@host を作らない）
+		if host == "" {
+			return "worker"
+		}
+		return host
 	}
-	if !strings.Contains(rawID, "@") {
-		return fmt.Sprintf("%s@%s", rawID, host)
+
+	// envがある場合：
+	// - すでに "name@host" 形式ならそのまま
+	if strings.Contains(raw, "@") {
+		return raw
 	}
-	return rawID
+
+	// - "w1" のような短いIDなら host を付ける（可読性）
+	if host == "" {
+		return raw
+	}
+	// rawがhostと同じなら二重化しない
+	if raw == host {
+		return host
+	}
+	return fmt.Sprintf("%s@%s", raw, host)
 }
 
 func loadCertPoolAppendSystem(pemPath string) (*x509.CertPool, error) {
