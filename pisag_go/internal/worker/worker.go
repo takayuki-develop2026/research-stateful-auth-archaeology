@@ -76,7 +76,6 @@ func (w *Worker) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
-			// tick は「本当に壊れてる」時だけ error を返す
 			if err := w.tick(ctx); err != nil {
 				w.logger.Printf("tick error: %v", err)
 			}
@@ -87,7 +86,7 @@ func (w *Worker) Run(ctx context.Context) error {
 func (w *Worker) tick(ctx context.Context) error {
 	in, err := w.store.ClaimRepo.ClaimNextRunInput(ctx, w.cfg.WorkerID, w.cfg.ClaimStyle)
 	if err != nil {
-		return err // DB側が壊れてる
+		return err
 	}
 
 	// idle
@@ -100,19 +99,17 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 	w.idleCount = 0
 
-	// run_id -> trace_id
-	traceID, err := w.store.RunRepo.GetTraceID(ctx, in.RunID)
-	if err != nil {
-		// これは「投入側/DB整合性」問題。input は一旦終端/リトライに回す。
-		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "trace_not_found", err.Error())
-		w.logger.Printf("trace_not_found: input_id=%d run_id=%s url=%s err=%s", in.ID, in.RunID, in.TargetURL, err.Error())
+	// ✅ A案：trace_id は claim 時点で埋まっている（worker SELECT 不要）
+	traceID := in.TraceID
+	if traceID == "" {
+		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "trace_missing", "trace_id was empty in claimed input")
+		w.logger.Printf("trace_missing: input_id=%d run_id=%s url=%s", in.ID, in.RunID, in.TargetURL)
 		return nil
 	}
 
 	// 1) PISAG経由で fetch
 	resp, ferr := w.fetch.FetchBody(ctx, in.TargetURL)
 	if ferr != nil {
-		// deny は想定内・終端化される（repo側で fetch_denied -> done）
 		if errors.Is(ferr, usecase.ErrDenied) {
 			_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_denied", ferr.Error())
 			w.logger.Printf("denied: input_id=%d run_id=%s trace_id=%s url=%s reason=%s",
@@ -120,7 +117,6 @@ func (w *Worker) tick(ctx context.Context) error {
 			return nil
 		}
 
-		// 一時障害やネットワーク等：retryへ
 		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_failed", ferr.Error())
 		w.logger.Printf("fetch_failed: input_id=%d run_id=%s trace_id=%s url=%s err=%s",
 			in.ID, in.RunID, traceID, in.TargetURL, ferr.Error())
@@ -132,7 +128,7 @@ func (w *Worker) tick(ctx context.Context) error {
 	storedRel, sha, size, serr := w.evStore.SaveFetchBody(ctx, in.RunID, resp.Body, w.cfg.EvidenceMaxBytes)
 	if serr != nil {
 		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_store_failed", serr.Error())
-		return serr // evidence 保存はSoT級。失敗は本当の異常
+		return serr
 	}
 
 	ct := resp.Header.Get("Content-Type")
@@ -145,7 +141,7 @@ func (w *Worker) tick(ctx context.Context) error {
 		finalURL = resp.Request.URL.String()
 	}
 
-	// 3) evidenceをDBへ（v4.3）
+	// 3) evidenceをDBへ
 	ev := run.EvidenceAsset{
 		RunID:       in.RunID,
 		TraceID:     traceID,
@@ -158,36 +154,33 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 	if err := w.store.EvidenceRepo.InsertEvidence(ctx, ev); err != nil {
 		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_insert_failed", err.Error())
-		return err // DB insert失敗は本当の異常
+		return err
 	}
 
 	status := resp.StatusCode
 
-	// 4) statusで done / retry / terminal を分岐
+	// 4) done / retry
 	if status >= 200 && status < 300 {
 		if err := w.store.ClaimRepo.MarkRunInputDone(ctx, in.ID, w.cfg.WorkerID); err != nil {
-			return err // claimed_by不一致等は異常
+			return err
 		}
 		w.logger.Printf("done: input_id=%d run_id=%s trace_id=%s status=%d bytes=%d sha=%s",
 			in.ID, in.RunID, traceID, status, size, sha)
 		return nil
 	}
 
-	// non-2xx: repo側で terminal/retry を決める（fetch_denied・4xxはterminal寄り）
 	code := fmt.Sprintf("http_%d", status)
 	msg := fmt.Sprintf("non-2xx status=%d final_url=%s", status, finalURL)
 	if err := w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, code, msg); err != nil {
 		return err
 	}
 
-	// ログ分類（ノイズ抑制）
 	if status >= 500 || status == 429 || status == 408 {
 		w.logger.Printf("retryable_http: input_id=%d run_id=%s trace_id=%s status=%d bytes=%d sha=%s url=%s",
 			in.ID, in.RunID, traceID, status, size, sha, finalURL)
 		return nil
 	}
 
-	// 4xx系は repo 側で terminal(done) に落ちる想定。ログだけ。
 	w.logger.Printf("terminal_http: input_id=%d run_id=%s trace_id=%s status=%d url=%s",
 		in.ID, in.RunID, traceID, status, finalURL)
 	return nil

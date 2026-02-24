@@ -29,6 +29,7 @@ type Run struct {
 type RunInput struct {
 	ID          int64
 	RunID       string
+	TraceID     string
 	SourceID    *string
 	TargetURL   string
 	Method      string

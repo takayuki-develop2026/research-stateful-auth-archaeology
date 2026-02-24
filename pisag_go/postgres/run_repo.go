@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 	"strings"
+	"time"
 
 	"example.com/pisag_go/run"
 )
@@ -14,9 +14,9 @@ type RunRepository struct{ db *sql.DB }
 type RunInputRepository struct{ db *sql.DB }
 type RunEventRepository struct{ db *sql.DB }
 
-func NewRunRepository(db *sql.DB) *RunRepository           { return &RunRepository{db: db} }
-func NewRunInputRepository(db *sql.DB) *RunInputRepository { return &RunInputRepository{db: db} }
-func NewRunEventRepository(db *sql.DB) *RunEventRepository { return &RunEventRepository{db: db} }
+func NewRunRepository(db *sql.DB) *RunRepository             { return &RunRepository{db: db} }
+func NewRunInputRepository(db *sql.DB) *RunInputRepository   { return &RunInputRepository{db: db} }
+func NewRunEventRepository(db *sql.DB) *RunEventRepository   { return &RunEventRepository{db: db} }
 
 func (r *RunRepository) Create(ctx context.Context, rr run.Run) (run.Run, error) {
 	if rr.RunID == "" {
@@ -59,7 +59,7 @@ func (r *RunRepository) CreateOrGetByRunKey(
 	ctx context.Context,
 	projectID string,
 	runKey string,
-	newRun func() run.Run, // run_id/trace_id/pipeline_version/status 生成
+	newRun func() run.Run,
 ) (rr run.Run, foundExisting bool, err error) {
 	if projectID == "" {
 		return run.Run{}, false, errors.New("project_id is required")
@@ -126,18 +126,15 @@ func (r *RunRepository) CreateOrGetByRunKey(
 		}, true, nil
 	}
 
-	return run.Run{}, false, err // original insert error
+	return run.Run{}, false, err
 }
 
 func (r *RunRepository) MarkDone(ctx context.Context, runID string) error {
 	if runID == "" {
 		return errors.New("run_id is required")
 	}
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE runs
-		SET status=$2, finished_at=now()
-		WHERE run_id=$1
-	`, runID, string(run.StatusDone))
+	// ✅ write-only: UPDATE禁止なので SECURITY DEFINER 関数経由
+	_, err := r.db.ExecContext(ctx, `SELECT public.runs_mark_done($1::uuid)`, runID)
 	return err
 }
 
@@ -148,14 +145,14 @@ func (r *RunRepository) MarkFailed(ctx context.Context, runID string, code strin
 	if code == "" {
 		return errors.New("error_code is required")
 	}
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE runs
-		SET status=$2, finished_at=now(), error_code=$3, error_message=$4
-		WHERE run_id=$1
-	`, runID, string(run.StatusFailed), code, msg)
+	// ✅ write-only: UPDATE禁止なので SECURITY DEFINER 関数経由
+	_, err := r.db.ExecContext(ctx, `SELECT public.runs_mark_failed($1::uuid, $2, $3)`, runID, code, msg)
 	return err
 }
 
+// NOTE: ak_worker は SELECT 権限が無い前提なので、worker側で trace_id が必要なら
+// RunRepo.GetTraceID を呼ばず「ClaimNextRunInput の RETURNING で trace_id を一緒に返す」設計が正道。
+// ただし owner/ak 用ツールやデバッグ用途で残すならOK。
 func (r *RunRepository) GetTraceID(ctx context.Context, runID string) (string, error) {
 	var traceID string
 	err := r.db.QueryRowContext(ctx, `SELECT trace_id FROM runs WHERE run_id=$1`, runID).Scan(&traceID)
