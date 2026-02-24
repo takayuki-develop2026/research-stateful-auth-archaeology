@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"time"
 
+	"strings"
+
 	"example.com/pisag_go/ports"
 )
 
@@ -297,4 +299,26 @@ func ipInCIDRs(ip net.IP, cidrs []string) bool {
 		}
 	}
 	return false
+}
+
+
+// RequestGuardWithAllowlistKey normalizes + enforces allowlist for a URL string,
+// and also enforces allowlist_key (fail-closed).
+//
+// v4 fixed rule:
+// - allowlistKey must be non-empty (NULL/empty => deny)
+var ErrAllowlistKeyRequired = errors.New("pisag: allowlist_key required")
+
+func RequestGuardWithAllowlistKey(raw string, policy ports.Policy, allowlistKey string) (*url.URL, error) {
+	if strings.TrimSpace(allowlistKey) == "" {
+		return nil, ErrAllowlistKeyRequired
+	}
+	u, err := NormalizeURL(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := IsAllowed(u, policy); err != nil {
+		return nil, err
+	}
+	return u, nil
 }

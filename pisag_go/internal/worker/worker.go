@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"example.com/pisag_go/postgres"
@@ -25,8 +26,9 @@ type Config struct {
 	IdleLogEvery int
 }
 
+// ✅ allowlist_key を必須入力にする（fail-closed）
 type bodyFetcher interface {
-	FetchBody(ctx context.Context, targetURL string) (*http.Response, error)
+	FetchBodyWithAllowlistKey(ctx context.Context, targetURL string, allowlistKey string) (*http.Response, error)
 }
 
 type Worker struct {
@@ -111,7 +113,19 @@ func (w *Worker) tick(ctx context.Context) error {
 		return nil
 	}
 
-	resp, ferr := w.fetch.FetchBody(ctx, in.TargetURL)
+	// ✅ v4 fixed: allowlist_key fail-closed
+	allowKey := ""
+	if in.AllowlistKey != nil {
+		allowKey = strings.TrimSpace(*in.AllowlistKey)
+	}
+	if allowKey == "" {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_denied", "allowlist_key is required (fail-closed)")
+		w.logger.Printf("denied: input_id=%d run_id=%s trace_id=%s url=%s reason=allowlist_key_required",
+			in.ID, in.RunID, traceID, in.TargetURL)
+		return nil
+	}
+
+	resp, ferr := w.fetch.FetchBodyWithAllowlistKey(ctx, in.TargetURL, allowKey)
 	if ferr != nil {
 		if errors.Is(ferr, usecase.ErrDenied) {
 			_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_denied", ferr.Error())
@@ -204,7 +218,6 @@ func (w *Worker) tick(ctx context.Context) error {
 	// WARNING: headers can be large; we still cap by EvidenceMaxBytes.
 	headersMap := make(map[string][]string, len(resp.Header))
 	for k, v := range resp.Header {
-		// canonicalize key: keep original casing? We'll lower for stable output
 		lk := http.CanonicalHeaderKey(k)
 		headersMap[lk] = append([]string(nil), v...)
 	}

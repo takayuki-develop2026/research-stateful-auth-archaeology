@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"example.com/pisag_go/pisag"
@@ -17,7 +18,13 @@ type PISAGHTTPFetcher struct {
 	UserAgent string
 }
 
-func (f *PISAGHTTPFetcher) FetchBody(ctx context.Context, targetURL string) (*http.Response, error) {
+// FetchBodyWithAllowlistKey returns *http.Response so worker can stream-save evidence.
+// v4 rule: allowlist_key is fail-closed (empty => deny).
+func (f *PISAGHTTPFetcher) FetchBodyWithAllowlistKey(ctx context.Context, targetURL string, allowlistKey string) (*http.Response, error) {
+	if strings.TrimSpace(allowlistKey) == "" {
+		return nil, errors.Join(usecase.ErrDenied, pisag.ErrAllowlistKeyRequired)
+	}
+
 	p := f.Policy
 	if p.Timeout <= 0 {
 		p.Timeout = 15 * time.Second
@@ -26,7 +33,7 @@ func (f *PISAGHTTPFetcher) FetchBody(ctx context.Context, targetURL string) (*ht
 		p.MaxRedirects = 3
 	}
 
-	u, err := pisag.RequestGuard(targetURL, p)
+	u, err := pisag.RequestGuardWithAllowlistKey(targetURL, p, allowlistKey)
 	if err != nil {
 		return nil, errors.Join(usecase.ErrDenied, err)
 	}
