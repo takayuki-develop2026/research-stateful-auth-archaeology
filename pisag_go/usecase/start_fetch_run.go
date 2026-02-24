@@ -78,7 +78,7 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 	// v4.2: run_key（同一目的なら同一run）
 	runKey := hashHex("run|" + in.PipelineVersion + "|" + method + "|" + allow + "|" + nurl)
 
-	// ✅ ReuseRun デフォルト true を確定
+	// ✅ ReuseRun デフォルト true
 	reuse := boolDefaultTrue(in.ReuseRun)
 
 	// run作成 or 再利用
@@ -112,7 +112,7 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 			TraceID:         traceID,
 			PipelineVersion: in.PipelineVersion,
 			Status:          run.StatusRunning,
-			RunKey:          ptr(runKey),
+			RunKey:          nil, // ✅ reuseしないrunにはrun_keyを持たせない
 		}
 		if _, err := uc.RunRepo.Create(ctx, r); err != nil {
 			return StartFetchRunOutput{}, err
@@ -227,13 +227,6 @@ func validateURL(s string) error {
 }
 
 // normalizeURLForEnqueueKey: enqueue/run key生成用（PISAGガードの代替ではない）
-// 方針（強め・安定）:
-// - scheme固定 https
-// - host lowercase
-// - default port(:443)除去
-// - fragment除去
-// - path clean（dot-segment除去）+ 空は "/"
-// - query: key sort + values sort + encode
 func normalizeURLForEnqueueKey(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -267,7 +260,6 @@ func normalizeURLForEnqueueKey(raw string) (string, error) {
 		if cp == "." {
 			cp = "/"
 		}
-		// 末尾スラッシュは「落として統一」（/a と /a/ を同一視）
 		if cp != "/" {
 			cp = strings.TrimRight(cp, "/")
 			if cp == "" {
@@ -318,7 +310,7 @@ func hashHex(s string) string {
 
 func ptr(s string) *string { return &s }
 
-// ✅ nil => true
+// nil => true
 func boolDefaultTrue(p *bool) bool {
 	if p == nil {
 		return true
@@ -327,7 +319,6 @@ func boolDefaultTrue(p *bool) bool {
 }
 
 // NormalizeURLForEnqueueKey_ForTest exposes the internal normalization for tests.
-// production code should keep using normalizeURLForEnqueueKey internally.
 func NormalizeURLForEnqueueKey_ForTest(raw string) (string, error) {
 	return normalizeURLForEnqueueKey(raw)
 }

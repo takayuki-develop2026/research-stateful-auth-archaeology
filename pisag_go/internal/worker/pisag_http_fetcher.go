@@ -12,17 +12,11 @@ import (
 )
 
 type PISAGHTTPFetcher struct {
-	Policy ports.Policy
-	Client ports.FetchClient // hardened client (pisag.NewClient)
+	Policy    ports.Policy
+	Client    ports.FetchClient
 	UserAgent string
 }
 
-func (f *PISAGHTTPFetcher) Fetch(ctx context.Context, targetURL string) (usecase.FetchResult, error) {
-	// 使わない（互換のためだけ）
-	return usecase.FetchResult{}, errors.New("FetchResult-only API not used in worker; use FetchBody")
-}
-
-// FetchBody returns *http.Response so worker can stream-save evidence.
 func (f *PISAGHTTPFetcher) FetchBody(ctx context.Context, targetURL string) (*http.Response, error) {
 	p := f.Policy
 	if p.Timeout <= 0 {
@@ -52,7 +46,7 @@ func (f *PISAGHTTPFetcher) FetchBody(ctx context.Context, targetURL string) (*ht
 	}
 	ua := f.UserAgent
 	if ua == "" {
-		ua = "pisag-go/worker-v4.2"
+		ua = "pisag-go/worker-v4.4"
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "*/*")

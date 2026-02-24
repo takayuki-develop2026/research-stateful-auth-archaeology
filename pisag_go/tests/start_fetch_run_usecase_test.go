@@ -223,3 +223,7 @@ func TestStartFetchRun_ReuseRunDefaultTrue_And_EnqueueIdempotent(t *testing.T) {
 		t.Fatalf("expected enqueued, got out1=%s out2=%s", out1.Status, out2.Status)
 	}
 }
+
+func (m *memRunInputRepo) ClaimNext(ctx context.Context, workerID string) (*run.ClaimedRunInput, error) {
+	return nil, nil
+}

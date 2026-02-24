@@ -15,9 +15,10 @@ import (
 
 	"example.com/pisag_go/internal/worker"
 	"example.com/pisag_go/ports"
+	"example.com/pisag_go/postgres"
 )
 
-const BuildTag = "ak-go-worker-v4.2-claim-v4.3-evidence"
+const BuildTag = "ak-go-worker-v4.4-claim-evidence-execonly"
 
 func main() {
 	ctx := context.Background()
@@ -84,23 +85,24 @@ func main() {
 	}
 
 	cfg := worker.Config{
-		WorkerID:         workerID,
-		Poll:             poll,
-		EvidenceMaxBytes: maxBytes,
-		EvidenceBaseDir:  baseDir,
+		WorkerID:          workerID,
+		Poll:              poll,
+		EvidenceMaxBytes:  maxBytes,
+		EvidenceBaseDir:   baseDir,
 	}
-	// claim style
+
+	// claim style（型を固定）
 	switch claimStyle {
 	case "cte_skip_locked":
-		cfg.ClaimStyle = "cte_skip_locked"
+		cfg.ClaimStyle = postgres.ClaimStyleCTE
 	case "update_returning":
-		cfg.ClaimStyle = "update_returning"
+		cfg.ClaimStyle = postgres.ClaimStyleUpdateReturning
 	default:
 		log.Fatalf("unknown AK_CLAIM_STYLE: %s", claimStyle)
 	}
 
-	log.Printf("boot: build=%s worker_id=%s poll=%s claim_style=%s dsn=%s evidence_dir=%s max_bytes=%d",
-		BuildTag, workerID, poll, claimStyle, maskDSN(dsn), baseDir, maxBytes)
+	log.Printf("boot: build=%s worker_id=%s poll=%s claim_style=%s evidence_dir=%s max_bytes=%d",
+		BuildTag, workerID, poll, claimStyle, baseDir, maxBytes)
 
 	w := worker.NewWorker(store, fetcher, log.Default(), cfg)
 
@@ -175,18 +177,4 @@ func loadCertPoolAppendSystem(pemPath string) (*x509.CertPool, error) {
 		return nil, fmt.Errorf("no certs appended from PEM: %s", pemPath)
 	}
 	return sys, nil
-}
-
-func maskDSN(dsn string) string {
-	// ざっくり: passwordを隠す
-	if i := strings.Index(dsn, "://"); i >= 0 {
-		rest := dsn[i+3:]
-		if j := strings.Index(rest, "@"); j >= 0 {
-			cred := rest[:j]
-			if k := strings.Index(cred, ":"); k >= 0 {
-				return dsn[:i+3] + cred[:k+1] + "****" + rest[j:]
-			}
-		}
-	}
-	return dsn
 }

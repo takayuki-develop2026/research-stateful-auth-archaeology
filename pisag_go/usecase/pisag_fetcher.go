@@ -13,13 +13,7 @@ import (
 )
 
 // PISAGFetcher is a hardened fetcher:
-// RequestGuard (normalize+allowlist) -> hardened Client(Transport) -> GET -> MaxBodyBytes -> FetchResult.
-//
-// Important:
-// - This fetcher NEVER reads env vars.
-// - TLS behavior is controlled only by Policy.TLSRootCAs (nil => system roots).
-// - All host/port/path/ip/redirect constraints are enforced by pisag.RequestGuard + pisag.NewClient policy.
-// - Any policy/allowlist denial is normalized to ErrDenied (wrapped with original cause).
+// RequestGuard -> hardened Client -> GET -> MaxBodyBytes -> FetchResult.
 type PISAGFetcher struct {
 	Policy ports.Policy
 
@@ -40,15 +34,15 @@ func (f *PISAGFetcher) Fetch(ctx context.Context, targetURL string) (FetchResult
 }
 
 // FetchBytes returns body bytes + metadata.
-// v4.3 evidence saver uses this.
 func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte, FetchResult, error) {
 	p := f.Policy
 	applyPolicyDefaults(&p)
 
-	// 1) URL normalize + allowlist enforce (single source of truth)
+	// 1) URL normalize + allowlist enforce
 	u, err := pisag.RequestGuard(targetURL, p)
 	if err != nil {
-		return nil, FetchResult{}, errors.Join(ErrDenied, err)
+		// ErrDenied を sentinel として残す（errors.Isで判定可能）
+		return nil, FetchResult{}, fmt.Errorf("%w: %v", ErrDenied, err)
 	}
 
 	// 2) Prepare client (hardened transport)
@@ -68,7 +62,7 @@ func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte
 	}
 	ua := f.UserAgent
 	if ua == "" {
-		ua = "pisag-go/v4.1"
+		ua = "pisag-go/v4.4"
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "*/*")
@@ -77,7 +71,7 @@ func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte
 	resp, err := client.Do(req)
 	if err != nil {
 		if errors.Is(err, pisag.ErrRedirectNotAllowed) || errors.Is(err, pisag.ErrIPNotAllowed) {
-			return nil, FetchResult{}, errors.Join(ErrDenied, err)
+			return nil, FetchResult{}, fmt.Errorf("%w: %v", ErrDenied, err)
 		}
 		return nil, FetchResult{}, err
 	}

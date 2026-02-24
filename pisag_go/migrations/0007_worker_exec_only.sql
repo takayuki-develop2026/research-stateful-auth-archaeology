@@ -1,11 +1,7 @@
--- migrations/0007_worker_exec_only.sql
--- 목적: ak_worker を「関数EXECUTEのみで runs を更新」へ寄せる（テーブルUPDATE禁止）
--- 前提: owner=ak で実行する
+-- migrations/0007_worker_exec_only.sql (policy A: minimal)
+-- 목적: runs status update を SECURITY DEFINER function 経由に固定
 
 BEGIN;
-
--- 1) 念のため search_path 固定（SECURITY DEFINER の定石）
---    ※関数内で public を明示しているが、さらに固定して安全側へ。
 
 CREATE OR REPLACE FUNCTION public.runs_mark_done(p_run_id uuid)
 RETURNS void
@@ -32,14 +28,10 @@ AS $$
   WHERE run_id = p_run_id;
 $$;
 
--- 2) ak_worker には「関数実行」だけ付与
+REVOKE ALL ON FUNCTION public.runs_mark_done(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.runs_mark_failed(uuid,text,text) FROM PUBLIC;
+
 GRANT EXECUTE ON FUNCTION public.runs_mark_done(uuid) TO ak_worker;
 GRANT EXECUTE ON FUNCTION public.runs_mark_failed(uuid,text,text) TO ak_worker;
-
--- 3) runs テーブル直 UPDATE を剥奪（ここが本体）
-REVOKE UPDATE ON public.runs FROM ak_worker;
-
--- 4) 念のため SELECT も剥奪（事故防止）
-REVOKE SELECT ON public.runs FROM ak_worker;
 
 COMMIT;

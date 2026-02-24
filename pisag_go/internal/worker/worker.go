@@ -14,15 +14,12 @@ import (
 )
 
 type Config struct {
-	WorkerID         string
-	Poll             time.Duration
-	ClaimStyle        postgres.ClaimStyle
-	EvidenceMaxBytes int64
-	EvidenceBaseDir  string
-
-	// IdleLogEvery: in==nil が何回続いたら idle ログを出すか
-	// poll=500ms なら 10回=約5秒
-	IdleLogEvery int
+	WorkerID          string
+	Poll              time.Duration
+	ClaimStyle         postgres.ClaimStyle
+	EvidenceMaxBytes   int64
+	EvidenceBaseDir    string
+	IdleLogEvery       int
 }
 
 type bodyFetcher interface {
@@ -84,12 +81,11 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) tick(ctx context.Context) error {
-	in, err := w.store.ClaimRepo.ClaimNextRunInput(ctx, w.cfg.WorkerID, w.cfg.ClaimStyle)
+	in, err := w.store.ClaimRepo.ClaimNext(ctx, w.cfg.WorkerID, w.cfg.ClaimStyle)
 	if err != nil {
 		return err
 	}
 
-	// idle
 	if in == nil {
 		w.idleCount++
 		if w.idleCount%w.cfg.IdleLogEvery == 0 {
@@ -99,41 +95,39 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 	w.idleCount = 0
 
-	// ✅ A案：trace_id は claim 時点で埋まっている（worker SELECT 不要）
 	traceID := in.TraceID
 	if traceID == "" {
-		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "trace_missing", "trace_id was empty in claimed input")
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "trace_missing", "trace_id was empty in claimed input")
 		w.logger.Printf("trace_missing: input_id=%d run_id=%s url=%s", in.ID, in.RunID, in.TargetURL)
 		return nil
 	}
 
-	// 1) PISAG経由で fetch
 	resp, ferr := w.fetch.FetchBody(ctx, in.TargetURL)
 	if ferr != nil {
 		if errors.Is(ferr, usecase.ErrDenied) {
-			_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_denied", ferr.Error())
+			_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_denied", ferr.Error())
 			w.logger.Printf("denied: input_id=%d run_id=%s trace_id=%s url=%s reason=%s",
 				in.ID, in.RunID, traceID, in.TargetURL, ferr.Error())
 			return nil
 		}
 
-		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_failed", ferr.Error())
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_failed", ferr.Error())
 		w.logger.Printf("fetch_failed: input_id=%d run_id=%s trace_id=%s url=%s err=%s",
 			in.ID, in.RunID, traceID, in.TargetURL, ferr.Error())
 		return nil
 	}
 	defer resp.Body.Close()
 
-	// 2) evidence保存（非2xxでも必ず保存）
 	storedRel, sha, size, serr := w.evStore.SaveFetchBody(ctx, in.RunID, resp.Body, w.cfg.EvidenceMaxBytes)
 	if serr != nil {
-		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_store_failed", serr.Error())
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_store_failed", serr.Error())
 		return serr
 	}
 
 	ct := resp.Header.Get("Content-Type")
-	if ct == "" {
-		ct = "application/octet-stream"
+	var ctp *string
+	if ct != "" {
+		ctp = &ct
 	}
 
 	finalURL := in.TargetURL
@@ -141,27 +135,25 @@ func (w *Worker) tick(ctx context.Context) error {
 		finalURL = resp.Request.URL.String()
 	}
 
-	// 3) evidenceをDBへ
 	ev := run.EvidenceAsset{
 		RunID:       in.RunID,
 		TraceID:     traceID,
 		Kind:        "fetch_body",
-		ContentType: ct,
+		ContentType: ctp,
 		ByteSize:    size,
 		SHA256:      sha,
 		FinalURL:    finalURL,
 		StoredPath:  storedRel,
 	}
 	if err := w.store.EvidenceRepo.InsertEvidence(ctx, ev); err != nil {
-		_ = w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_insert_failed", err.Error())
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_insert_failed", err.Error())
 		return err
 	}
 
 	status := resp.StatusCode
 
-	// 4) done / retry
 	if status >= 200 && status < 300 {
-		if err := w.store.ClaimRepo.MarkRunInputDone(ctx, in.ID, w.cfg.WorkerID); err != nil {
+		if err := w.store.ClaimRepo.MarkDone(ctx, in.ID, w.cfg.WorkerID); err != nil {
 			return err
 		}
 		w.logger.Printf("done: input_id=%d run_id=%s trace_id=%s status=%d bytes=%d sha=%s",
@@ -171,7 +163,7 @@ func (w *Worker) tick(ctx context.Context) error {
 
 	code := fmt.Sprintf("http_%d", status)
 	msg := fmt.Sprintf("non-2xx status=%d final_url=%s", status, finalURL)
-	if err := w.store.ClaimRepo.MarkRunInputRetry(ctx, in.ID, w.cfg.WorkerID, code, msg); err != nil {
+	if err := w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, code, msg); err != nil {
 		return err
 	}
 
