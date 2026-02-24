@@ -106,7 +106,7 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 	w.idleCount = 0
 
-	traceID := in.TraceID
+	traceID := strings.TrimSpace(in.TraceID)
 	if traceID == "" {
 		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "trace_missing", "trace_id was empty in claimed input")
 		w.logger.Printf("trace_missing: input_id=%d run_id=%s url=%s", in.ID, in.RunID, in.TargetURL)
@@ -149,7 +149,7 @@ func (w *Worker) tick(ctx context.Context) error {
 	status := resp.StatusCode
 
 	// content-type nullable
-	ct := resp.Header.Get("Content-Type")
+	ct := strings.TrimSpace(resp.Header.Get("Content-Type"))
 	var ctp *string
 	if ct != "" {
 		ctp = &ct
@@ -189,7 +189,11 @@ func (w *Worker) tick(ctx context.Context) error {
 		StoredBodyRel: bodyRel,
 		FetchedAtUTC:  time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	metaJSON, _ := json.Marshal(meta)
+	metaJSON, jerr := json.Marshal(meta)
+	if jerr != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "meta_marshal_failed", jerr.Error())
+		return jerr
+	}
 
 	metaRel, metaSHA, metaBytes, merr := w.evStore.SaveBlob(ctx, in.RunID, run.EvidenceKindFetchMeta, "json", bytes.NewReader(metaJSON), w.cfg.EvidenceMaxBytes)
 	if merr != nil {
@@ -215,13 +219,16 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 
 	// 3) Save HEADERS evidence (json -> file)
-	// WARNING: headers can be large; we still cap by EvidenceMaxBytes.
 	headersMap := make(map[string][]string, len(resp.Header))
 	for k, v := range resp.Header {
 		lk := http.CanonicalHeaderKey(k)
 		headersMap[lk] = append([]string(nil), v...)
 	}
-	headersJSON, _ := json.Marshal(headersMap)
+	headersJSON, herrM := json.Marshal(headersMap)
+	if herrM != nil {
+		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "headers_marshal_failed", herrM.Error())
+		return herrM
+	}
 
 	hdrRel, hdrSHA, hdrBytes, herr := w.evStore.SaveBlob(ctx, in.RunID, run.EvidenceKindFetchHeaders, "json", bytes.NewReader(headersJSON), w.cfg.EvidenceMaxBytes)
 	if herr != nil {

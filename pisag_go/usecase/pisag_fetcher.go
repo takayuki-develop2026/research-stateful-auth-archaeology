@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"example.com/pisag_go/pisag"
@@ -13,7 +14,10 @@ import (
 )
 
 // PISAGFetcher is a hardened fetcher:
-// RequestGuard -> hardened Client -> GET -> MaxBodyBytes -> FetchResult.
+// RequestGuardWithAllowlistKey -> hardened Client -> GET -> MaxBodyBytes -> FetchResult.
+//
+// v4 fixed:
+// - allowlist_key is REQUIRED (fail-closed).
 type PISAGFetcher struct {
 	Policy ports.Policy
 
@@ -27,22 +31,26 @@ type PISAGFetcher struct {
 	UserAgent string
 }
 
-// Fetch returns only metadata (drains body). Kept for backward compatibility.
+// Fetch (legacy) is intentionally fail-closed.
+// If you need fetch, call FetchWithAllowlistKey.
 func (f *PISAGFetcher) Fetch(ctx context.Context, targetURL string) (FetchResult, error) {
-	_, res, err := f.FetchBytes(ctx, targetURL)
+	return FetchResult{}, errors.Join(ErrDenied, fmt.Errorf("allowlist_key is required: use FetchWithAllowlistKey"))
+}
+
+func (f *PISAGFetcher) FetchWithAllowlistKey(ctx context.Context, targetURL string, allowlistKey string) (FetchResult, error) {
+	_, res, err := f.FetchBytesWithAllowlistKey(ctx, targetURL, allowlistKey)
 	return res, err
 }
 
-// FetchBytes returns body bytes + metadata.
-func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte, FetchResult, error) {
+// FetchBytesWithAllowlistKey returns body bytes + metadata.
+func (f *PISAGFetcher) FetchBytesWithAllowlistKey(ctx context.Context, targetURL string, allowlistKey string) ([]byte, FetchResult, error) {
 	p := f.Policy
 	applyPolicyDefaults(&p)
 
-	// 1) URL normalize + allowlist enforce
-	u, err := pisag.RequestGuard(targetURL, p)
+	// 1) URL normalize + allowlist enforce + allowlist_key fail-closed
+	u, err := pisag.RequestGuardWithAllowlistKey(targetURL, p, allowlistKey)
 	if err != nil {
-		// ErrDenied を sentinel として残す（errors.Isで判定可能）
-		return nil, FetchResult{}, fmt.Errorf("%w: %v", ErrDenied, err)
+		return nil, FetchResult{}, errors.Join(ErrDenied, err)
 	}
 
 	// 2) Prepare client (hardened transport)
@@ -60,9 +68,9 @@ func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte
 	if err != nil {
 		return nil, FetchResult{}, err
 	}
-	ua := f.UserAgent
+	ua := strings.TrimSpace(f.UserAgent)
 	if ua == "" {
-		ua = "pisag-go/v4.4"
+		ua = "pisag-go/v4.5"
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "*/*")
@@ -71,7 +79,7 @@ func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte
 	resp, err := client.Do(req)
 	if err != nil {
 		if errors.Is(err, pisag.ErrRedirectNotAllowed) || errors.Is(err, pisag.ErrIPNotAllowed) {
-			return nil, FetchResult{}, fmt.Errorf("%w: %v", ErrDenied, err)
+			return nil, FetchResult{}, errors.Join(ErrDenied, err)
 		}
 		return nil, FetchResult{}, err
 	}
@@ -95,7 +103,7 @@ func (f *PISAGFetcher) FetchBytes(ctx context.Context, targetURL string) ([]byte
 	res := FetchResult{
 		FinalURL:    finalURL,
 		StatusCode:  resp.StatusCode,
-		ContentType: resp.Header.Get("Content-Type"),
+		ContentType: strings.TrimSpace(resp.Header.Get("Content-Type")),
 		BodySize:    int(n),
 	}
 	return b, res, nil

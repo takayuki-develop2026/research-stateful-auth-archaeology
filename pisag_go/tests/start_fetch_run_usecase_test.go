@@ -138,6 +138,12 @@ func (m *memRunInputRepo) CountByRunAndEnqueueKey(runID, enqueueKey string) int 
 	return 0
 }
 
+// ClaimNext はこのテストでは使わない（worker側テストではない）
+// ただし過去互換で interface に要求されている場合に備えてダミー実装を置く。
+func (m *memRunInputRepo) ClaimNext(ctx context.Context, workerID string) (*run.ClaimedRunInput, error) {
+	return nil, nil
+}
+
 type memRunEventRepo struct {
 	mu     sync.Mutex
 	events []run.RunEvent
@@ -186,12 +192,15 @@ func TestStartFetchRun_ReuseRunDefaultTrue_And_EnqueueIdempotent(t *testing.T) {
 		RunEventRepo: er,
 	}
 
+	allowKey := "oracle" // ✅ v4 fixed: allowlist_key is required (fail-closed)
+
 	in := usecase.StartFetchRunInput{
 		ProjectID:       "p1",
 		TargetURL:       "https://oracle.singularity.local/pricing_v1.json",
 		PipelineVersion: "v4.1",
-		ImmediateFetch:  false, // worker主体
-		ReuseRun:        nil,   // ✅ デフォルトtrue確認
+		AllowlistKey:    &allowKey, // ✅ 必須
+		ImmediateFetch:  false,     // worker主体
+		ReuseRun:        nil,       // ✅ デフォルトtrue確認
 	}
 
 	out1, err := uc.Handle(ctx, in)
@@ -210,9 +219,9 @@ func TestStartFetchRun_ReuseRunDefaultTrue_And_EnqueueIdempotent(t *testing.T) {
 
 	// ✅ enqueue idempotency
 	// enqueueKey の作り方は usecase と一致させる必要がある（ここでは同じ式で再計算）
-	nurl, _ := usecase.NormalizeURLForEnqueueKey_ForTest(in.TargetURL) // ←下の注意参照
-	allow := ""
+	nurl, _ := usecase.NormalizeURLForEnqueueKey_ForTest(in.TargetURL)
 	method := "GET"
+	allow := "oracle"
 	enqueueKey := hashHex("fetch|" + method + "|" + allow + "|" + nurl)
 
 	if got := ir.CountByRunAndEnqueueKey(out1.RunID, enqueueKey); got != 1 {
@@ -222,8 +231,4 @@ func TestStartFetchRun_ReuseRunDefaultTrue_And_EnqueueIdempotent(t *testing.T) {
 	if out1.Status != "enqueued" || out2.Status != "enqueued" {
 		t.Fatalf("expected enqueued, got out1=%s out2=%s", out1.Status, out2.Status)
 	}
-}
-
-func (m *memRunInputRepo) ClaimNext(ctx context.Context, workerID string) (*run.ClaimedRunInput, error) {
-	return nil, nil
 }

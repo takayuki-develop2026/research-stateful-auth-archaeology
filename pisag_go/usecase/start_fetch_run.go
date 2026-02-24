@@ -59,16 +59,21 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		in.PipelineVersion = "v4.1"
 	}
 
+	// ✅ v4 fixed: allowlist_key fail-closed (injection point is enqueue)
+	allow := ""
+	if in.AllowlistKey != nil {
+		allow = strings.TrimSpace(*in.AllowlistKey)
+	}
+	if allow == "" {
+		return StartFetchRunOutput{}, errors.New("allowlist_key is required (fail-closed)")
+	}
+
 	// ここは https/host 必須だけ。詳細ガードはPISAGに一任
 	if err := validateURL(in.TargetURL); err != nil {
 		return StartFetchRunOutput{}, err
 	}
 
 	method := "GET"
-	allow := ""
-	if in.AllowlistKey != nil {
-		allow = strings.TrimSpace(*in.AllowlistKey)
-	}
 
 	// enqueue/run key用にURL正規化（PISAGガードの代替ではない）
 	nurl, nerr := normalizeURLForEnqueueKey(in.TargetURL)
@@ -113,7 +118,7 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 			TraceID:         traceID,
 			PipelineVersion: in.PipelineVersion,
 			Status:          run.StatusRunning,
-			RunKey:          nil, // ✅ reuseしないrunにはrun_keyを持たせない
+			RunKey:          nil,
 		}
 		if _, err := uc.RunRepo.Create(ctx, r); err != nil {
 			return StartFetchRunOutput{}, err
@@ -131,7 +136,7 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		TargetURL:    in.TargetURL, // raw保持（証拠）
 		Method:       method,
 		HeadersJSON:  headersJSON,
-		AllowlistKey: in.AllowlistKey,
+		AllowlistKey: ptr(allow), // non-empty normalized
 		EnqueueKey:   enqueueKey,
 	}); err != nil {
 		return StartFetchRunOutput{}, err
@@ -151,6 +156,7 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		"reuse_run":                  reuse,
 		"pipeline_version":           in.PipelineVersion,
 		"allowlist_key":              allow,
+		"allowlist_key_required":     true,
 		"immediate_fetch_requested":  in.ImmediateFetch,
 		"immediate_fetch_allowed":    allowImmediate,
 		"immediate_fetch_forced_off": forcedOff,
@@ -166,8 +172,28 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		}, nil
 	}
 
-	// debug/local only: immediate fetch (gated by AK_ALLOW_IMMEDIATE_FETCH)
-	res, ferr := uc.Fetcher.Fetch(ctx, in.TargetURL)
+	// ✅ v4 fixed: ImmediateFetch must also be allowlist-keyed (fail-closed)
+	kf, ok := uc.Fetcher.(KeyedFetcher)
+	if !ok {
+		// if someone injected a non-keyed fetcher, fail closed
+		msg := "fetcher does not support allowlist_key (KeyedFetcher required)"
+		_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_failed", "fetch", "failed", &msg, map[string]any{
+			"error_code":               "fetch_denied",
+			"immediate_fetch_executed": false,
+			"ts":                       time.Now().UTC().Format(time.RFC3339Nano),
+		})
+		code := "fetch_denied"
+		_ = uc.RunRepo.MarkFailed(ctx, r.RunID, code, msg)
+		return StartFetchRunOutput{
+			RunID:        r.RunID,
+			TraceID:      r.TraceID,
+			Status:       "failed",
+			ErrorCode:    &code,
+			ErrorMessage: &msg,
+		}, nil
+	}
+
+	res, ferr := kf.FetchWithAllowlistKey(ctx, in.TargetURL, allow)
 	if ferr != nil {
 		code := "fetch_failed"
 		msg := ferr.Error()
@@ -190,11 +216,11 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 	}
 
 	_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_done", "fetch", "ok", nil, map[string]any{
-		"final_url":               res.FinalURL,
-		"status_code":             res.StatusCode,
-		"content_type":            res.ContentType,
-		"body_size":               res.BodySize,
-		"fetched_at_utc":          time.Now().UTC().Format(time.RFC3339Nano),
+		"final_url":                res.FinalURL,
+		"status_code":              res.StatusCode,
+		"content_type":             res.ContentType,
+		"body_size":                res.BodySize,
+		"fetched_at_utc":           time.Now().UTC().Format(time.RFC3339Nano),
 		"immediate_fetch_executed": true,
 	})
 
@@ -240,13 +266,6 @@ func validateURL(s string) error {
 }
 
 // normalizeURLForEnqueueKey: enqueue/run key生成用（PISAGガードの代替ではない）
-// 方針（強め・安定）:
-// - scheme固定 https
-// - host lowercase
-// - default port(:443)除去
-// - fragment除去
-// - path clean（dot-segment除去）+ 空は "/"
-// - query: key sort + values sort + encode
 func normalizeURLForEnqueueKey(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -280,7 +299,6 @@ func normalizeURLForEnqueueKey(raw string) (string, error) {
 		if cp == "." {
 			cp = "/"
 		}
-		// 末尾スラッシュは落として統一（/a と /a/ を同一視）
 		if cp != "/" {
 			cp = strings.TrimRight(cp, "/")
 			if cp == "" {
@@ -331,7 +349,6 @@ func hashHex(s string) string {
 
 func ptr(s string) *string { return &s }
 
-// nil => true
 func boolDefaultTrue(p *bool) bool {
 	if p == nil {
 		return true
@@ -339,8 +356,6 @@ func boolDefaultTrue(p *bool) bool {
 	return *p
 }
 
-// NormalizeURLForEnqueueKey_ForTest exposes the internal normalization for tests.
-// production code should keep using normalizeURLForEnqueueKey internally.
 func NormalizeURLForEnqueueKey_ForTest(raw string) (string, error) {
 	return normalizeURLForEnqueueKey(raw)
 }

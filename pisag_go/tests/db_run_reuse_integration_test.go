@@ -49,12 +49,15 @@ func TestStartFetchRun_DB_RunReuse(t *testing.T) {
 
 	ctx := context.Background()
 
+	allowKey := "oracle" // ✅ v4 fixed: allowlist_key is required (fail-closed)
+
 	in := usecase.StartFetchRunInput{
 		ProjectID:       "integration-test-project",
 		TargetURL:       "https://oracle.singularity.local/pricing_v1.json",
 		PipelineVersion: "v4.1-test",
-		ImmediateFetch:  false, // worker主体想定：enqueueだけ
-		ReuseRun:        nil,   // ✅ デフォルトtrue
+		AllowlistKey:    &allowKey, // ✅ 必須
+		ImmediateFetch:  false,     // worker主体想定：enqueueだけ
+		ReuseRun:        nil,       // ✅ デフォルトtrue
 	}
 
 	out1, err := uc.Handle(ctx, in)
@@ -80,5 +83,5 @@ func TestStartFetchRun_DB_RunReuse(t *testing.T) {
 		t.Fatalf("expected run_inputs=1, got %d", cnt)
 	}
 
-	t.Logf("✅ reuse OK: run_id=%s inputs=%d", out1.RunID, cnt)
+	t.Logf("✅ reuse OK: run_id=%s inputs=%d allowlist_key=%s", out1.RunID, cnt, allowKey)
 }

@@ -7,9 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"time"
-
 	"strings"
+	"time"
 
 	"example.com/pisag_go/ports"
 )
@@ -17,6 +16,9 @@ import (
 var (
 	ErrRedirectNotAllowed = errors.New("pisag: redirect not allowed")
 	ErrIPNotAllowed       = errors.New("pisag: ip not allowed")
+
+	// v4 fixed: allowlist_key must be present (fail-closed) when using RequestGuardWithAllowlistKey.
+	ErrAllowlistKeyRequired = errors.New("pisag: allowlist_key required")
 )
 
 // NewClient returns an http.Client hardened by PISAG policy.
@@ -114,18 +116,38 @@ func NewTransport(policy ports.Policy) (*http.Transport, error) {
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return dialContext(ctx, network, address)
 		},
-		ForceAttemptHTTP2:       true,
-		MaxIdleConns:            64,
-		IdleConnTimeout:         90 * time.Second,
-		TLSHandshakeTimeout:     8 * time.Second,
-		ExpectContinueTimeout:   1 * time.Second,
-		TLSClientConfig:         tlsCfg,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          64,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   8 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       tlsCfg,
 	}
 	return tr, nil
 }
 
 // RequestGuard normalizes + enforces allowlist for a URL string.
+// NOTE: kept for backward compatibility (does NOT enforce allowlist_key).
 func RequestGuard(raw string, policy ports.Policy) (*url.URL, error) {
+	u, err := NormalizeURL(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := IsAllowed(u, policy); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// RequestGuardWithAllowlistKey normalizes + enforces allowlist for a URL string,
+// and also enforces allowlist_key (fail-closed).
+//
+// v4 fixed rule:
+// - allowlistKey must be non-empty (NULL/empty => deny)
+func RequestGuardWithAllowlistKey(raw string, policy ports.Policy, allowlistKey string) (*url.URL, error) {
+	if strings.TrimSpace(allowlistKey) == "" {
+		return nil, ErrAllowlistKeyRequired
+	}
 	u, err := NormalizeURL(raw)
 	if err != nil {
 		return nil, err
@@ -155,10 +177,6 @@ func sameHostPort(a, b *url.URL) bool {
 // - loopback, link-local, multicast, unspecified
 // - private RFC1918 (10/8, 172.16/12, 192.168/16)
 // - unique local (fc00::/7) and link-local (fe80::/10)
-//
-// v4 note: This is strict. If you *need* to allow specific CIDRs (like compose network),
-// add an explicit allow list in v5. For v4, we assume allowlist host resolves to safe IPs
-// within your controlled environment and not private metadata endpoints.
 func isAllowedIP(ip net.IP) bool {
 	if ip == nil {
 		return false
@@ -299,26 +317,4 @@ func ipInCIDRs(ip net.IP, cidrs []string) bool {
 		}
 	}
 	return false
-}
-
-
-// RequestGuardWithAllowlistKey normalizes + enforces allowlist for a URL string,
-// and also enforces allowlist_key (fail-closed).
-//
-// v4 fixed rule:
-// - allowlistKey must be non-empty (NULL/empty => deny)
-var ErrAllowlistKeyRequired = errors.New("pisag: allowlist_key required")
-
-func RequestGuardWithAllowlistKey(raw string, policy ports.Policy, allowlistKey string) (*url.URL, error) {
-	if strings.TrimSpace(allowlistKey) == "" {
-		return nil, ErrAllowlistKeyRequired
-	}
-	u, err := NormalizeURL(raw)
-	if err != nil {
-		return nil, err
-	}
-	if err := IsAllowed(u, policy); err != nil {
-		return nil, err
-	}
-	return u, nil
 }

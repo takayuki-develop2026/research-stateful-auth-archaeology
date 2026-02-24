@@ -1,0 +1,7 @@
+{
+  "version": "pricing_v1",
+  "generated_at": "2026-02-19T00:00:00Z",
+  "items": [
+    { "sku": "A-001", "price": 1000, "currency": "JPY" }
+  ]
+}

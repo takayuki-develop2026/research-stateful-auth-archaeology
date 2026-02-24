@@ -51,9 +51,9 @@ func (f *PISAGHTTPFetcher) FetchBodyWithAllowlistKey(ctx context.Context, target
 	if err != nil {
 		return nil, err
 	}
-	ua := f.UserAgent
+	ua := strings.TrimSpace(f.UserAgent)
 	if ua == "" {
-		ua = "pisag-go/worker-v4.4"
+		ua = "pisag-go/worker-v4.5"
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "*/*")

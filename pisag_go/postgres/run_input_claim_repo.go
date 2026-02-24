@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"example.com/pisag_go/run"
@@ -30,7 +31,7 @@ func (r *RunInputClaimRepository) ClaimNext(
 	workerID string,
 	style ClaimStyle,
 ) (*run.ClaimedRunInput, error) {
-	if workerID == "" {
+	if strings.TrimSpace(workerID) == "" {
 		return nil, errors.New("worker_id is required")
 	}
 	if style == "" {
@@ -77,67 +78,98 @@ FROM public.run_inputs_claim_next($1, $2);
 }
 
 // MarkDone: EXECUTE ONLY (no direct UPDATE).
+// Reads boolean return from SECURITY DEFINER function and errors on false (silent failure root-cause removal).
 func (r *RunInputClaimRepository) MarkDone(ctx context.Context, inputID int64, workerID string) error {
 	if inputID <= 0 {
 		return errors.New("input_id is required")
 	}
-	if workerID == "" {
+	if strings.TrimSpace(workerID) == "" {
 		return errors.New("worker_id is required")
 	}
 
-	// Function:
-	// - verify (id, claimed_by=workerID, claim_status='claimed')
-	// - set claim_status='done' and clear last_error fields
-	_, err := r.db.ExecContext(ctx, `SELECT public.run_inputs_mark_done($1::bigint, $2)`, inputID, workerID)
-	return err
+	var ok bool
+	err := r.db.QueryRowContext(ctx, `SELECT public.run_inputs_mark_done($1::bigint, $2)`, inputID, workerID).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("run_inputs_mark_done returned false (input_id=%d worker_id=%s)", inputID, workerID)
+	}
+	return nil
 }
 
 // MarkRetry: EXECUTE ONLY (no direct UPDATE).
+// Reads boolean return and errors on false.
 func (r *RunInputClaimRepository) MarkRetry(ctx context.Context, inputID int64, workerID, code, msg string) error {
 	if inputID <= 0 {
 		return errors.New("input_id is required")
 	}
-	if workerID == "" {
+	if strings.TrimSpace(workerID) == "" {
 		return errors.New("worker_id is required")
 	}
-	if code == "" {
+	if strings.TrimSpace(code) == "" {
 		return errors.New("error_code is required")
 	}
+	if msg == "" {
+		msg = ""
+	}
 
-	// Function:
-	// - terminal rule inside DB: fetch_denied, http_400/401/403/404/410 => done (terminal)
-	// - retryable => pending with backoff and error fields
-	_, err := r.db.ExecContext(ctx, `SELECT public.run_inputs_mark_retry($1::bigint, $2, $3, $4)`,
+	var ok bool
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT public.run_inputs_mark_retry($1::bigint, $2, $3, $4)`,
 		inputID, workerID, code, msg,
-	)
-	return err
+	).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("run_inputs_mark_retry returned false (input_id=%d worker_id=%s code=%s)", inputID, workerID, code)
+	}
+	return nil
 }
 
 // TouchClaim: EXECUTE ONLY (no direct UPDATE).
+// Reads boolean return and errors on false.
 func (r *RunInputClaimRepository) TouchClaim(ctx context.Context, inputID int64, workerID string) error {
 	if inputID <= 0 {
 		return errors.New("input_id is required")
 	}
-	if workerID == "" {
+	if strings.TrimSpace(workerID) == "" {
 		return errors.New("worker_id is required")
 	}
-	_, err := r.db.ExecContext(ctx, `SELECT public.run_inputs_touch_claim($1::bigint, $2)`, inputID, workerID)
-	return err
+
+	var ok bool
+	err := r.db.QueryRowContext(ctx, `SELECT public.run_inputs_touch_claim($1::bigint, $2)`, inputID, workerID).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("run_inputs_touch_claim returned false (input_id=%d worker_id=%s)", inputID, workerID)
+	}
+	return nil
 }
 
 // SetNextAttemptAt: EXECUTE ONLY.
-// Note: worker運用でこれを使うなら関数化が必須。
+// Reads boolean return and errors on false.
 func (r *RunInputClaimRepository) SetNextAttemptAt(ctx context.Context, inputID int64, t time.Time) error {
 	if inputID <= 0 {
 		return errors.New("input_id is required")
 	}
-	_, err := r.db.ExecContext(
+
+	var ok bool
+	err := r.db.QueryRowContext(
 		ctx,
 		`SELECT public.run_inputs_set_next_attempt_at($1::bigint, $2::timestamptz)`,
-		inputID,
-		t.UTC(),
-	)
-	return err
+		inputID, t.UTC(),
+	).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("run_inputs_set_next_attempt_at returned false (input_id=%d next_attempt_at=%s)", inputID, t.UTC().Format(time.RFC3339Nano))
+	}
+	return nil
 }
 
 /* ---------- helpers (optional) ---------- */
@@ -153,10 +185,12 @@ func (r *RunInputClaimRepository) DebugCountPending(ctx context.Context) (int, e
 }
 
 func (r *RunInputClaimRepository) EnsureFunctionsExist(ctx context.Context) error {
-	// Minimal sanity check: call a pure function if exists (optional).
-	_, err := r.db.ExecContext(ctx, `SELECT public.run_inputs_is_terminal_code('http_404')`)
+	// Minimal sanity check: call a pure function.
+	var ok bool
+	err := r.db.QueryRowContext(ctx, `SELECT public.run_inputs_is_terminal_code('http_404')`).Scan(&ok)
 	if err != nil {
 		return fmt.Errorf("missing required function(s): %w", err)
 	}
+	_ = ok // value not important here
 	return nil
 }

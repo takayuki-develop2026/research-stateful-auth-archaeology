@@ -10,6 +10,11 @@ type Fetcher interface {
 	Fetch(ctx context.Context, targetURL string) (FetchResult, error)
 }
 
+// KeyedFetcher は allowlist_key を必須にする（fail-closed 条文化）
+type KeyedFetcher interface {
+	FetchWithAllowlistKey(ctx context.Context, targetURL string, allowlistKey string) (FetchResult, error)
+}
+
 type FetchResult struct {
 	FinalURL    string
 	StatusCode  int
