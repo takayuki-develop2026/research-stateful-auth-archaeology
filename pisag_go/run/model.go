@@ -17,7 +17,6 @@ type Run struct {
 	PipelineVersion string
 	Status          Status
 
-	// v4.2: run reuse key (project_id + run_key unique)
 	RunKey *string
 
 	StartedAt  time.Time
@@ -27,10 +26,9 @@ type Run struct {
 	ErrorMessage *string
 }
 
-// run_inputs table row (DB truth)
+// RunInput: INSERT用（trace_idは持たない）
 type RunInput struct {
-	ID          int64
-	RunID       string // uuid string
+	RunID       string
 	SourceID    *string
 	TargetURL   string
 	Method      string
@@ -38,20 +36,29 @@ type RunInput struct {
 
 	AllowlistKey *string
 
-	// enqueue idempotency key (deterministic, NOT NULL in DB)
+	// enqueue idempotency key (deterministic). can be empty (DB trigger fills).
 	EnqueueKey string
 }
 
-// work item returned by public.run_inputs_claim_next()
-// (= run_inputs + runs.trace_id)
+// ClaimedRunInput: worker処理用（trace_id付き）
 type ClaimedRunInput struct {
-	RunInput
-	TraceID string // uuid string (runs.trace_id)
+	ID int64
+
+	RunID   string
+	TraceID string
+
+	SourceID    *string
+	TargetURL   string
+	Method      string
+	HeadersJSON []byte
+
+	AllowlistKey *string
+	EnqueueKey   string
 }
 
 type RunEvent struct {
-	RunID     string // uuid string
-	TraceID   string // uuid string
+	RunID     string
+	TraceID   string
 	EventName string
 	Step      string
 	Status    string

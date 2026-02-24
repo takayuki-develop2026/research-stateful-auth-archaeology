@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"os"
 	"path"
 	"sort"
 	"strings"
@@ -136,19 +137,28 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		return StartFetchRunOutput{}, err
 	}
 
+	// v4.1: ImmediateFetch env gate
+	allowImmediate := envBool("AK_ALLOW_IMMEDIATE_FETCH", false)
+	forcedOff := in.ImmediateFetch && !allowImmediate
+	immediate := in.ImmediateFetch && allowImmediate
+
 	_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_enqueued", "fetch", "ok", nil, map[string]any{
-		"target_url":       in.TargetURL,
-		"normalized_url":   nurl,
-		"enqueue_key":      enqueueKey,
-		"run_key":          runKey,
-		"run_reused":       reused,
-		"reuse_run":        reuse,
-		"pipeline_version": in.PipelineVersion,
-		"ts":               time.Now().UTC().Format(time.RFC3339Nano),
+		"target_url":                 in.TargetURL,
+		"normalized_url":             nurl,
+		"enqueue_key":                enqueueKey,
+		"run_key":                    runKey,
+		"run_reused":                 reused,
+		"reuse_run":                  reuse,
+		"pipeline_version":           in.PipelineVersion,
+		"allowlist_key":              allow,
+		"immediate_fetch_requested":  in.ImmediateFetch,
+		"immediate_fetch_allowed":    allowImmediate,
+		"immediate_fetch_forced_off": forcedOff,
+		"ts":                         time.Now().UTC().Format(time.RFC3339Nano),
 	})
 
 	// worker主体ならここで終了（正道）
-	if !in.ImmediateFetch {
+	if !immediate {
 		return StartFetchRunOutput{
 			RunID:   r.RunID,
 			TraceID: r.TraceID,
@@ -156,7 +166,7 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 		}, nil
 	}
 
-	// debug/local only: immediate fetch
+	// debug/local only: immediate fetch (gated by AK_ALLOW_IMMEDIATE_FETCH)
 	res, ferr := uc.Fetcher.Fetch(ctx, in.TargetURL)
 	if ferr != nil {
 		code := "fetch_failed"
@@ -165,7 +175,9 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 			code = "fetch_denied"
 		}
 		_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_failed", "fetch", "failed", &msg, map[string]any{
-			"error_code": code,
+			"error_code":               code,
+			"immediate_fetch_executed": true,
+			"ts":                       time.Now().UTC().Format(time.RFC3339Nano),
 		})
 		_ = uc.RunRepo.MarkFailed(ctx, r.RunID, code, msg)
 		return StartFetchRunOutput{
@@ -178,11 +190,12 @@ func (uc *StartFetchRunUseCase) Handle(ctx context.Context, in StartFetchRunInpu
 	}
 
 	_ = uc.appendEvent(ctx, r.RunID, r.TraceID, "fetch_done", "fetch", "ok", nil, map[string]any{
-		"final_url":      res.FinalURL,
-		"status_code":    res.StatusCode,
-		"content_type":   res.ContentType,
-		"body_size":      res.BodySize,
-		"fetched_at_utc": time.Now().UTC().Format(time.RFC3339Nano),
+		"final_url":               res.FinalURL,
+		"status_code":             res.StatusCode,
+		"content_type":            res.ContentType,
+		"body_size":               res.BodySize,
+		"fetched_at_utc":          time.Now().UTC().Format(time.RFC3339Nano),
+		"immediate_fetch_executed": true,
 	})
 
 	_ = uc.RunRepo.MarkDone(ctx, r.RunID)
@@ -227,6 +240,13 @@ func validateURL(s string) error {
 }
 
 // normalizeURLForEnqueueKey: enqueue/run key生成用（PISAGガードの代替ではない）
+// 方針（強め・安定）:
+// - scheme固定 https
+// - host lowercase
+// - default port(:443)除去
+// - fragment除去
+// - path clean（dot-segment除去）+ 空は "/"
+// - query: key sort + values sort + encode
 func normalizeURLForEnqueueKey(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -260,6 +280,7 @@ func normalizeURLForEnqueueKey(raw string) (string, error) {
 		if cp == "." {
 			cp = "/"
 		}
+		// 末尾スラッシュは落として統一（/a と /a/ を同一視）
 		if cp != "/" {
 			cp = strings.TrimRight(cp, "/")
 			if cp == "" {
@@ -319,6 +340,22 @@ func boolDefaultTrue(p *bool) bool {
 }
 
 // NormalizeURLForEnqueueKey_ForTest exposes the internal normalization for tests.
+// production code should keep using normalizeURLForEnqueueKey internally.
 func NormalizeURLForEnqueueKey_ForTest(raw string) (string, error) {
 	return normalizeURLForEnqueueKey(raw)
+}
+
+func envBool(k string, def bool) bool {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return def
+	}
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return def
+	}
 }
