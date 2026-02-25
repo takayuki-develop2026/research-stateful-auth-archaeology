@@ -16,10 +16,9 @@ type V20ProposalApproveInput struct {
 
 	ProposalID int64
 
-	// MUST be approved in v4.7 ledger (approval_requests.status=approved)
+	// MUST be approved in v4.7 ledger and will be passed into DB gate
 	ApprovalRequestID string
 
-	// Who is finalizing proposal approval (for v20 table fields)
 	ApprovedByUserID *string
 }
 
@@ -47,13 +46,14 @@ func (uc *V20ProposalApproveUseCase) Handle(ctx context.Context, in V20ProposalA
 	if in.ProposalID <= 0 {
 		return V20ProposalApproveOutput{}, errors.New("proposal_id is required")
 	}
-	rid := strings.TrimSpace(in.ApprovalRequestID)
-	if rid == "" {
+
+	reqID := strings.TrimSpace(in.ApprovalRequestID)
+	if reqID == "" {
 		return V20ProposalApproveOutput{}, errors.New("approval_request_id is required")
 	}
 
-	// 1) Guard: approval ledger must be approved (default deny)
-	req, err := uc.ApprovalRepo.GetRequest(ctx, pid, rid)
+	// 1) Guard (app-side): approval ledger must be approved
+	req, err := uc.ApprovalRepo.GetRequest(ctx, pid, reqID)
 	if err != nil {
 		return V20ProposalApproveOutput{}, err
 	}
@@ -66,9 +66,9 @@ func (uc *V20ProposalApproveUseCase) Handle(ctx context.Context, in V20ProposalA
 		approvedBy = strings.TrimSpace(*in.ApprovedByUserID)
 	}
 
-	// 2) Mark proposal approved (EXECUTE ONLY)
-	const q = `SELECT public.proposal_mark_approved_v20($1,$2,$3,$4);`
-	if _, err := uc.DB.ExecContext(ctx, q, pid, in.ProposalID, approvedBy, time.Now().UTC()); err != nil {
+	// 2) DB-side gate: MUST pass approval_request_id (uuid)
+	const q = `SELECT public.proposal_mark_approved_v20($1,$2,$3::uuid,$4,$5);`
+	if _, err := uc.DB.ExecContext(ctx, q, pid, in.ProposalID, reqID, approvedBy, time.Now().UTC()); err != nil {
 		return V20ProposalApproveOutput{}, err
 	}
 
