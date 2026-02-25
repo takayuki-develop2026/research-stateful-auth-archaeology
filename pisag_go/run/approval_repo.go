@@ -28,4 +28,6 @@ type ApprovalRepo interface {
 
 	// GetByProjectAndCommit fetches request by idempotency key.
 	GetByProjectAndCommit(ctx context.Context, projectID string, commitID string) (ApprovalRequest, error)
+
+	GetRequest(ctx context.Context, projectID, requestID string) (ApprovalRequest, error)
 }

@@ -283,3 +283,54 @@ func mapApprovalRequest(
 		UpdatedAt:       updatedAt,
 	}
 }
+
+func (r *ApprovalRepository) GetRequest(ctx context.Context, projectID string, requestID string) (run.ApprovalRequest, error) {
+	projectID = strings.TrimSpace(projectID)
+	requestID = strings.TrimSpace(requestID)
+
+	if projectID == "" {
+		return run.ApprovalRequest{}, errors.New("project_id is required")
+	}
+	if requestID == "" {
+		return run.ApprovalRequest{}, errors.New("request_id is required")
+	}
+
+	const q = `
+SELECT
+  request_id, project_id, commit_id, trace_id, status,
+  requested_by_type, requested_by_id, reason,
+  created_at, updated_at
+FROM public.approval_requests
+WHERE project_id=$1 AND request_id=$2::uuid
+LIMIT 1;
+`
+	var (
+		rid                     string
+		pid                     string
+		cid                     string
+		tid                     string
+		status                  string
+		rbt                     string
+		rbid                    sql.NullString
+		rsn                     sql.NullString
+		createdAt, updatedAt    time.Time
+	)
+
+	err := r.db.QueryRowContext(ctx, q, projectID, requestID).Scan(
+		&rid,
+		&pid,
+		&cid,
+		&tid,
+		&status,
+		&rbt,
+		&rbid,
+		&rsn,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return run.ApprovalRequest{}, err
+	}
+
+	return mapApprovalRequest(rid, pid, cid, tid, status, rbt, rbid, rsn, createdAt, updatedAt), nil
+}
