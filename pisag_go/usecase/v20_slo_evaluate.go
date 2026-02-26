@@ -25,7 +25,6 @@ type V20SloEvaluateInput struct {
 	// evidence asset for incident summary if breach
 	IncidentSummaryEvidenceAssetID int64
 
-	// incident severity/type for breach
 	IncidentSeverity string // P1|P2|P3|P4 (default P2)
 	IncidentType     string // default "slo_breach"
 }
@@ -51,7 +50,8 @@ type V20SloEvaluateOutput struct {
 }
 
 type V20SloEvaluateUseCase struct {
-	DB *sql.DB
+	DB  *sql.DB
+	Now func() time.Time // if nil, time.Now
 }
 
 func (uc *V20SloEvaluateUseCase) Handle(ctx context.Context, in V20SloEvaluateInput) (V20SloEvaluateOutput, error) {
@@ -70,6 +70,11 @@ func (uc *V20SloEvaluateUseCase) Handle(ctx context.Context, in V20SloEvaluateIn
 	}
 	if in.IncidentSummaryEvidenceAssetID <= 0 {
 		return V20SloEvaluateOutput{}, errors.New("incident_summary_evidence_asset_id is required")
+	}
+
+	now := time.Now
+	if uc.Now != nil {
+		now = uc.Now
 	}
 
 	// 1) load slo definition
@@ -95,7 +100,8 @@ LIMIT 1;
 		windowKind = strings.TrimSpace(in.WindowKind)
 	}
 
-	windowEnd := time.Now().UTC()
+	// 2) bucketized window end (dedupe key stability)
+	windowEnd := bucketEndUTC(now().UTC(), windowKind)
 	windowStart, err := windowStartFromKind(windowEnd, windowKind)
 	if err != nil {
 		return V20SloEvaluateOutput{}, err
@@ -103,7 +109,7 @@ LIMIT 1;
 
 	evalKey := evaluationKey(pid, in.SloID, windowStart, windowEnd)
 
-	// 2) aggregate runs
+	// 3) aggregate runs (use created_at because idx_runs_project_created exists)
 	var total, success int64
 	err = uc.DB.QueryRowContext(ctx, `
 SELECT
@@ -132,7 +138,7 @@ WHERE project_id = $1
 	}
 
 	var sli float64
-	status := "warn" // default for insufficient data
+	status := "warn" // insufficient_data
 	errorBudgetRemaining := 1.0
 
 	if total > 0 {
@@ -142,36 +148,23 @@ WHERE project_id = $1
 			errorBudgetRemaining = 1.0
 		} else {
 			status = "breach"
-			// simple P0: remaining is (target - sli) distance in budget space (clamped)
-			// you can refine later with true error-budget math.
 			errorBudgetRemaining = clamp01(1.0 - (target - sli))
 		}
 	}
 	out.Sli = sli
 	out.Status = status
 
-	// 3) upsert evaluation (unique: project_id + evaluation_key)
-	_, err = uc.DB.ExecContext(ctx, `
-INSERT INTO public.slo_evaluations(
-  project_id, slo_id, evaluation_key,
-  window_start_at_utc, window_end_at_utc,
-  sli_value, error_budget_remaining, status,
-  evaluated_at_utc, evaluation_evidence_asset_id
-)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),$9)
-ON CONFLICT (project_id, evaluation_key) DO UPDATE
-SET
-  sli_value = EXCLUDED.sli_value,
-  error_budget_remaining = EXCLUDED.error_budget_remaining,
-  status = EXCLUDED.status,
-  evaluated_at_utc = now(),
-  evaluation_evidence_asset_id = EXCLUDED.evaluation_evidence_asset_id;
-`, pid, in.SloID, evalKey, windowStart, windowEnd, sli, errorBudgetRemaining, status, in.EvaluationEvidenceAssetID)
-	if err != nil {
+	// 4) upsert evaluation via EXECUTE ONLY function (0033)
+	// slo_evaluation_upsert_v20(project_id, slo_id, evaluation_key, ws, we, sli, budget_rem, status, evidence_id)
+	const up = `SELECT public.slo_evaluation_upsert_v20($1,$2,$3,$4,$5,$6,$7,$8,$9);`
+	if _, err := uc.DB.ExecContext(ctx, up,
+		pid, in.SloID, evalKey, windowStart, windowEnd,
+		sli, errorBudgetRemaining, status, in.EvaluationEvidenceAssetID,
+	); err != nil {
 		return V20SloEvaluateOutput{}, err
 	}
 
-	// 4) breach -> incident_create_v20 (dedupe by incident_key)
+	// 5) breach -> incident_create_v20 (dedupe stable by bucketed window; plus idempotency key evalKey)
 	if status == "breach" {
 		sev := strings.TrimSpace(in.IncidentSeverity)
 		if sev == "" {
@@ -186,8 +179,6 @@ SET
 
 		var incID int64
 		var foundExisting bool
-
-		// root_trace_id/root_run_id are NULL in P0 for aggregate incidents
 		err = uc.DB.QueryRowContext(ctx, `
 SELECT incident_id, found_existing
 FROM public.incident_create_v20(
@@ -206,8 +197,7 @@ FROM public.incident_create_v20(
 			nil, // root_trace_id
 			nil, // root_run_id
 			in.IncidentSummaryEvidenceAssetID,
-			// idempotency key (optional) - safe deterministic key
-			"eval:"+evalKey,
+			"eval:"+evalKey, // idempotency_key (stable)
 		).Scan(&incID, &foundExisting)
 		if err != nil {
 			return V20SloEvaluateOutput{}, err
@@ -217,6 +207,22 @@ FROM public.incident_create_v20(
 	}
 
 	return out, nil
+}
+
+func bucketEndUTC(t time.Time, kind string) time.Time {
+	k := strings.ToLower(strings.TrimSpace(kind))
+	switch k {
+	case "7d":
+		// hour bucket
+		return t.Truncate(time.Hour)
+	case "30d":
+		// day bucket (UTC midnight)
+		tt := t.Truncate(24 * time.Hour)
+		return tt
+	default:
+		// safe fallback: hour bucket
+		return t.Truncate(time.Hour)
+	}
 }
 
 func windowStartFromKind(end time.Time, kind string) (time.Time, error) {
