@@ -40,10 +40,14 @@ type Worker struct {
 
 	mb *ManifestBuilder
 
+	// v13 DLQ/idempotency repo (optional; if nil, DLQ enqueue is skipped)
+	v13 *postgres.V13Repository
+
 	idleCount int
 }
 
-func NewWorker(store *Store, fetch bodyFetcher, logger *log.Logger, cfg Config) *Worker {
+// ★ v13repo を受け取る
+func NewWorker(store *Store, fetch bodyFetcher, logger *log.Logger, cfg Config, v13repo *postgres.V13Repository) *Worker {
 	if cfg.Poll <= 0 {
 		cfg.Poll = 500 * time.Millisecond
 	}
@@ -69,6 +73,7 @@ func NewWorker(store *Store, fetch bodyFetcher, logger *log.Logger, cfg Config) 
 		cfg:     cfg,
 		evStore: NewFSEvidenceStore(cfg.EvidenceBaseDir),
 		mb:      mb,
+		v13:     v13repo,
 	}
 }
 
@@ -120,6 +125,7 @@ func (w *Worker) tick(ctx context.Context) error {
 	}
 	if allowKey == "" {
 		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_denied", "allowlist_key is required (fail-closed)")
+		// P2: deny のDLQ化は payload を生成して run_evidence に入れる必要があるため P2.1 へ。
 		w.logger.Printf("denied: input_id=%d run_id=%s trace_id=%s url=%s reason=allowlist_key_required",
 			in.ID, in.RunID, traceID, in.TargetURL)
 		return nil
@@ -129,6 +135,7 @@ func (w *Worker) tick(ctx context.Context) error {
 	if ferr != nil {
 		if errors.Is(ferr, usecase.ErrDenied) {
 			_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "fetch_denied", ferr.Error())
+			// P2.1へ（deny payload生成が必要）
 			w.logger.Printf("denied: input_id=%d run_id=%s trace_id=%s url=%s reason=%s",
 				in.ID, in.RunID, traceID, in.TargetURL, ferr.Error())
 			return nil
@@ -172,7 +179,7 @@ func (w *Worker) tick(ctx context.Context) error {
 		FinalURL:    finalURL,
 		StoredPath:  bodyRel,
 	}
-	if err := w.store.EvidenceRepo.InsertEvidence(ctx, bodyAsset); err != nil {
+	if _, err := w.store.EvidenceRepo.InsertEvidence(ctx, bodyAsset); err != nil {
 		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "evidence_insert_failed", err.Error())
 		return err
 	}
@@ -213,7 +220,10 @@ func (w *Worker) tick(ctx context.Context) error {
 		FinalURL:    finalURL,
 		StoredPath:  metaRel,
 	}
-	if err := w.store.EvidenceRepo.InsertEvidence(ctx, metaAsset); err != nil {
+
+	// ★ DLQ payload の核：meta evidence id（run_evidence_assets.id）を取得
+	metaEvidenceID, err := w.store.EvidenceRepo.InsertEvidence(ctx, metaAsset)
+	if err != nil {
 		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "meta_insert_failed", err.Error())
 		return err
 	}
@@ -248,12 +258,11 @@ func (w *Worker) tick(ctx context.Context) error {
 		FinalURL:    finalURL,
 		StoredPath:  hdrRel,
 	}
-	if err := w.store.EvidenceRepo.InsertEvidence(ctx, headersAsset); err != nil {
+	if _, err := w.store.EvidenceRepo.InsertEvidence(ctx, headersAsset); err != nil {
 		_ = w.store.ClaimRepo.MarkRetry(ctx, in.ID, w.cfg.WorkerID, "headers_insert_failed", err.Error())
 		return err
 	}
 
-	// v4.5: manifest build & complete (DB links set is SoT)
 	assetsForManifest := []run.EvidenceAsset{bodyAsset, metaAsset, headersAsset}
 
 	manifest, mhash, berr := w.mb.BuildAndComplete(ctx, in.RunID, traceID, assetsForManifest)
@@ -284,7 +293,60 @@ func (w *Worker) tick(ctx context.Context) error {
 		return nil
 	}
 
+	// ★ v13 DLQ enqueue (terminal only) using run_evidence_assets.id
+	w.tryEnqueueDLQRunEvidence(ctx, in, traceID, metaEvidenceID, allowKey, finalURL, status, manifest.ManifestID, mhash, code, msg)
+
 	w.logger.Printf("terminal_http: input_id=%d run_id=%s trace_id=%s status=%d url=%s manifest_id=%s manifest_hash=%s",
 		in.ID, in.RunID, traceID, status, finalURL, manifest.ManifestID, mhash)
 	return nil
 }
+
+// v13 DLQ enqueue helper (never breaks worker)
+func (w *Worker) tryEnqueueDLQRunEvidence(
+	ctx context.Context,
+	in *run.ClaimedRunInput,
+	traceID string,
+	payloadRunEvidenceID int64,
+	allowlistKey string,
+	finalURL string,
+	httpStatus int,
+	manifestID string,
+	manifestHash string,
+	code string,
+	msg string,
+) {
+	if w.v13 == nil {
+		return
+	}
+	if payloadRunEvidenceID <= 0 {
+		return
+	}
+
+	corr := fmt.Sprintf("run_input:%d", in.ID)
+
+	taskType := "pisag_fetch"
+	source := "queue"
+
+	var lastErr *int64 = nil
+
+	_, err := w.v13.DlqEnqueueRunEvidence(
+		ctx,
+		in.ProjectID,
+		ptr(in.RunID),
+		traceID,
+		taskType,
+		source,
+		&corr,
+		payloadRunEvidenceID,
+		lastErr,
+	)
+	if err != nil {
+		w.logger.Printf("dlq_enqueue_failed: input_id=%d run_id=%s trace_id=%s err=%v", in.ID, in.RunID, traceID, err)
+		return
+	}
+
+	w.logger.Printf("dlq_enqueued: input_id=%d run_id=%s trace_id=%s task=%s status=%d url=%s manifest_id=%s manifest_hash=%s code=%s msg=%s payload_run_evidence_id=%d allowlist_key=%s",
+		in.ID, in.RunID, traceID, taskType, httpStatus, finalURL, manifestID, manifestHash, code, msg, payloadRunEvidenceID, allowlistKey)
+}
+
+func ptr(s string) *string { return &s }

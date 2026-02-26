@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
-	"fmt"
 
 	"example.com/pisag_go/postgres"
 	"example.com/pisag_go/usecase"
@@ -37,7 +37,14 @@ func main() {
 
 	traceID := "v20-slo-smoke"
 
-	uc := usecase.V20SloEvaluateUseCase{DB: db}
+	// ★ v13 repo injection
+	v13repo := postgres.NewV13Repository(db)
+
+	uc := usecase.V20SloEvaluateUseCase{
+		DB:      db,
+		V13Repo: v13repo,
+	}
+
 	out, err := uc.Handle(ctx, usecase.V20SloEvaluateInput{
 		ProjectID:                     projectID,
 		TraceID:                       traceID,
@@ -101,6 +108,7 @@ func mustEnv(k string) string {
 	}
 	return v
 }
+
 func firstNonEmpty(v, fallback string) string {
 	v = strings.TrimSpace(v)
 	if v != "" {
@@ -108,6 +116,7 @@ func firstNonEmpty(v, fallback string) string {
 	}
 	return fallback
 }
+
 func mustQueryString(ctx context.Context, db *sql.DB, q string) string {
 	var s string
 	if err := db.QueryRowContext(ctx, q).Scan(&s); err != nil {
@@ -119,6 +128,7 @@ func mustQueryString(ctx context.Context, db *sql.DB, q string) string {
 	}
 	return s
 }
+
 func mustQueryInt64(ctx context.Context, db *sql.DB, q string) int64 {
 	var n int64
 	if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
@@ -129,6 +139,7 @@ func mustQueryInt64(ctx context.Context, db *sql.DB, q string) int64 {
 	}
 	return n
 }
+
 func mustParseInt64(k string) int64 {
 	v := strings.TrimSpace(os.Getenv(k))
 	var n int64

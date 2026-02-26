@@ -13,12 +13,29 @@ func NewEvidenceRepository(db *sql.DB) *EvidenceRepository {
 	return &EvidenceRepository{db: db}
 }
 
-func (r *EvidenceRepository) InsertEvidence(ctx context.Context, ev run.EvidenceAsset) error {
-	_, err := r.db.ExecContext(ctx, `
-INSERT INTO run_evidence_assets
-(run_id, trace_id, kind, content_type, byte_size, sha256, final_url, stored_path)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-ON CONFLICT (run_id, kind, sha256) DO NOTHING
-`, ev.RunID, ev.TraceID, ev.Kind, ev.ContentType, ev.ByteSize, ev.SHA256, ev.FinalURL, ev.StoredPath)
-	return err
+// ★変更：evidence id (bigint) を返す（worker SELECT禁止のため関数経由）
+func (r *EvidenceRepository) InsertEvidence(ctx context.Context, ev run.EvidenceAsset) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, `
+SELECT public.run_evidence_asset_upsert_id(
+  $1::uuid,
+  $2::uuid,
+  $3,
+  $4,
+  $5::integer,
+  $6,
+  $7,
+  $8
+) AS id;
+`,
+		ev.RunID,
+		ev.TraceID,
+		ev.Kind,
+		ev.ContentType, // nil OK
+		ev.ByteSize,
+		ev.SHA256,
+		ev.FinalURL,
+		ev.StoredPath,
+	).Scan(&id)
+	return id, err
 }

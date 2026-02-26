@@ -23,7 +23,7 @@ const BuildTag = "ak-go-worker-v4.5-manifest-links"
 func main() {
 	ctx := context.Background()
 
-	dsn := mustEnv("AK_DB_DSN") // e.g. "postgres://ak:ak@127.0.0.1:5433/ak?sslmode=disable"
+	dsn := mustEnv("AK_DB_DSN") // e.g. "postgres://ak_worker:...@127.0.0.1:5433/ak?sslmode=disable"
 	workerID := buildWorkerID()
 
 	poll := envDuration("AK_WORKER_POLL", 500*time.Millisecond)
@@ -50,7 +50,7 @@ func main() {
 		Timeout:      30 * time.Second,
 	}
 
-	// self-signed CA (dev/integration only): mainがpolicyに注入する。fetcherはenvを読まない。
+	// self-signed CA (dev/integration only): main injects into policy (fetcher does NOT read env).
 	if caPath := strings.TrimSpace(os.Getenv("ORACLE_CA_PATH")); caPath != "" {
 		pool, err := loadCertPoolAppendSystem(caPath)
 		if err != nil {
@@ -77,21 +77,26 @@ func main() {
 
 	store := worker.NewStore(db)
 
+	// ★ v13 repo (DLQ/idempotency/contracts) for worker
+	// Worker will call SECURITY DEFINER functions (EXECUTE ONLY), so SELECT権限は不要。
+	v13repo := postgres.NewV13Repository(db)
+
 	// ---- worker fetcher ----
 	fetcher := &worker.PISAGHTTPFetcher{
 		Policy:    policy,
 		UserAgent: "ak-go-worker/" + BuildTag,
-		// ClientはnilでOK（内部で pisag.NewClient(policy)）
+		// Client is nil OK (internal pisag.NewClient(policy))
 	}
 
 	cfg := worker.Config{
-		WorkerID:          workerID,
-		Poll:              poll,
-		EvidenceMaxBytes:  maxBytes,
-		EvidenceBaseDir:   baseDir,
+		WorkerID:         workerID,
+		Poll:             poll,
+		EvidenceMaxBytes: maxBytes,
+		EvidenceBaseDir:  baseDir,
+		IdleLogEvery:     10,
 	}
 
-	// claim style（型を固定）
+	// claim style (fixed enum)
 	switch claimStyle {
 	case "cte_skip_locked":
 		cfg.ClaimStyle = postgres.ClaimStyleCTE
@@ -104,7 +109,8 @@ func main() {
 	log.Printf("boot: build=%s worker_id=%s poll=%s claim_style=%s evidence_dir=%s max_bytes=%d",
 		BuildTag, workerID, poll, claimStyle, baseDir, maxBytes)
 
-	w := worker.NewWorker(store, fetcher, log.Default(), cfg)
+	// ★変更：NewWorker に v13repo を渡す（worker.go 側のシグネチャ変更が前提）
+	w := worker.NewWorker(store, fetcher, log.Default(), cfg, v13repo)
 
 	if err := w.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("worker stopped: %v", err)
@@ -158,24 +164,19 @@ func buildWorkerID() string {
 
 	raw := strings.TrimSpace(os.Getenv("AK_WORKER_ID"))
 	if raw == "" {
-		// envが無いなら hostname そのまま（host@host を作らない）
 		if host == "" {
 			return "worker"
 		}
 		return host
 	}
 
-	// envがある場合：
-	// - すでに "name@host" 形式ならそのまま
 	if strings.Contains(raw, "@") {
 		return raw
 	}
 
-	// - "w1" のような短いIDなら host を付ける（可読性）
 	if host == "" {
 		return raw
 	}
-	// rawがhostと同じなら二重化しない
 	if raw == host {
 		return host
 	}

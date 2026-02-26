@@ -9,24 +9,22 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"example.com/pisag_go/postgres"
 )
 
 type V20SloEvaluateInput struct {
 	ProjectID string
 	TraceID   string
 
-	SloID int64 // slo_definitions.id
-	// if empty, use slo_definitions.window_kind
-	WindowKind string // 7d|30d (optional)
+	SloID int64
+	WindowKind string // 7d|30d optional
 
-	// evidence asset for evaluation (numbers, query summary, etc.)
 	EvaluationEvidenceAssetID int64
-
-	// evidence asset for incident summary if breach
 	IncidentSummaryEvidenceAssetID int64
 
-	IncidentSeverity string // P1|P2|P3|P4 (default P2)
-	IncidentType     string // default "slo_breach"
+	IncidentSeverity string
+	IncidentType     string
 }
 
 type V20SloEvaluateOutput struct {
@@ -43,15 +41,16 @@ type V20SloEvaluateOutput struct {
 	Sli     float64
 
 	Target float64
-	Status string // ok|warn|breach
+	Status string
 
 	CreatedIncident bool
 	IncidentID      *int64
 }
 
 type V20SloEvaluateUseCase struct {
-	DB  *sql.DB
-	Now func() time.Time // if nil, time.Now
+	DB      *sql.DB
+	Now     func() time.Time
+	V13Repo *postgres.V13Repository // ★追加（nilならv13記録スキップ）
 }
 
 func (uc *V20SloEvaluateUseCase) Handle(ctx context.Context, in V20SloEvaluateInput) (V20SloEvaluateOutput, error) {
@@ -100,7 +99,7 @@ LIMIT 1;
 		windowKind = strings.TrimSpace(in.WindowKind)
 	}
 
-	// 2) bucketized window end (dedupe key stability)
+	// 2) bucketized window end
 	windowEnd := bucketEndUTC(now().UTC(), windowKind)
 	windowStart, err := windowStartFromKind(windowEnd, windowKind)
 	if err != nil {
@@ -109,7 +108,19 @@ LIMIT 1;
 
 	evalKey := evaluationKey(pid, in.SloID, windowStart, windowEnd)
 
-	// 3) aggregate runs (use created_at because idx_runs_project_created exists)
+	// ---- v13 idempotency (P1): start
+	var idemID int64
+	if uc.V13Repo != nil {
+		scope := "v20_slo_evaluate"
+		key := "ak:idem:v20_slo_evaluate:" + shortHash(evalKey)
+		start, ierr := uc.V13Repo.IdempotencyStart(ctx, pid, scope, key, evalKey)
+		if ierr != nil {
+			return V20SloEvaluateOutput{}, ierr
+		}
+		idemID = start.IdempotencyID
+	}
+
+	// 3) aggregate runs
 	var total, success int64
 	err = uc.DB.QueryRowContext(ctx, `
 SELECT
@@ -121,6 +132,7 @@ WHERE project_id = $1
   AND created_at <  $3;
 `, pid, windowStart, windowEnd).Scan(&total, &success)
 	if err != nil {
+		uc.idemFail(ctx, pid, idemID, err)
 		return V20SloEvaluateOutput{}, err
 	}
 
@@ -138,7 +150,7 @@ WHERE project_id = $1
 	}
 
 	var sli float64
-	status := "warn" // insufficient_data
+	status := "warn"
 	errorBudgetRemaining := 1.0
 
 	if total > 0 {
@@ -154,17 +166,17 @@ WHERE project_id = $1
 	out.Sli = sli
 	out.Status = status
 
-	// 4) upsert evaluation via EXECUTE ONLY function (0033)
-	// slo_evaluation_upsert_v20(project_id, slo_id, evaluation_key, ws, we, sli, budget_rem, status, evidence_id)
+	// 4) upsert evaluation (EXECUTE ONLY)
 	const up = `SELECT public.slo_evaluation_upsert_v20($1,$2,$3,$4,$5,$6,$7,$8,$9);`
 	if _, err := uc.DB.ExecContext(ctx, up,
 		pid, in.SloID, evalKey, windowStart, windowEnd,
 		sli, errorBudgetRemaining, status, in.EvaluationEvidenceAssetID,
 	); err != nil {
+		uc.idemFail(ctx, pid, idemID, err)
 		return V20SloEvaluateOutput{}, err
 	}
 
-	// 5) breach -> incident_create_v20 (dedupe stable by bucketed window; plus idempotency key evalKey)
+	// 5) breach -> incident_create_v20 (already idempotent)
 	if status == "breach" {
 		sev := strings.TrimSpace(in.IncidentSeverity)
 		if sev == "" {
@@ -190,37 +202,49 @@ FROM public.incident_create_v20(
   $8
 );
 `,
-			pid,
-			incKey,
-			sev,
-			itype,
-			nil, // root_trace_id
-			nil, // root_run_id
+			pid, incKey, sev, itype,
+			nil, nil,
 			in.IncidentSummaryEvidenceAssetID,
-			"eval:"+evalKey, // idempotency_key (stable)
+			"eval:"+evalKey,
 		).Scan(&incID, &foundExisting)
 		if err != nil {
+			uc.idemFail(ctx, pid, idemID, err)
 			return V20SloEvaluateOutput{}, err
 		}
 		out.CreatedIncident = !foundExisting
 		out.IncidentID = &incID
 	}
 
+	// ---- v13 idempotency finish
+	if uc.V13Repo != nil && idemID > 0 {
+		sum := fmt.Sprintf("ok status=%s total=%d success=%d", out.Status, out.Total, out.Success)
+		_ = uc.V13Repo.IdempotencyFinish(ctx, pid, idemID, "succeeded", &sum, &in.EvaluationEvidenceAssetID, time.Now().UTC())
+	}
+
 	return out, nil
 }
+
+func (uc *V20SloEvaluateUseCase) idemFail(ctx context.Context, projectID string, idemID int64, err error) {
+	if uc.V13Repo == nil || idemID <= 0 {
+		return
+	}
+	msg := err.Error()
+	if len(msg) > 240 {
+		msg = msg[:240]
+	}
+	_ = uc.V13Repo.IdempotencyFinish(ctx, projectID, idemID, "failed", &msg, nil, time.Now().UTC())
+}
+
+// ---- helpers (unchanged) ----
 
 func bucketEndUTC(t time.Time, kind string) time.Time {
 	k := strings.ToLower(strings.TrimSpace(kind))
 	switch k {
 	case "7d":
-		// hour bucket
 		return t.Truncate(time.Hour)
 	case "30d":
-		// day bucket (UTC midnight)
-		tt := t.Truncate(24 * time.Hour)
-		return tt
+		return t.Truncate(24 * time.Hour)
 	default:
-		// safe fallback: hour bucket
 		return t.Truncate(time.Hour)
 	}
 }
@@ -272,3 +296,4 @@ func clamp01(v float64) float64 {
 	}
 	return v
 }
+

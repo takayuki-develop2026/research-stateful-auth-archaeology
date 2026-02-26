@@ -42,6 +42,9 @@ func main() {
 
 	log.Printf("[v20_smoke] project_id=%s evidence_asset_id=%d approved_by=%s", projectID, evidenceID, approvedBy)
 
+	// ★ v13 repo injection
+	v13repo := postgres.NewV13Repository(db)
+
 	// ---------------------------------------------------------------------
 	// Create a "root" run
 	// ---------------------------------------------------------------------
@@ -118,12 +121,12 @@ func main() {
 
 	reqUC := usecase.RequestApprovalUseCase{ApprovalRepo: approvalRepo}
 	reqOut, err := reqUC.Handle(ctx, usecase.RequestApprovalInput{
-		ProjectID:        projectID,
-		CommitID:         commitID,
-		TraceID:          rootTraceID,           // tie to smoke trace
-		RequestedByType:  run.ActorTypeSystem,
-		RequestedByID:    ptr("v20_smoke"),
-		Reason:           ptr("v20 proposal approve smoke"),
+		ProjectID:       projectID,
+		CommitID:        commitID,
+		TraceID:         rootTraceID,
+		RequestedByType: run.ActorTypeSystem,
+		RequestedByID:   ptr("v20_smoke"),
+		Reason:          ptr("v20 proposal approve smoke"),
 	})
 	if err != nil {
 		log.Fatalf("[v20_smoke] request_approval failed: %v", err)
@@ -132,13 +135,13 @@ func main() {
 
 	decUC := usecase.DecideApprovalUseCase{ApprovalRepo: approvalRepo}
 	decOut, err := decUC.Handle(ctx, usecase.DecideApprovalInput{
-		ProjectID:      projectID,
-		RequestID:      reqOut.RequestID,
-		TraceID:        rootTraceID,
-		Decision:       run.DecisionApprove,
-		DecidedByType:  run.ActorTypeUser,
-		DecidedByID:    ptr(approvedBy),
-		Comment:        ptr("approve by smoke"),
+		ProjectID:     projectID,
+		RequestID:     reqOut.RequestID,
+		TraceID:       rootTraceID,
+		Decision:      run.DecisionApprove,
+		DecidedByType: run.ActorTypeUser,
+		DecidedByID:   ptr(approvedBy),
+		Comment:       ptr("approve by smoke"),
 	})
 	if err != nil {
 		log.Fatalf("[v20_smoke] decide_approval failed: %v", err)
@@ -146,18 +149,19 @@ func main() {
 	log.Printf("[v20_smoke] decide_approval: request_id=%s decision=%s status=%s", decOut.RequestID, decOut.Decision, decOut.Status)
 
 	// ---------------------------------------------------------------------
-	// 4) v20 approve finalized ONLY if ledger approved
+	// 4) v20 approve finalized ONLY if ledger approved (with v13 idempotency record)
 	// ---------------------------------------------------------------------
 	v20Approve := usecase.V20ProposalApproveUseCase{
 		DB:           db,
 		ApprovalRepo: approvalRepo,
+		V13Repo:      v13repo, // ★注入
 	}
 	_, err = v20Approve.Handle(ctx, usecase.V20ProposalApproveInput{
-		ProjectID:          projectID,
-		TraceID:            rootTraceID,
-		ProposalID:         proposalID,
-		ApprovalRequestID:  reqOut.RequestID,
-		ApprovedByUserID:   ptr(approvedBy),
+		ProjectID:         projectID,
+		TraceID:           rootTraceID,
+		ProposalID:        proposalID,
+		ApprovalRequestID: reqOut.RequestID,
+		ApprovedByUserID:  ptr(approvedBy),
 	})
 	if err != nil {
 		log.Fatalf("[v20_smoke] v20_proposal_approve failed: %v", err)
@@ -204,7 +208,7 @@ func main() {
 func ptr(s string) *string { return &s }
 
 // ---------------------------------------------------------------------
-// Helpers (same as your previous v20_smoke)
+// Helpers
 // ---------------------------------------------------------------------
 
 func mustEnv(k string) string {
@@ -214,6 +218,7 @@ func mustEnv(k string) string {
 	}
 	return v
 }
+
 func firstNonEmpty(v, fallback string) string {
 	v = strings.TrimSpace(v)
 	if v != "" {
@@ -221,6 +226,7 @@ func firstNonEmpty(v, fallback string) string {
 	}
 	return fallback
 }
+
 func parseEnvInt64(k string) int64 {
 	v := strings.TrimSpace(os.Getenv(k))
 	if v == "" {
@@ -232,12 +238,14 @@ func parseEnvInt64(k string) int64 {
 	}
 	return n
 }
+
 func firstNonZeroInt64(v, fallback int64) int64 {
 	if v != 0 {
 		return v
 	}
 	return fallback
 }
+
 func mustQueryString(ctx context.Context, db *sql.DB, q string) string {
 	var s string
 	if err := db.QueryRowContext(ctx, q).Scan(&s); err != nil {
@@ -249,6 +257,7 @@ func mustQueryString(ctx context.Context, db *sql.DB, q string) string {
 	}
 	return s
 }
+
 func mustQueryInt64(ctx context.Context, db *sql.DB, q string) int64 {
 	var n int64
 	if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
@@ -259,6 +268,7 @@ func mustQueryInt64(ctx context.Context, db *sql.DB, q string) int64 {
 	}
 	return n
 }
+
 func shortRandHex(nBytes int) string {
 	if nBytes <= 0 {
 		nBytes = 8
@@ -267,6 +277,7 @@ func shortRandHex(nBytes int) string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
 func sha256Hex(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
@@ -288,7 +299,7 @@ SELECT run_id_text, trace_id_text FROM ins;
 }
 
 // ---------------------------------------------------------------------
-// v20 function callers (same signatures as your working v20_smoke bigint version)
+// v20 function callers
 // ---------------------------------------------------------------------
 
 type incidentCreateArgs struct {
@@ -364,8 +375,6 @@ func actionCreateV20(ctx context.Context, db *sql.DB, projectID string, proposal
 // ---------------------------------------------------------------------
 
 func pickAnyPublishCommit(ctx context.Context, db *sql.DB, projectID string) (commitID string, traceID string, err error) {
-	// minimal select: assumes v46 table exists:
-	// public.catalog_publish_commits(commit_id uuid, project_id text, trace_id uuid, ...)
 	const q = `
 SELECT commit_id::text, trace_id::text
 FROM public.catalog_publish_commits
@@ -384,7 +393,7 @@ LIMIT 1;
 }
 
 // ---------------------------------------------------------------------
-// Optional audit append (same as your working version)
+// Optional audit append
 // ---------------------------------------------------------------------
 
 type auditAppendArgs struct {

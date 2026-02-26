@@ -41,6 +41,7 @@ func (r *RunInputClaimRepository) ClaimNext(
 	const q = `
 SELECT
   id,
+  project_id,
   run_id,
   trace_id,
   source_id,
@@ -57,6 +58,7 @@ FROM public.run_inputs_claim_next($1, $2);
 
 	err := r.db.QueryRowContext(ctx, q, workerID, string(style)).Scan(
 		&out.ID,
+		&out.ProjectID,
 		&out.RunID,
 		&out.TraceID,
 		&out.SourceID,
