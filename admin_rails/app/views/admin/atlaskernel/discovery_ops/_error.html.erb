@@ -1,0 +1,8 @@
+<% if @error %>
+  <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
+    <strong>API Error</strong><br>
+    <div>message: <%= @error[:message] %></div>
+    <div>status: <%= @error[:status] %></div>
+    <pre style="white-space:pre-wrap;"><%= @error[:body] %></pre>
+  </div>
+<% end %>

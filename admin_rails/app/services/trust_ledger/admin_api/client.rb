@@ -42,6 +42,14 @@ module TrustLedger
         def list_missing_sales(params = {}) = instance.list_missing_sales(params)
         def replay_sale(params = {}) = instance.replay_sale(params)
 
+
+        # Discovery Ops (AtlasKernel)
+        def list_discovery_ops(params = {}) = instance.list_discovery_ops(params)
+        def get_discovery_candidate(id) = instance.get_discovery_candidate(id)
+        def get_discovery_candidate_events(id, params = {}) = instance.get_discovery_candidate_events(id, params)
+        def post_discovery_candidate_action(id, action, payload = {}) = instance.post_discovery_candidate_action(id, action, payload)
+
+
         # Shops
         def list_shops(params = {}) = instance.list_shops(params)
         def get_shop(shop_id)
@@ -248,6 +256,29 @@ module TrustLedger
         get_json_atlas(with_query("/api/admin/atlaskernel/run-artifacts", params))
       end
 
+      # -----------------------------
+# Discovery Ops (AtlasKernel)
+# -----------------------------
+def discovery_ops_path
+  ENV.fetch("ATLASKERNEL_ADMIN_DISCOVERY_OPS_PATH", "/api/admin/atlaskernel/discovery-ops")
+end
+
+def list_discovery_ops(params = {})
+  get_json_atlas(with_query("#{discovery_ops_path}/candidates", params))
+end
+
+def get_discovery_candidate(id)
+  get_json_atlas("#{discovery_ops_path}/candidates/#{id}")
+end
+
+def get_discovery_candidate_events(id, params = {})
+  get_json_atlas(with_query("#{discovery_ops_path}/candidates/#{id}/events", params))
+end
+
+def post_discovery_candidate_action(id, action, payload = {})
+  post_json_atlas("#{discovery_ops_path}/candidates/#{id}/#{action}", payload)
+end
+
       private
 
       def normalize_base_url(v)
@@ -278,40 +309,43 @@ module TrustLedger
       end
 
       def request_json(klass, path, payload: nil, base_url:)
-        uri  = URI.parse(base_url + path)
-        http = Net::HTTP.new(uri.host, uri.port)
-        http.open_timeout = 5
-        http.read_timeout = 10
-        http.use_ssl = (uri.scheme == "https")
+  uri  = URI.parse(base_url + path)
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.open_timeout = 5
+  http.read_timeout = 10
+  http.use_ssl = (uri.scheme == "https")
 
-        http.set_debug_output($stderr) if ENV["TRUSTLEDGER_ADMIN_API_DEBUG"] == "1"
+  http.set_debug_output($stderr) if ENV["TRUSTLEDGER_ADMIN_API_DEBUG"] == "1"
 
-        req = klass.new(uri.request_uri)
-        req["Accept"] = "application/json"
-        req["X-Admin-Key"] = @admin_key unless @admin_key.empty?
+  req = klass.new(uri.request_uri)
+  req["Accept"] = "application/json"
+  req["X-Admin-Key"] = @admin_key unless @admin_key.empty?
 
-        if payload
-          req["Content-Type"] = "application/json"
-          req.body = JSON.dump(payload)
-        end
+  if payload
+    req["Content-Type"] = "application/json"
+    req.body = JSON.dump(payload)
+  end
 
-        res  = http.request(req)
-        body = res.body.to_s
+  res = nil
+  body = ""
 
-        if res.code.to_i >= 400
-          raise Error.new("Admin API error", status: res.code.to_i, body: body)
-        end
+  res  = http.request(req)
+  body = res.body.to_s
 
-        return {} if body.strip.empty?
+  if res.code.to_i >= 400
+    raise Error.new("Admin API error", status: res.code.to_i, body: body)
+  end
 
-        JSON.parse(body)
-      rescue Error
-        raise
-      rescue JSON::ParserError
-        raise Error.new("Invalid JSON response", status: res&.code&.to_i, body: body)
-      rescue => e
-        raise Error.new("Request failed: #{e.class}: #{e.message}")
-      end
+  return {} if body.strip.empty?
+  JSON.parse(body)
+
+rescue Error
+  raise
+rescue JSON::ParserError
+  raise Error.new("Invalid JSON response", status: res&.code&.to_i, body: body)
+rescue => e
+  raise Error.new("Request failed: #{e.class}: #{e.message}")
+end
     end
   end
 end

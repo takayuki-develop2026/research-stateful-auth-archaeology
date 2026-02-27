@@ -3,9 +3,13 @@
 <% occore_web = ENV["OCCORE_WEB_BASE_URL"] || "http://localhost" %>
 <%= link_to "ログインへ戻る", "#{occore_web}/login", class: "badge badge--link" %>
 
-<%# 今の有効範囲：TrustLedger for OCC だけ true %>
+<%# AtlasKernel 側の project_id を URL に引き回す（未指定なら環境変数から） %>
+<% pid = params[:project_id].presence || ENV["ATLASKERNEL_DEFAULT_PROJECT_ID"] %>
+<% pid_q = pid ? "?project_id=#{pid}" : "" %>
+
+<%# 有効範囲：TrustLedger for OCC + AtlasKernel を有効化 %>
 <% enabled = {
-  atlaskernel: false,
+  atlaskernel: true,
   atlaskernel_occ: false,
   trustledger: false,
   trustledger_occ: true
@@ -25,12 +29,16 @@
       <span class="badge badge--muted">role: developer</span>
       <% base = ENV["LARAVEL_ADMIN_API_BASE_URL"] || "http://localhost" %>
       <span class="badge badge--muted">api: <%= base %></span>
+      <span class="badge badge--muted">project_id: <%= pid || "(required)" %></span>
     </div>
   </header>
 
   <section class="dash__grid">
     <!-- =============== AtlasKernel =============== -->
-    <div class="card <%= enabled[:atlaskernel] ? "" : "card--disabled" %>" <%= tag.attributes(dash_card_link(enabled: enabled[:atlaskernel], href: "/admin/atlaskernel")) %>>
+    <div
+      class="card <%= enabled[:atlaskernel] ? "" : "card--disabled" %>"
+      <%= tag.attributes(dash_card_link(enabled: enabled[:atlaskernel], href: "/admin/dashboard/atlaskernel#{pid_q}")) %>
+    >
       <div class="card__top">
         <div>
           <h2 class="card__title">AtlasKernel</h2>
@@ -40,9 +48,9 @@
       </div>
 
       <div class="card__actions">
-        <%= dash_action("AtlasKernel へ", "/admin/atlaskernel", enabled: enabled[:atlaskernel], style: :primary, note: "準備中（Routes/Controller未実装）") %>
-        <%= dash_action("Requests / Review", "/admin/atlaskernel/requests", enabled: enabled[:atlaskernel], style: :ghost, note: "準備中") %>
-        <%= dash_action("Runs / Events", "/admin/atlaskernel/runs", enabled: enabled[:atlaskernel], style: :ghost, note: "準備中") %>
+        <%= dash_action("AtlasKernel へ", "/admin/dashboard/atlaskernel#{pid_q}", enabled: enabled[:atlaskernel], style: :primary) %>
+        <%= dash_action("Run Artifacts", "/admin/dashboard/atlaskernel/run-artifacts#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
+        <%= dash_action("Discovery Ops (Stale)", "/admin/dashboard/atlaskernel/discovery-ops/stale#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
       </div>
 
       <div class="card__meta">
@@ -58,7 +66,7 @@
         </div>
         <div class="kv">
           <span class="kv__k">Primary</span>
-          <span class="kv__v">Review → Decide → Apply</span>
+          <span class="kv__v">Discovery Ops → Review → Decide</span>
         </div>
       </div>
 
@@ -67,7 +75,11 @@
       <% end %>
     </div>
 
-    <div class="card card--right <%= enabled[:atlaskernel_occ] ? "" : "card--disabled" %>" <%= tag.attributes(dash_card_link(enabled: enabled[:atlaskernel_occ], href: "/admin/occore/atlaskernel")) %>>
+    <!-- =============== AtlasKernel for OCC (まだ無効) =============== -->
+    <div
+      class="card card--right <%= enabled[:atlaskernel_occ] ? "" : "card--disabled" %>"
+      <%= tag.attributes(dash_card_link(enabled: enabled[:atlaskernel_occ], href: "/admin/occore/atlaskernel")) %>
+    >
       <div class="card__top">
         <div>
           <h2 class="card__title">AtlasKernel　for　OmniCommerce Core</h2>
@@ -94,28 +106,10 @@
       </div>
 
       <% unless enabled[:atlaskernel_occ] %>
-        <div
-  class="card__stamp"
-  style="
-    position:absolute;
-    inset: 12px 12px auto 12px; /* top/left/right を強制 */
-    background:#222;
-    color:#fff;
-    font-weight:900;
-    font-size:14px;
-    line-height:1.3;
-    padding:10px 12px;
-    border-radius:14px;
-    box-shadow:0 10px 30px rgba(0,0,0,.25);
-    text-align:center;
-    z-index:50;
-    letter-spacing:.02em;
-  "
->
-  ✅ ショップ管理（owner管理）の方にあるのでとりあえずそれで機能確認
-</div>
+        <div class="card__stamp">Coming soon</div>
       <% end %>
     </div>
+
     <!-- =============== TrustLedger =============== -->
     <div class="card <%= enabled[:trustledger] ? "" : "card--disabled" %>" <%= tag.attributes(dash_card_link(enabled: enabled[:trustledger], href: "/admin/trustledger")) %>>
       <div class="card__top">

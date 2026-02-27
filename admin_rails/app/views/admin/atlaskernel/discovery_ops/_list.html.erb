@@ -1,0 +1,105 @@
+<%= render "admin/atlaskernel/nav" %>
+<%= render "error" %>
+
+<% pid = @project_id %>
+
+<form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:12px 0;">
+  <input type="hidden" name="project_id" value="<%= pid %>">
+
+  <div>
+    <label>type</label><br>
+    <input name="type" value="<%= params[:type] %>" placeholder="catalog_source" />
+  </div>
+
+  <div>
+    <label>status</label><br>
+    <input name="status" value="<%= params[:status] %>" placeholder="review_required" />
+  </div>
+
+  <div>
+    <label>q</label><br>
+    <input name="q" value="<%= params[:q] %>" placeholder="candidate_id / last_code" />
+  </div>
+
+  <div>
+    <label>only_due</label><br>
+    <input name="only_due" value="<%= params[:only_due] %>" placeholder="1" style="width:70px" />
+  </div>
+
+  <div>
+    <label>limit</label><br>
+    <input name="limit" value="<%= params[:limit] || 100 %>" style="width:80px" />
+  </div>
+
+  <div>
+    <button type="submit">Search</button>
+  </div>
+</form>
+
+<% items = (@items.is_a?(Hash) ? (@items["items"] || @items["candidates"] || @items["data"] || []) : Array(@items)) %>
+
+<table style="width:100%; border-collapse:collapse;">
+  <thead>
+    <tr>
+      <th style="text-align:left; border-bottom:1px solid #ddd;">ID</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd;">Type</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd;">Status</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd;">Risk</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd;">Seen</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd;">Last Seen</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd;">Ops</th>
+    </tr>
+  </thead>
+
+  <tbody>
+    <% items.each do |it| %>
+      <% id = it["id"] || it[:id] %>
+      <tr>
+        <td style="border-bottom:1px solid #f0f0f0; padding:6px 4px;">
+          <a href="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= id %>?project_id=<%= pid %>">
+            <%= id %>
+          </a>
+        </td>
+        <td style="border-bottom:1px solid #f0f0f0; padding:6px 4px;"><%= it["candidate_type"] || it["type"] || it[:candidate_type] %></td>
+        <td style="border-bottom:1px solid #f0f0f0; padding:6px 4px;"><%= it["status"] || it[:status] %></td>
+        <td style="border-bottom:1px solid #f0f0f0; padding:6px 4px;"><%= it["risk_level"] || it["risk"] || it[:risk_level] %></td>
+        <td style="border-bottom:1px solid #f0f0f0; padding:6px 4px;"><%= it["seen_count"] || it[:seen_count] %></td>
+        <td style="border-bottom:1px solid #f0f0f0; padding:6px 4px;"><%= it["last_seen_at"] || it[:last_seen_at] %></td>
+
+        <td style="border-bottom:1px solid #f0f0f0; padding:6px 4px; white-space:nowrap;">
+          <!-- Requeue -->
+          <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= id %>/requeue-review?project_id=<%= pid %>" style="display:inline;">
+            <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+            <input name="reason" placeholder="reason" style="width:90px" />
+            <button type="submit">Requeue</button>
+          </form>
+
+          <!-- Retry -->
+          <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= id %>/retry?project_id=<%= pid %>" style="display:inline;">
+            <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+            <button type="submit">Retry</button>
+          </form>
+
+          <!-- Apply Retry -->
+          <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= id %>/apply-retry?project_id=<%= pid %>" style="display:inline;">
+            <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+            <button type="submit">ApplyRetry</button>
+          </form>
+
+          <!-- Archive -->
+          <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= id %>/archive?project_id=<%= pid %>" style="display:inline;">
+            <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+            <input name="reason" placeholder="reason" style="width:90px" />
+            <button type="submit">Archive</button>
+          </form>
+        </td>
+      </tr>
+    <% end %>
+
+    <% if items.empty? %>
+      <tr>
+        <td colspan="7" style="padding:10px; color:#777;">No items.</td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

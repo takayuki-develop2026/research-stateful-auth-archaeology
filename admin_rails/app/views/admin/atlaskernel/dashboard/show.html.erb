@@ -1,3 +1,110 @@
-<h1>AtlasKernel Dashboard</h1>
+<%= render "admin/atlaskernel/nav" %>
 
-<p>Coming soon.</p>
+<h1 style="margin:8px 0 4px;">AtlasKernel Dashboard</h1>
+<p style="color:#555; margin:0 0 12px;">
+  project_id を指定して Discovery Ops / Run Artifacts を運用します。
+</p>
+
+<form method="get" action="/admin/dashboard/atlaskernel" style="margin:12px 0; display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+  <div>
+    <label style="font-size:12px; color:#555;">project_id</label><br>
+    <input name="project_id" value="<%= @project_id %>" placeholder="akproj_..." style="width:360px; padding:8px 10px; border:1px solid #ddd; border-radius:10px;" />
+  </div>
+  <button type="submit" style="padding:8px 12px; border:1px solid #ddd; border-radius:10px; background:#222; color:#fff; cursor:pointer;">
+    Set
+  </button>
+</form>
+
+<% if @project_id.blank? %>
+  <div style="padding:10px; background:#fff5f5; border:1px solid #f99; margin-top:12px; border-radius:10px;">
+    project_id が未指定です。上のフォームで設定してください。 (OCC = 1です。)
+  </div>
+<% end %>
+
+<%# ----- Card UI (2 columns) ----- %>
+<div style="display:grid; gap:12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top:14px;">
+  <% pid = @project_id.presence %>
+  <% pid_q = pid ? "?project_id=#{pid}" : "" %>
+
+  <%# ----- AtlaskernelSystem ----- %>
+  <a href="/admin/dashboard/atlaskernel/run-artifacts<%= pid_q %>"
+     style="display:block; padding:14px; border:1px solid #ddd; border-radius:14px; background:#fff; text-decoration:none; color:#111;">
+    <div style="font-weight:800; font-size:16px;">AtlaskernelSystem 解析レビュー（v3）</div>
+    <div style="margin-top:6px; font-size:12px; color:#666;">
+    ＊
+    </div>
+  </a>
+
+  <%# ----- TrustLedger PaymentSystem ----- %>
+  <a href="/admin/dashboard/atlaskernel/discovery-ops/stale<%= pid_q %>"
+     style="display:block; padding:14px; border:1px solid #ddd; border-radius:14px; background:#fff; text-decoration:none; color:#111;">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-weight:800; font-size:16px;">TrustLedger PaymentSystem 管理レビュー（v3）</div>
+      <span style="font-size:11px; padding:3px 8px; border-radius:999px; background:#ffcc00; color:#111; font-weight:800;">
+
+      </span>
+    </div>
+    <div style="margin-top:6px; font-size:12px; color:#666;">
+    ＊＊
+    </div>
+  </a>
+
+  <%# ----- 商品管理 ----- %>
+  <a href="/admin/dashboard/atlaskernel/discovery-ops/retry<%= pid_q %>"
+     style="display:block; padding:14px; border:1px solid #ddd; border-radius:14px; background:#f7fbff; text-decoration:none; color:#111;">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-weight:800; font-size:16px;">商品管理</div>
+      <span style="font-size:11px; padding:3px 8px; border-radius:999px; background:#4b9cff; color:#fff; font-weight:800;">
+
+      </span>
+    </div>
+    <div style="margin-top:6px; font-size:12px; color:#666;">
+    ＊＊＊
+    </div>
+  </a>
+
+  <%# ----- 注文・配送管理 ----- %>
+  <a href="/admin/dashboard/atlaskernel/discovery-ops/apply-retry<%= pid_q %>"
+     style="display:block; padding:14px; border:1px solid #ddd; border-radius:14px; background:#f0fbf6; text-decoration:none; color:#111;">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-weight:800; font-size:16px;">注文・配送管理</div>
+      <span style="font-size:11px; padding:3px 8px; border-radius:999px; background:#14b87a; color:#fff; font-weight:800;">
+
+      </span>
+    </div>
+    <div style="margin-top:6px; font-size:12px; color:#666;">
+    ＊＊＊＊
+    </div>
+  </a>
+
+  <%# ----- 顧客管理 ----- %>
+  <a href="/admin/dashboard/atlaskernel/discovery-ops/archived<%= pid_q %>"
+     style="display:block; padding:14px; border:1px solid #ddd; border-radius:14px; background:#fff7f7; text-decoration:none; color:#111;">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-weight:800; font-size:16px;">顧客管理</div>
+      <span style="font-size:11px; padding:3px 8px; border-radius:999px; background:#ff5b5b; color:#fff; font-weight:800;">
+
+      </span>
+    </div>
+    <div style="margin-top:6px; font-size:12px; color:#666;">
+    ＊＊＊＊＊
+    </div>
+  </a>
+
+  <%# ----- 店舗管理 ----- %>
+  <div style="padding:14px; border:1px dashed #ddd; border-radius:14px; background:#fff; color:#777;">
+    <div style="font-weight:800; font-size:16px;">店舗管理</div>
+    <div style="margin-top:6px; font-size:12px;">
+    ＊＊＊＊＊＊
+    </div>
+  </div>
+</div>
+
+<style>
+  /* small responsive tweak: 1 column on narrow screens */
+  @media (max-width: 760px) {
+    div[style*="grid-template-columns: repeat(2"] {
+      grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+    }
+  }
+</style>

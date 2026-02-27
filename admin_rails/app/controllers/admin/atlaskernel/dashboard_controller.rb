@@ -1,9 +1,10 @@
 module Admin
   module Atlaskernel
     class DashboardController < ApplicationController
-      helper DashboardHelper
+      layout "admin"
 
       def show
+        @project_id = params[:project_id].presence || ENV["ATLASKERNEL_DEFAULT_PROJECT_ID"]
       end
     end
   end

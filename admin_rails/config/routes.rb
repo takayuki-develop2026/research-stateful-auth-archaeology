@@ -45,6 +45,21 @@ Rails.application.routes.draw do
 
       # ✅ canonical
       get "/run-artifacts", to: "run_artifacts#index"
+
+      # ✅ Discovery Ops（★必ずこの scope の中）
+      get  "/discovery-ops",               to: "discovery_ops#index"
+      get  "/discovery-ops/stale",          to: "discovery_ops#stale"
+      get  "/discovery-ops/retry",          to: "discovery_ops#retry"
+      get  "/discovery-ops/apply-retry",    to: "discovery_ops#apply_retry"
+      get  "/discovery-ops/archived",       to: "discovery_ops#archived"
+
+      get  "/discovery-ops/candidates/:id", to: "discovery_ops#show", as: :discovery_ops_candidate
+
+      post "/discovery-ops/candidates/:id/requeue-review", to: "discovery_ops#requeue_review"
+      post "/discovery-ops/candidates/:id/retry",          to: "discovery_ops#retry_now"
+      post "/discovery-ops/candidates/:id/apply-retry",    to: "discovery_ops#apply_retry_now"
+      post "/discovery-ops/candidates/:id/archive",        to: "discovery_ops#archive"
+      post "/discovery-ops/candidates/:id/unarchive",      to: "discovery_ops#unarchive"
     end
 
     # -----------------------------

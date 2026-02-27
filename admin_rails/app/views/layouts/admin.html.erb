@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Admin</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+
+    <%# Rails 8 default assets (importmap/propshaft) %>
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+  </head>
+
+  <body style="margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#f7f7f7;">
+    <div style="max-width:1200px; margin:0 auto; padding:16px;">
+      <% if flash[:notice].present? %>
+        <div style="padding:10px 12px; border:1px solid #bfe3bf; background:#f1fff1; margin:12px 0;">
+          <strong>OK</strong> <%= flash[:notice] %>
+        </div>
+      <% end %>
+
+      <% if flash[:alert].present? %>
+        <div style="padding:10px 12px; border:1px solid #f5b5b5; background:#fff1f1; margin:12px 0;">
+          <strong>Alert</strong> <%= flash[:alert] %>
+        </div>
+      <% end %>
+
+      <%= yield %>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,43 @@
+<%= render "admin/atlaskernel/nav" %>
+
+<h1>Discovery Candidate: <%= @id %></h1>
+<%= render "error" %>
+
+<% if @candidate %>
+  <h2>Candidate</h2>
+  <pre style="white-space:pre-wrap;"><%= JSON.pretty_generate(@candidate) %></pre>
+
+  <h2>Events</h2>
+  <pre style="white-space:pre-wrap;"><%= JSON.pretty_generate(@events) %></pre>
+
+  <h2>Actions</h2>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin:12px 0;">
+    <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= @id %>/requeue-review?project_id=<%= @project_id %>">
+      <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+      <input name="reason" placeholder="reason" />
+      <button type="submit">Requeue Review</button>
+    </form>
+
+    <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= @id %>/retry?project_id=<%= @project_id %>">
+      <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+      <button type="submit">Retry</button>
+    </form>
+
+    <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= @id %>/apply-retry?project_id=<%= @project_id %>">
+      <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+      <button type="submit">Apply Retry</button>
+    </form>
+
+    <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= @id %>/archive?project_id=<%= @project_id %>">
+      <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+      <input name="reason" placeholder="reason" />
+      <button type="submit">Archive</button>
+    </form>
+
+    <form method="post" action="/admin/dashboard/atlaskernel/discovery-ops/candidates/<%= @id %>/unarchive?project_id=<%= @project_id %>">
+      <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+      <input name="reason" placeholder="reason" />
+      <button type="submit">Unarchive</button>
+    </form>
+  </div>
+<% end %>
