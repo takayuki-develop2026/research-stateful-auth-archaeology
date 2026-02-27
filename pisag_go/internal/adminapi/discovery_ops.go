@@ -104,8 +104,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			var body struct {
 				ProjectID string `json:"project_id"`
 				TraceID   string `json:"trace_id"`
-				RunID     string `json:"run_id"`  // optional; if empty we fall back to candidate.run_id
-				Reason    string `json:"reason"`  // optional
+				RunID     string `json:"run_id"` // optional; if empty we fall back to candidate.run_id
+				Reason    string `json:"reason"` // optional
 			}
 			if err := httpx.DecodeJSON(r, &body); err != nil {
 				httpx.WriteError(w, 400, "bad_request", err.Error(), traceID)

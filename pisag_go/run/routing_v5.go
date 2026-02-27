@@ -87,7 +87,7 @@ type RoutingCommitResult struct {
 
 	DeniedReason *string `json:"denied_reason"`
 
-	WhyEvidenceRef   string `json:"why_evidence_ref"`
+	WhyEvidenceRef    string `json:"why_evidence_ref"`
 	UtlCommitEventKey string `json:"utl_commit_event_key"`
 
 	InputFingerprint string `json:"input_fingerprint"`
@@ -97,9 +97,9 @@ type RoutingCommitResult struct {
 }
 
 type RoutingMetricSnapshot struct {
-	MetricDate    time.Time
-	SuccessRate   float64
-	P95LatencyMs  int
-	AvgCostMinor  int64
-	SampleN       int
+	MetricDate   time.Time
+	SuccessRate  float64
+	P95LatencyMs int
+	AvgCostMinor int64
+	SampleN      int
 }

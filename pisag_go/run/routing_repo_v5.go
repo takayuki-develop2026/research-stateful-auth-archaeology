@@ -71,8 +71,8 @@ type RouteDecisionInsertInput struct {
 }
 
 type RouteDecisionInsertResult struct {
-	DecisionID     string // uuid
-	FoundExisting  bool
+	DecisionID    string // uuid
+	FoundExisting bool
 }
 
 type RouteDecisionsRepoV5 interface {

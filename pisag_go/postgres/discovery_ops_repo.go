@@ -37,9 +37,9 @@ type CandidateDetail struct {
 	NormalizedEvidenceRef *string `json:"normalized_evidence_ref"`
 	DiffEvidenceRef       *string `json:"diff_evidence_ref"`
 
-	StaleAt      *time.Time `json:"stale_at"`
-	ArchivedAt   *time.Time `json:"archived_at"`
-	ArchiveReason *string   `json:"archive_reason"`
+	StaleAt       *time.Time `json:"stale_at"`
+	ArchivedAt    *time.Time `json:"archived_at"`
+	ArchiveReason *string    `json:"archive_reason"`
 
 	RetryAttempts int64      `json:"retry_attempts"`
 	RetryNextAt   *time.Time `json:"retry_next_at"`
@@ -51,14 +51,14 @@ type CandidateDetail struct {
 }
 
 type LifecycleEvent struct {
-	EventType string     `json:"event_type"`
-	ActorType string     `json:"actor_type"`
-	ActorID   *string    `json:"actor_id"`
-	Message   *string    `json:"message"`
-	TraceID   string     `json:"trace_id"`
-	RunID     string     `json:"run_id"`
-	CreatedAt time.Time  `json:"created_at"`
-	DetailRef *string    `json:"detail_evidence_ref"`
+	EventType string    `json:"event_type"`
+	ActorType string    `json:"actor_type"`
+	ActorID   *string   `json:"actor_id"`
+	Message   *string   `json:"message"`
+	TraceID   string    `json:"trace_id"`
+	RunID     string    `json:"run_id"`
+	CreatedAt time.Time `json:"created_at"`
+	DetailRef *string   `json:"detail_evidence_ref"`
 }
 
 type CandidateEvent struct {
@@ -197,16 +197,46 @@ LIMIT 1;
 		return CandidateDetail{}, err
 	}
 
-	if payload.Valid { v := payload.String; d.PayloadEvidenceRef = &v }
-	if norm.Valid { v := norm.String; d.NormalizedEvidenceRef = &v }
-	if diff.Valid { v := diff.String; d.DiffEvidenceRef = &v }
-	if stale.Valid { v := stale.Time; d.StaleAt = &v }
-	if arch.Valid { v := arch.Time; d.ArchivedAt = &v }
-	if archReason.Valid { v := archReason.String; d.ArchiveReason = &v }
-	if retryNext.Valid { v := retryNext.Time; d.RetryNextAt = &v }
-	if retryCode.Valid { v := retryCode.String; d.RetryLastCode = &v }
-	if applyNext.Valid { v := applyNext.Time; d.ApplyNextAt = &v }
-	if applyCode.Valid { v := applyCode.String; d.ApplyLastCode = &v }
+	if payload.Valid {
+		v := payload.String
+		d.PayloadEvidenceRef = &v
+	}
+	if norm.Valid {
+		v := norm.String
+		d.NormalizedEvidenceRef = &v
+	}
+	if diff.Valid {
+		v := diff.String
+		d.DiffEvidenceRef = &v
+	}
+	if stale.Valid {
+		v := stale.Time
+		d.StaleAt = &v
+	}
+	if arch.Valid {
+		v := arch.Time
+		d.ArchivedAt = &v
+	}
+	if archReason.Valid {
+		v := archReason.String
+		d.ArchiveReason = &v
+	}
+	if retryNext.Valid {
+		v := retryNext.Time
+		d.RetryNextAt = &v
+	}
+	if retryCode.Valid {
+		v := retryCode.String
+		d.RetryLastCode = &v
+	}
+	if applyNext.Valid {
+		v := applyNext.Time
+		d.ApplyNextAt = &v
+	}
+	if applyCode.Valid {
+		v := applyCode.String
+		d.ApplyLastCode = &v
+	}
 
 	return d, nil
 }
@@ -240,9 +270,18 @@ LIMIT $2;
 		if err := lrows.Scan(&e.EventType, &e.ActorType, &actor, &msg, &ref, &e.TraceID, &e.RunID, &e.CreatedAt); err != nil {
 			return nil, err
 		}
-		if actor.Valid { v := actor.String; e.ActorID = &v }
-		if msg.Valid { v := msg.String; e.Message = &v }
-		if ref.Valid { v := ref.String; e.DetailRef = &v }
+		if actor.Valid {
+			v := actor.String
+			e.ActorID = &v
+		}
+		if msg.Valid {
+			v := msg.String
+			e.Message = &v
+		}
+		if ref.Valid {
+			v := ref.String
+			e.DetailRef = &v
+		}
 		life = append(life, e)
 	}
 
@@ -268,8 +307,14 @@ LIMIT $2;
 		if err := crows.Scan(&e.EventType, &e.ActorType, &actor, &note, &e.TraceID, &e.RunID, &e.CreatedAt); err != nil {
 			return nil, err
 		}
-		if actor.Valid { v := actor.String; e.ActorID = &v }
-		if note.Valid { v := note.String; e.NoteRef = &v }
+		if actor.Valid {
+			v := actor.String
+			e.ActorID = &v
+		}
+		if note.Valid {
+			v := note.String
+			e.NoteRef = &v
+		}
 		evs = append(evs, e)
 	}
 

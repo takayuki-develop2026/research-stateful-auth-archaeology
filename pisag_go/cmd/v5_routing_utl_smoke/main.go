@@ -28,9 +28,8 @@ func main() {
 	traceID := mustUUIDText(ctx, db)
 	runID := mustCreateRun(ctx, db, projectID, traceID, "v5")
 
-	log.Printf("[v5_smoke] project_id=%s trace_id=%s run_id=%s", projectID, traceID, runID)
+	log.Printf("[v5_utl_smoke] project_id=%s trace_id=%s run_id=%s", projectID, traceID, runID)
 
-	// Ensure at least 1 provider + 1 route exists for this project/region/currency/method.
 	region := "JP"
 	currency := "JPY"
 	paymentMethod := "card"
@@ -40,101 +39,84 @@ func main() {
 	routeID, err := ensureProviderRoute(ctx, db, projectID, providerID, region, currency, paymentMethod)
 	must(err)
 
-	log.Printf("[v5_smoke] provider_id=%s route_id=%s", providerID, routeID)
+	log.Printf("[v5_utl_smoke] provider_id=%s route_id=%s", providerID, routeID)
 
-	// Instantiate repos (v5)
+	// repos
 	providersRepo := postgres.NewProvidersRepoV5(db)
 	routesRepo := postgres.NewProviderRoutesRepoV5(db)
 	metricsRepo := postgres.NewRoutingMetricsRepoV5(db)
 	decisionsRepo := postgres.NewRouteDecisionsRepoV5(db)
-
-	// Evidence repo (v18)
-	// NOTE: This ctor name must match your existing file postgres/v18_evidence_repo.go
-	// If your ctor name differs, rename here accordingly.
 	evidenceRepo := postgres.NewEvidenceV18Repository(db)
 
-	// Usecases
+	utlRepo := postgres.NewUtlRepoV6(db)
+
 	previewUC := usecase.NewRoutingPreviewUsecaseV5(providersRepo, routesRepo, metricsRepo, evidenceRepo)
 	commitUC := usecase.NewRoutingCommitUsecaseV5(previewUC, decisionsRepo)
+	commitToUtlUC := usecase.NewRoutingCommitToUtlV6Usecase(commitUC, utlRepo)
 
-	// -----------------------------
-	// Preview
-	// -----------------------------
+	// preview first
 	prevIn := run.RoutingPreviewInput{
 		RoutingInput: run.RoutingInput{
-			ProjectID: projectID,
-
+			ProjectID:         projectID,
 			SubjectType:       "payment_intent",
-			SubjectInternalID: "sub_internal_demo_0001",
-
-			Region:        region,
-			Currency:      currency,
-			PaymentMethod: paymentMethod,
-			AmountMinor:   1000,
-
-			ConstraintsJSON: []byte(`{}`),
-
-			PolicyVersion:   "p5-default",
-			PipelineVersion: "v5",
-			RoutingVersion:  "v5",
-
-			TraceID: traceID,
-			RunID:   runID,
+			SubjectInternalID: "sub_internal_demo_0002",
+			Region:            region,
+			Currency:          currency,
+			PaymentMethod:     paymentMethod,
+			AmountMinor:       2000,
+			ConstraintsJSON:   []byte(`{}`),
+			PolicyVersion:     "p5-default",
+			PipelineVersion:   "v5",
+			RoutingVersion:    "v5",
+			TraceID:           traceID,
+			RunID:             runID,
 		},
 	}
 
 	prevOut, err := previewUC.Handle(ctx, prevIn)
 	must(err)
+	log.Printf("[v5_utl_smoke] preview status=%s fp=%s why_ref=%s", prevOut.Status, prevOut.InputFingerprint, prevOut.WhyEvidenceRef)
 
-	log.Printf("[v5_smoke] preview status=%s fingerprint=%s why_evidence_ref=%s suggested_route=%v",
-		prevOut.Status, prevOut.InputFingerprint, prevOut.WhyEvidenceRef, prevOut.SuggestedRouteID)
-
-	// -----------------------------
-	// Commit (accept suggested)
-	// -----------------------------
 	commitIn := run.RoutingCommitInput{
 		RoutingInput: run.RoutingInput{
-			ProjectID: projectID,
-
+			ProjectID:         projectID,
 			SubjectType:       "payment_intent",
-			SubjectInternalID: "sub_internal_demo_0001",
-
-			Region:        region,
-			Currency:      currency,
-			PaymentMethod: paymentMethod,
-			AmountMinor:   1000,
-
-			ConstraintsJSON: []byte(`{}`),
-
-			PolicyVersion:   "p5-default",
-			PipelineVersion: "v5",
-			RoutingVersion:  "v5",
-
-			TraceID: traceID,
-			RunID:   runID,
+			SubjectInternalID: "sub_internal_demo_0002",
+			Region:            region,
+			Currency:          currency,
+			PaymentMethod:     paymentMethod,
+			AmountMinor:       2000,
+			ConstraintsJSON:   []byte(`{}`),
+			PolicyVersion:     "p5-default",
+			PipelineVersion:   "v5",
+			RoutingVersion:    "v5",
+			TraceID:           traceID,
+			RunID:             runID,
 		},
-
 		ExpectedInputFingerprint: prevOut.InputFingerprint,
 		AcceptSuggested:          true,
-		OverrideRouteID:          nil,
 	}
 
-	commitOut, err := commitUC.Handle(ctx, commitIn)
+	commitOut, utlRes, err := commitToUtlUC.Handle(ctx, commitIn)
 	must(err)
 
-	log.Printf("[v5_smoke] commit decision_id=%s status=%s chosen_route=%v utl_key=%s why_ref=%s",
-		commitOut.DecisionID, commitOut.Status, commitOut.ChosenRouteID, commitOut.UtlCommitEventKey, commitOut.WhyEvidenceRef)
+	log.Printf("[v5_utl_smoke] commit status=%s decision_id=%s v5_utl_key=%s",
+		commitOut.Status, commitOut.DecisionID, commitOut.UtlCommitEventKey)
 
-	if !strings.HasPrefix(commitOut.UtlCommitEventKey, "utl_internal:") {
-		log.Fatalf("expected utl_commit_event_key to start with utl_internal:, got=%s", commitOut.UtlCommitEventKey)
+	log.Printf("[v5_utl_smoke] utl ingest: id=%d status=%s event_key=%s posting_key=%s",
+		utlRes.UtlEventID, utlRes.Status, utlRes.EventKey, utlRes.PostingKey)
+
+	if !strings.HasPrefix(utlRes.EventKey, "utl_internal:") {
+		log.Fatalf("expected utl event_key to start with utl_internal:, got=%s", utlRes.EventKey)
+	}
+	if len(utlRes.PostingKey) != 64 {
+		log.Fatalf("expected posting_key len=64, got=%d", len(utlRes.PostingKey))
 	}
 
-	// -----------------------------
-	// Verify DB row exists
-	// -----------------------------
-	mustVerifyDecision(ctx, db, projectID, commitOut.DecisionID)
+	// Verify row exists in universal_events_v6
+	mustVerifyUtlRow(ctx, db, projectID, utlRes.EventKey)
 
-	log.Printf("OK: v5 routing smoke passed")
+	log.Printf("OK: v5 routing -> v6 UTL smoke passed")
 }
 
 // ----------------------------- helpers -----------------------------
@@ -181,7 +163,6 @@ func mustUUIDText(ctx context.Context, db *sql.DB) string {
 
 func mustCreateRun(ctx context.Context, db *sql.DB, projectID, traceID, pipelineVersion string) string {
 	var runID string
-	// runs schema is from 0001_runs_v41.sql (run_id uuid, trace_id uuid)
 	err := db.QueryRowContext(ctx, `
 INSERT INTO public.runs(project_id, trace_id, pipeline_version, status, started_at)
 VALUES ($1, $2::uuid, $3, 'running', now())
@@ -203,7 +184,6 @@ LIMIT 1;
 		return providerID, nil
 	}
 
-	// insert
 	err = db.QueryRowContext(ctx, `
 INSERT INTO public.providers(project_id, provider_key, status, capabilities, meta)
 VALUES ($1, $2, 'active', '{}'::jsonb, '{}'::jsonb)
@@ -214,8 +194,6 @@ RETURNING provider_id::text;
 
 func ensureProviderRoute(ctx context.Context, db *sql.DB, projectID, providerID, region, currency, method string) (string, error) {
 	var routeID string
-
-	// Try find existing active route
 	err := db.QueryRowContext(ctx, `
 SELECT route_id::text
 FROM public.provider_routes
@@ -230,14 +208,9 @@ LIMIT 1;
 		return routeID, nil
 	}
 
-	weights := map[string]any{
-		"success": 0.5,
-		"cost":    0.3,
-		"latency": 0.2,
-	}
+	weights := map[string]any{"success": 0.5, "cost": 0.3, "latency": 0.2}
 	wb, _ := json.Marshal(weights)
 
-	// insert minimal route
 	err = db.QueryRowContext(ctx, `
 INSERT INTO public.provider_routes(
   project_id, provider_id, status, priority,
@@ -254,17 +227,16 @@ RETURNING route_id::text;
 	return routeID, err
 }
 
-func mustVerifyDecision(ctx context.Context, db *sql.DB, projectID, decisionID string) {
-	var got string
+func mustVerifyUtlRow(ctx context.Context, db *sql.DB, projectID, eventKey string) {
+	var gotID int64
+	var gotStatus string
 	err := db.QueryRowContext(ctx, `
-SELECT utl_commit_event_key
-FROM public.route_decisions
-WHERE project_id=$1 AND decision_id=$2::uuid
+SELECT id, status
+FROM public.universal_events_v6
+WHERE project_id=$1 AND event_key=$2
 LIMIT 1;
-`, projectID, decisionID).Scan(&got)
+`, projectID, eventKey).Scan(&gotID, &gotStatus)
 	must(err)
 
-	if !strings.HasPrefix(got, "utl_internal:") {
-		log.Fatalf("db utl_commit_event_key must start with utl_internal:, got=%s", got)
-	}
+	log.Printf("[v5_utl_smoke] verified universal_events_v6 id=%d status=%s", gotID, gotStatus)
 }
