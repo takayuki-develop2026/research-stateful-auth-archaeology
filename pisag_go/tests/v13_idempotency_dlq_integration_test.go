@@ -20,7 +20,9 @@ func TestV13_IdempotencyAndDLQ(t *testing.T) {
 	}
 
 	db, err := sql.Open("pgx", dsn)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer db.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -43,11 +45,15 @@ func TestV13_IdempotencyAndDLQ(t *testing.T) {
 	start1, err := idemUC.Start(ctx, usecase.V13IdempotencyStartInput{
 		ProjectID: projectID, Scope: "test", Key: "ak:idem:test:1", RequestCanonical: "x",
 	})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	start2, err := idemUC.Start(ctx, usecase.V13IdempotencyStartInput{
 		ProjectID: projectID, Scope: "test", Key: "ak:idem:test:1", RequestCanonical: "x",
 	})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if start2.FoundExisting != true {
 		t.Fatalf("expected found_existing=true on second start")
 	}
@@ -67,14 +73,22 @@ func TestV13_IdempotencyAndDLQ(t *testing.T) {
 		ProjectID: projectID, TraceID: traceID, TaskType: "test_task", Source: "manual",
 		PayloadEvidenceAssetID: evidenceID,
 	})
-	if err != nil { t.Fatal(err) }
-	if dlqID <= 0 { t.Fatalf("invalid dlq_id") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dlqID <= 0 {
+		t.Fatalf("invalid dlq_id")
+	}
 
 	if err := dlqMark.Handle(ctx, usecase.V13DlqMarkInput{
 		ProjectID: projectID, DlqID: dlqID, Status: "requeued",
-	}); err != nil { t.Fatal(err) }
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := dlqMark.Handle(ctx, usecase.V13DlqMarkInput{
 		ProjectID: projectID, DlqID: dlqID, Status: "resolved",
-	}); err != nil { t.Fatal(err) }
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

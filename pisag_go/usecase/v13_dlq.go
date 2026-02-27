@@ -9,14 +9,14 @@ import (
 )
 
 type V13DlqEnqueueInput struct {
-	ProjectID string
-	RunID     *string
-	TraceID   string
-	TaskType  string
-	Source    string
+	ProjectID      string
+	RunID          *string
+	TraceID        string
+	TaskType       string
+	Source         string
 	CorrelationKey *string
 
-	PayloadEvidenceAssetID int64
+	PayloadEvidenceAssetID   int64
 	LastErrorEvidenceAssetID *int64
 }
 
@@ -53,9 +53,9 @@ func (uc *V13DlqEnqueueUseCase) Handle(ctx context.Context, in V13DlqEnqueueInpu
 }
 
 type V13DlqMarkInput struct {
-	ProjectID string
-	DlqID     int64
-	Status    string // requeued|resolved|ignored
+	ProjectID                  string
+	DlqID                      int64
+	Status                     string // requeued|resolved|ignored
 	ResultErrorEvidenceAssetID *int64
 }
 

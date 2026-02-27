@@ -74,19 +74,19 @@ func main() {
 
 	// ---- 2) upsert task_type contract ----
 	up := run.TaskTypeContractUpsertInput{
-		ProjectID:               projectID,
-		TaskType:                taskType,
-		PipelineVersion:         pipelineVersion,
-		PolicyVersionID:         policyVersionID,
-		Enabled:                 true,
+		ProjectID:                 projectID,
+		TaskType:                  taskType,
+		PipelineVersion:           pipelineVersion,
+		PolicyVersionID:           policyVersionID,
+		Enabled:                   true,
 		InputContractEvidenceRef:  inRef,
 		OutputContractEvidenceRef: outRef,
-		DefaultMode:             strPtr("Mode0"),
-		CreatedByType:           actorType,
-		CreatedByID:             &actorID,
-		TraceID:                 traceID,
-		RunID:                   strPtr(runID),
-		IdempotencyKey:          strPtr("idem_task_contract_v18_smoke"),
+		DefaultMode:               strPtr("Mode0"),
+		CreatedByType:             actorType,
+		CreatedByID:               &actorID,
+		TraceID:                   traceID,
+		RunID:                     strPtr(runID),
+		IdempotencyKey:            strPtr("idem_task_contract_v18_smoke"),
 	}
 	cres, err := contractRepo.Upsert(ctx, up)
 	if err != nil {

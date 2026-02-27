@@ -42,7 +42,7 @@ type RunInput struct {
 
 // ClaimedRunInput: worker処理用（trace_id付き）
 type ClaimedRunInput struct {
-	ID int64
+	ID        int64
 	ProjectID string
 
 	RunID   string

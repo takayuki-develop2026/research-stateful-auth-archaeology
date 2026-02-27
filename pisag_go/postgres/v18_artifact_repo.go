@@ -82,7 +82,7 @@ FROM public.artifact_register_v18(
 	}
 
 	return run.ArtifactRegisterResult{
-		ArtifactRef:    artifactRef,
-		FoundExisting:  found,
+		ArtifactRef:   artifactRef,
+		FoundExisting: found,
 	}, nil
 }

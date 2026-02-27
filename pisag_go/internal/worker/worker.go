@@ -19,7 +19,7 @@ import (
 type Config struct {
 	WorkerID         string
 	Poll             time.Duration
-	ClaimStyle        postgres.ClaimStyle
+	ClaimStyle       postgres.ClaimStyle
 	EvidenceMaxBytes int64
 	EvidenceBaseDir  string
 

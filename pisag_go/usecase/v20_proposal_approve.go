@@ -16,16 +16,16 @@ type V20ProposalApproveInput struct {
 	ProjectID string
 	TraceID   string
 
-	ProposalID int64
+	ProposalID        int64
 	ApprovalRequestID string
-	ApprovedByUserID *string
+	ApprovedByUserID  *string
 }
 
 type V20ProposalApproveOutput struct {
-	ProjectID string
-	TraceID   string
+	ProjectID  string
+	TraceID    string
 	ProposalID int64
-	Status string
+	Status     string
 }
 
 type V20ProposalApproveUseCase struct {

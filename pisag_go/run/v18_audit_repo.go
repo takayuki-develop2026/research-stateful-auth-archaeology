@@ -28,6 +28,6 @@ type AuditAppendInput struct {
 }
 
 type AuditAppendResult struct {
-	AuditEventID   int64
-	FoundExisting  bool
+	AuditEventID  int64
+	FoundExisting bool
 }

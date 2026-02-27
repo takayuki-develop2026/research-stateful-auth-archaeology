@@ -46,14 +46,14 @@ func main() {
 	}
 
 	out, err := uc.Handle(ctx, usecase.V20SloEvaluateInput{
-		ProjectID:                     projectID,
-		TraceID:                       traceID,
-		SloID:                         sloID,
-		WindowKind:                    "", // use definition
+		ProjectID:                      projectID,
+		TraceID:                        traceID,
+		SloID:                          sloID,
+		WindowKind:                     "", // use definition
 		EvaluationEvidenceAssetID:      evidenceID,
 		IncidentSummaryEvidenceAssetID: evidenceID,
-		IncidentSeverity:              "P2",
-		IncidentType:                  "slo_breach",
+		IncidentSeverity:               "P2",
+		IncidentType:                   "slo_breach",
 	})
 	if err != nil {
 		log.Fatalf("v20_slo_evaluate failed: %v", err)

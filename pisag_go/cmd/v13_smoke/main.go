@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"log"
 	"os"
 	"strings"
 	"time"
-	"database/sql"
-
 
 	"example.com/pisag_go/postgres"
 	"example.com/pisag_go/usecase"
@@ -40,31 +39,37 @@ func main() {
 	key := "ak:idem:v13_smoke:" + shortHash("project="+projectID)
 
 	start1, err := idemUC.Start(ctx, usecase.V13IdempotencyStartInput{
-		ProjectID: projectID,
-		Scope: scope,
-		Key: key,
+		ProjectID:        projectID,
+		Scope:            scope,
+		Key:              key,
 		RequestCanonical: "hello",
 	})
-	if err != nil { log.Fatalf("idem start1: %v", err) }
+	if err != nil {
+		log.Fatalf("idem start1: %v", err)
+	}
 	log.Printf("[v13_smoke] idem start1: id=%d found=%v", start1.IdempotencyID, start1.FoundExisting)
 
 	start2, err := idemUC.Start(ctx, usecase.V13IdempotencyStartInput{
-		ProjectID: projectID,
-		Scope: scope,
-		Key: key,
+		ProjectID:        projectID,
+		Scope:            scope,
+		Key:              key,
 		RequestCanonical: "hello",
 	})
-	if err != nil { log.Fatalf("idem start2: %v", err) }
+	if err != nil {
+		log.Fatalf("idem start2: %v", err)
+	}
 	log.Printf("[v13_smoke] idem start2: id=%d found=%v", start2.IdempotencyID, start2.FoundExisting)
 
 	summary := "ok"
 	if err := idemUC.Finish(ctx, usecase.V13IdempotencyFinishInput{
-		ProjectID: projectID,
-		Id: start1.IdempotencyID,
-		Status: "succeeded",
-		Summary: &summary,
+		ProjectID:             projectID,
+		Id:                    start1.IdempotencyID,
+		Status:                "succeeded",
+		Summary:               &summary,
 		ResultEvidenceAssetID: &evidenceID,
-	}); err != nil { log.Fatalf("idem finish: %v", err) }
+	}); err != nil {
+		log.Fatalf("idem finish: %v", err)
+	}
 	log.Printf("[v13_smoke] idem finish: succeeded")
 
 	// -------- DLQ
@@ -76,32 +81,38 @@ func main() {
 	source := "manual"
 
 	dlqID, err := dlqEnq.Handle(ctx, usecase.V13DlqEnqueueInput{
-		ProjectID: projectID,
-		RunID: nil,
-		TraceID: traceID,
-		TaskType: taskType,
-		Source: source,
-		CorrelationKey: nil,
-		PayloadEvidenceAssetID: evidenceID,
+		ProjectID:                projectID,
+		RunID:                    nil,
+		TraceID:                  traceID,
+		TaskType:                 taskType,
+		Source:                   source,
+		CorrelationKey:           nil,
+		PayloadEvidenceAssetID:   evidenceID,
 		LastErrorEvidenceAssetID: nil,
 	})
-	if err != nil { log.Fatalf("dlq enqueue: %v", err) }
+	if err != nil {
+		log.Fatalf("dlq enqueue: %v", err)
+	}
 	log.Printf("[v13_smoke] dlq enqueue: dlq_id=%d", dlqID)
 
 	if err := dlqMark.Handle(ctx, usecase.V13DlqMarkInput{
-		ProjectID: projectID,
-		DlqID: dlqID,
-		Status: "requeued",
+		ProjectID:                  projectID,
+		DlqID:                      dlqID,
+		Status:                     "requeued",
 		ResultErrorEvidenceAssetID: nil,
-	}); err != nil { log.Fatalf("dlq mark requeued: %v", err) }
+	}); err != nil {
+		log.Fatalf("dlq mark requeued: %v", err)
+	}
 	log.Printf("[v13_smoke] dlq mark: requeued")
 
 	if err := dlqMark.Handle(ctx, usecase.V13DlqMarkInput{
-		ProjectID: projectID,
-		DlqID: dlqID,
-		Status: "resolved",
+		ProjectID:                  projectID,
+		DlqID:                      dlqID,
+		Status:                     "resolved",
 		ResultErrorEvidenceAssetID: nil,
-	}); err != nil { log.Fatalf("dlq mark resolved: %v", err) }
+	}); err != nil {
+		log.Fatalf("dlq mark resolved: %v", err)
+	}
 	log.Printf("[v13_smoke] dlq mark: resolved")
 
 	// -------- Compat contract
@@ -110,15 +121,17 @@ func main() {
 	check := hex.EncodeToString(sum[:])
 
 	contractID, err := ccUC.Insert(ctx, usecase.V13CompatContractInsertInput{
-		ProjectID: projectID,
-		ContractType: "openapi",
-		ContractVersion: "v1",
-		ChecksumSha256: check,
-		ArtifactRef: ptr("s3://dummy/openapi.json"),
-		DiffSummary: ptr("v13 smoke"),
+		ProjectID:             projectID,
+		ContractType:          "openapi",
+		ContractVersion:       "v1",
+		ChecksumSha256:        check,
+		ArtifactRef:           ptr("s3://dummy/openapi.json"),
+		DiffSummary:           ptr("v13 smoke"),
 		DetailEvidenceAssetID: &evidenceID,
 	})
-	if err != nil { log.Fatalf("compat contract insert: %v", err) }
+	if err != nil {
+		log.Fatalf("compat contract insert: %v", err)
+	}
 	log.Printf("[v13_smoke] compat_contract insert: id=%d", contractID)
 
 	log.Printf("[v13_smoke] ✅ DONE")
@@ -128,23 +141,33 @@ func ptr(s string) *string { return &s }
 
 func mustEnv(k string) string {
 	v := strings.TrimSpace(os.Getenv(k))
-	if v == "" { log.Fatalf("missing env: %s", k) }
+	if v == "" {
+		log.Fatalf("missing env: %s", k)
+	}
 	return v
 }
 func firstNonEmpty(v, fallback string) string {
 	v = strings.TrimSpace(v)
-	if v != "" { return v }
+	if v != "" {
+		return v
+	}
 	return fallback
 }
 func mustQueryString(ctx context.Context, db *sql.DB, q string) string {
 	var s string
-	if err := db.QueryRowContext(ctx, q).Scan(&s); err != nil { log.Fatalf("query string: %v", err) }
+	if err := db.QueryRowContext(ctx, q).Scan(&s); err != nil {
+		log.Fatalf("query string: %v", err)
+	}
 	return strings.TrimSpace(s)
 }
 func mustQueryInt64(ctx context.Context, db *sql.DB, q string) int64 {
 	var n int64
-	if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil { log.Fatalf("query int64: %v", err) }
-	if n <= 0 { log.Fatalf("query int64 returned %d", n) }
+	if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
+		log.Fatalf("query int64: %v", err)
+	}
+	if n <= 0 {
+		log.Fatalf("query int64 returned %d", n)
+	}
 	return n
 }
 func shortHash(s string) string {

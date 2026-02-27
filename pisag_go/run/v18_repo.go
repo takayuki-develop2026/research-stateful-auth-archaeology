@@ -30,8 +30,8 @@ type EvidenceRegisterInput struct {
 }
 
 type EvidenceRegisterResult struct {
-	EvidenceRef    string // uuid string
-	FoundExisting  bool
+	EvidenceRef   string // uuid string
+	FoundExisting bool
 }
 
 // v18 Artifact registry repo (calls artifact_register_v18)
@@ -47,15 +47,15 @@ type ArtifactRegisterInput struct {
 
 	ContentSHA256 *string // optional
 	ContentLength int64
-	MimeType       string
-	Status         string // active|orphaned|blocked (通常 active)
+	MimeType      string
+	Status        string // active|orphaned|blocked (通常 active)
 
 	IdempotencyKey string
 }
 
 type ArtifactRegisterResult struct {
-	ArtifactRef    string // uuid string
-	FoundExisting  bool
+	ArtifactRef   string // uuid string
+	FoundExisting bool
 }
 
 // v18 Task type contract repo (calls task_type_contract_*_v18)
@@ -92,18 +92,18 @@ type TaskTypeContractToggleInput struct {
 	TaskType        string
 	PipelineVersion string
 
-	TraceID        string
-	CreatedByType  string
-	CreatedByID    *string
-	RunID          *string
+	TraceID       string
+	CreatedByType string
+	CreatedByID   *string
+	RunID         *string
 
 	IdempotencyKey *string
 }
 
 type TaskTypeContractChangeResult struct {
-	ContractID     int64
-	ChangeKind     string // created/updated/enabled/disabled
-	FoundExisting  bool
+	ContractID    int64
+	ChangeKind    string // created/updated/enabled/disabled
+	FoundExisting bool
 }
 
 // v18 Links repo (calls *_link_add_v18)

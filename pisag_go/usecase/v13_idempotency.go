@@ -56,10 +56,10 @@ func (uc *V13IdempotencyUseCase) Start(ctx context.Context, in V13IdempotencySta
 }
 
 type V13IdempotencyFinishInput struct {
-	ProjectID string
-	Id        int64
-	Status    string // succeeded|review_required|failed
-	Summary   *string
+	ProjectID             string
+	Id                    int64
+	Status                string // succeeded|review_required|failed
+	Summary               *string
 	ResultEvidenceAssetID *int64
 }
 

@@ -295,43 +295,53 @@ SELECT public.compat_contract_insert_v13(
 }
 
 func (r *V13Repository) DlqEnqueueRunEvidence(
-  ctx context.Context,
-  projectID string,
-  runID *string,
-  traceID string,
-  taskType string,
-  source string,
-  correlationKey *string,
-  payloadRunEvidenceAssetID int64,
-  lastErrorRunEvidenceAssetID *int64,
+	ctx context.Context,
+	projectID string,
+	runID *string,
+	traceID string,
+	taskType string,
+	source string,
+	correlationKey *string,
+	payloadRunEvidenceAssetID int64,
+	lastErrorRunEvidenceAssetID *int64,
 ) (int64, error) {
-  projectID = strings.TrimSpace(projectID)
-  traceID = strings.TrimSpace(traceID)
-  taskType = strings.TrimSpace(taskType)
-  source = strings.TrimSpace(source)
+	projectID = strings.TrimSpace(projectID)
+	traceID = strings.TrimSpace(traceID)
+	taskType = strings.TrimSpace(taskType)
+	source = strings.TrimSpace(source)
 
-  if projectID == "" { return 0, errors.New("project_id is required") }
-  if traceID == "" { return 0, errors.New("trace_id is required") }
-  if taskType == "" { return 0, errors.New("task_type is required") }
-  if source == "" { return 0, errors.New("source is required") }
-  if payloadRunEvidenceAssetID <= 0 { return 0, errors.New("payload_run_evidence_asset_id is required") }
+	if projectID == "" {
+		return 0, errors.New("project_id is required")
+	}
+	if traceID == "" {
+		return 0, errors.New("trace_id is required")
+	}
+	if taskType == "" {
+		return 0, errors.New("task_type is required")
+	}
+	if source == "" {
+		return 0, errors.New("source is required")
+	}
+	if payloadRunEvidenceAssetID <= 0 {
+		return 0, errors.New("payload_run_evidence_asset_id is required")
+	}
 
-  runStr := ""
-  if runID != nil && strings.TrimSpace(*runID) != "" {
-    runStr = strings.TrimSpace(*runID)
-  }
+	runStr := ""
+	if runID != nil && strings.TrimSpace(*runID) != "" {
+		runStr = strings.TrimSpace(*runID)
+	}
 
-  var corrAny any = nil
-  if correlationKey != nil && strings.TrimSpace(*correlationKey) != "" {
-    corrAny = strings.TrimSpace(*correlationKey)
-  }
+	var corrAny any = nil
+	if correlationKey != nil && strings.TrimSpace(*correlationKey) != "" {
+		corrAny = strings.TrimSpace(*correlationKey)
+	}
 
-  errEvVal := int64(0)
-  if lastErrorRunEvidenceAssetID != nil && *lastErrorRunEvidenceAssetID > 0 {
-    errEvVal = *lastErrorRunEvidenceAssetID
-  }
+	errEvVal := int64(0)
+	if lastErrorRunEvidenceAssetID != nil && *lastErrorRunEvidenceAssetID > 0 {
+		errEvVal = *lastErrorRunEvidenceAssetID
+	}
 
-  const q = `
+	const q = `
 SELECT public.dlq_enqueue_run_evidence_v13(
   $1,
   NULLIF($2,'')::uuid,
@@ -343,12 +353,12 @@ SELECT public.dlq_enqueue_run_evidence_v13(
   NULLIF($8::bigint,0)
 ) AS dlq_id;
 `
-  var dlqID int64
-  if err := r.db.QueryRowContext(ctx, q,
-    projectID, runStr, traceID, taskType, source, corrAny,
-    payloadRunEvidenceAssetID, errEvVal,
-  ).Scan(&dlqID); err != nil {
-    return 0, err
-  }
-  return dlqID, nil
+	var dlqID int64
+	if err := r.db.QueryRowContext(ctx, q,
+		projectID, runStr, traceID, taskType, source, corrAny,
+		payloadRunEvidenceAssetID, errEvVal,
+	).Scan(&dlqID); err != nil {
+		return 0, err
+	}
+	return dlqID, nil
 }

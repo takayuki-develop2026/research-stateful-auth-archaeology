@@ -73,13 +73,13 @@ func main() {
 	}
 
 	out, err := uc.Handle(ctx, usecase.PublishConfirmInput{
-		ProjectID:     projectID,
-		ManifestID:    manifestID,
-		ManifestHash:  manifestHash,
-		TraceID:       traceID,
-		RunID:         runIDPtr,
-		Target:        "catalog_v1",
-		AutoConfirm:   &auto, // ✅ envから渡す
+		ProjectID:    projectID,
+		ManifestID:   manifestID,
+		ManifestHash: manifestHash,
+		TraceID:      traceID,
+		RunID:        runIDPtr,
+		Target:       "catalog_v1",
+		AutoConfirm:  &auto, // ✅ envから渡す
 		Meta: map[string]any{
 			"smoke": true,
 		},

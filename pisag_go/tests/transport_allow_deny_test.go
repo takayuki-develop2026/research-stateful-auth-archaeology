@@ -1,11 +1,11 @@
 package tests
 
 import (
+	"crypto/x509"
 	"io"
 	"net/http"
 	"testing"
 	"time"
-	"crypto/x509"
 
 	"example.com/pisag_go/pisag"
 	"example.com/pisag_go/ports"

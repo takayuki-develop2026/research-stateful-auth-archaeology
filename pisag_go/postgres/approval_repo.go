@@ -65,15 +65,15 @@ RETURNING
   created_at, updated_at;
 `
 	var (
-		requestID                              string
-		pid                                    string
-		cid                                    string
-		tid                                    string
-		status                                 string
-		rbt                                    string
-		rbid                                   sql.NullString
-		rsn                                    sql.NullString
-		createdAt, updatedAt                   time.Time
+		requestID            string
+		pid                  string
+		cid                  string
+		tid                  string
+		status               string
+		rbt                  string
+		rbid                 sql.NullString
+		rsn                  sql.NullString
+		createdAt, updatedAt time.Time
 	)
 
 	row := r.db.QueryRowContext(ctx, ins,
@@ -135,15 +135,15 @@ WHERE project_id=$1 AND commit_id=$2::uuid
 LIMIT 1;
 `
 	var (
-		requestID                              string
-		pid                                    string
-		cid                                    string
-		tid                                    string
-		status                                 string
-		rbt                                    string
-		rbid                                   sql.NullString
-		rsn                                    sql.NullString
-		createdAt, updatedAt                   time.Time
+		requestID            string
+		pid                  string
+		cid                  string
+		tid                  string
+		status               string
+		rbt                  string
+		rbid                 sql.NullString
+		rsn                  sql.NullString
+		createdAt, updatedAt time.Time
 	)
 
 	err := r.db.QueryRowContext(ctx, q, projectID, commitID).Scan(
@@ -305,15 +305,15 @@ WHERE project_id=$1 AND request_id=$2::uuid
 LIMIT 1;
 `
 	var (
-		rid                     string
-		pid                     string
-		cid                     string
-		tid                     string
-		status                  string
-		rbt                     string
-		rbid                    sql.NullString
-		rsn                     sql.NullString
-		createdAt, updatedAt    time.Time
+		rid                  string
+		pid                  string
+		cid                  string
+		tid                  string
+		status               string
+		rbt                  string
+		rbid                 sql.NullString
+		rsn                  sql.NullString
+		createdAt, updatedAt time.Time
 	)
 
 	err := r.db.QueryRowContext(ctx, q, projectID, requestID).Scan(

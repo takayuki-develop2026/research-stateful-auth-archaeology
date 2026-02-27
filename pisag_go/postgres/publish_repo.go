@@ -74,14 +74,14 @@ RETURNING
   updated_at;
 `
 	var (
-		commitID                             string
-		projectID, commitKey                 string
-		manifestID, manifestHash             string
-		runIDOut                             sql.NullString
-		traceID, target, status              string
-		errorCode, errorMessage              sql.NullString
-		metaJSON                             []byte
-		createdAt, updatedAt                 time.Time
+		commitID                 string
+		projectID, commitKey     string
+		manifestID, manifestHash string
+		runIDOut                 sql.NullString
+		traceID, target, status  string
+		errorCode, errorMessage  sql.NullString
+		metaJSON                 []byte
+		createdAt, updatedAt     time.Time
 	)
 
 	row := r.db.QueryRowContext(ctx, ins,
@@ -160,14 +160,14 @@ WHERE project_id=$1 AND commit_key=$2
 LIMIT 1;
 `
 	var (
-		commitID                             string
-		pid, ckey                            string
-		manifestID, manifestHash             string
-		runIDOut                             sql.NullString
-		traceID, target, status              string
-		errorCode, errorMessage              sql.NullString
-		metaJSON                             []byte
-		createdAt, updatedAt                 time.Time
+		commitID                 string
+		pid, ckey                string
+		manifestID, manifestHash string
+		runIDOut                 sql.NullString
+		traceID, target, status  string
+		errorCode, errorMessage  sql.NullString
+		metaJSON                 []byte
+		createdAt, updatedAt     time.Time
 	)
 
 	err := r.db.QueryRowContext(ctx, q,
@@ -262,19 +262,19 @@ func mapPublishCommit(
 	}
 
 	return run.PublishCommit{
-		CommitID:      commitID,
-		ProjectID:     projectID,
-		CommitKey:     commitKey,
-		ManifestID:    manifestID,
-		ManifestHash:  manifestHash,
-		RunID:         rid,
-		TraceID:       traceID,
-		Target:        target,
-		Status:        status,
-		ErrorCode:     ec,
-		ErrorMessage:  em,
-		MetaJSON:      metaJSON,
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
+		CommitID:     commitID,
+		ProjectID:    projectID,
+		CommitKey:    commitKey,
+		ManifestID:   manifestID,
+		ManifestHash: manifestHash,
+		RunID:        rid,
+		TraceID:      traceID,
+		Target:       target,
+		Status:       status,
+		ErrorCode:    ec,
+		ErrorMessage: em,
+		MetaJSON:     metaJSON,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
 	}
 }

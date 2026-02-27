@@ -9,13 +9,13 @@ import (
 )
 
 type V13CompatContractInsertInput struct {
-	ProjectID string
-	ContractType string
+	ProjectID       string
+	ContractType    string
 	ContractVersion string
-	ChecksumSha256 string
+	ChecksumSha256  string
 
-	ArtifactRef *string
-	DiffSummary *string
+	ArtifactRef           *string
+	DiffSummary           *string
 	DetailEvidenceAssetID *int64
 }
 

@@ -17,10 +17,10 @@ type V20SloEvaluateInput struct {
 	ProjectID string
 	TraceID   string
 
-	SloID int64
+	SloID      int64
 	WindowKind string // 7d|30d optional
 
-	EvaluationEvidenceAssetID int64
+	EvaluationEvidenceAssetID      int64
 	IncidentSummaryEvidenceAssetID int64
 
 	IncidentSeverity string
@@ -296,4 +296,3 @@ func clamp01(v float64) float64 {
 	}
 	return v
 }
-

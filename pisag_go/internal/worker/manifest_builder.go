@@ -148,12 +148,12 @@ func (b *ManifestBuilder) BuildAndComplete(
 // - include only fields that define evidence identity and audit payload
 func hashLinksCanonical(links []run.EvidenceLink) string {
 	type canon struct {
-		Kind       string  `json:"kind"`
-		SHA256     string  `json:"sha256"`
+		Kind        string  `json:"kind"`
+		SHA256      string  `json:"sha256"`
 		ContentType *string `json:"content_type,omitempty"`
-		ByteSize   int     `json:"byte_size"`
-		FinalURL   string  `json:"final_url"`
-		StoredPath string  `json:"stored_path"`
+		ByteSize    int     `json:"byte_size"`
+		FinalURL    string  `json:"final_url"`
+		StoredPath  string  `json:"stored_path"`
 	}
 
 	// copy + sort defensively

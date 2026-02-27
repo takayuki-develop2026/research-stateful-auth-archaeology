@@ -80,25 +80,25 @@ VALUES ($1,'v4.1','failed',now(),now(),now());
 
 	// run twice
 	out1, err := uc.Handle(ctx, usecase.V20SloEvaluateInput{
-		ProjectID:                     projectID,
-		TraceID:                       "test-trace",
-		SloID:                         sloID,
+		ProjectID:                      projectID,
+		TraceID:                        "test-trace",
+		SloID:                          sloID,
 		EvaluationEvidenceAssetID:      evidenceID,
 		IncidentSummaryEvidenceAssetID: evidenceID,
-		IncidentSeverity:              "P2",
-		IncidentType:                  "slo_breach",
+		IncidentSeverity:               "P2",
+		IncidentType:                   "slo_breach",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out2, err := uc.Handle(ctx, usecase.V20SloEvaluateInput{
-		ProjectID:                     projectID,
-		TraceID:                       "test-trace",
-		SloID:                         sloID,
+		ProjectID:                      projectID,
+		TraceID:                        "test-trace",
+		SloID:                          sloID,
 		EvaluationEvidenceAssetID:      evidenceID,
 		IncidentSummaryEvidenceAssetID: evidenceID,
-		IncidentSeverity:              "P2",
-		IncidentType:                  "slo_breach",
+		IncidentSeverity:               "P2",
+		IncidentType:                   "slo_breach",
 	})
 	if err != nil {
 		t.Fatal(err)
