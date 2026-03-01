@@ -352,6 +352,32 @@ services:
     networks:
       - simulation1_network
 
+
+# ============================================================
+  # １６　　　v10) Intelligent Routing Agent (agentsvc)
+  # ============================================================
+  agentsvc:
+    build:
+      context: .
+      dockerfile: services/agentsvc/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "9010:9010"
+    environment:
+      AGENTSVC_PORT: "9010"
+      AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
+      AK_REDIS_ADDR: ak_redis:6379
+      TZ: Asia/Tokyo
+    volumes:
+      - ./services/agentsvc/var:/var/agentsvc
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+      ak_redis:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+
 # ============================================================
 # Network Definition
 # ============================================================
