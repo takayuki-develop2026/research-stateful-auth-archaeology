@@ -378,6 +378,33 @@ services:
     networks:
       - simulation1_network
 
+
+
+# ============================================================
+  # １７　　v11) VSOP Ops Service (opssvc)
+  # ============================================================
+  opssvc:
+    build:
+      context: .
+      dockerfile: services/opssvc/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "9011:9011"
+    environment:
+      OPSSVC_PORT: "9011"
+      AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
+      AK_REDIS_ADDR: ak_redis:6379
+      TZ: Asia/Tokyo
+    volumes:
+      - ./services/opssvc/var:/var/opssvc
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+      ak_redis:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+
 # ============================================================
 # Network Definition
 # ============================================================

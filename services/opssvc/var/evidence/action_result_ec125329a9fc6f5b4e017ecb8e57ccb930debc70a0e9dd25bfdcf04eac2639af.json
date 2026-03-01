@@ -1,0 +1,1 @@
+{"http_body":"{\"publication_id\":\"8269a24a-e963-4fcf-94ad-a44b82adbc12\",\"status\":\"succeeded\",\"trace_id\":\"df4577a58d9c65f6af7caa5b257c87f0\"}\n","http_status":200,"plan":{"policy_set_id":"3dcf4f08-af42-4475-a08c-fdc0de2a749c","to_version_id":"18811b52-3dfb-4724-bb50-7804afaf6b00"},"proposal_id":9,"proposal_type":"policy_rollback"}

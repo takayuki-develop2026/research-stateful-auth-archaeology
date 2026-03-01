@@ -1,0 +1,1 @@
+[{"do":"Confirm incident scope","step":1},{"do":"Choose to_policy_version","step":2},{"do":"Execute govsvc rollback with confirm","step":3}]
