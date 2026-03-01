@@ -199,7 +199,7 @@ services:
       - "5433:5432"   # 既存と衝突しにくいようにホスト側は 5433
     volumes:
       - ak_pgdata:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d # 起動時にマイグレーションを自動実行
+      - ./pisag_go/migrations:/docker-entrypoint-initdb.d # 起動時にマイグレーションを自動実行
     networks:
       - simulation1_network
     healthcheck:
@@ -320,6 +320,35 @@ services:
     restart: unless-stopped
     volumes:
       - ./oracle_static:/usr/share/nginx/html:ro
+    networks:
+      - simulation1_network
+
+
+
+      # ============================================================
+  # 15) v12 Governance Service (govsvc)
+  # ============================================================
+  govsvc:
+    build:
+      context: .
+      dockerfile: services/govsvc/Dockerfile
+    volumes:
+      - ./services/govsvc/var:/var/govsvc
+    restart: unless-stopped
+    ports:
+      - "9012:9012"   # host:container（空いてる番号にしてOK）
+    environment:
+      # AK基盤（Postgres/Redis）に接続
+      AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
+      AK_REDIS_ADDR: ak_redis:6379
+
+      AK_SERVICE_NAME: govsvc
+      TZ: Asia/Tokyo
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+      ak_redis:
+        condition: service_healthy
     networks:
       - simulation1_network
 
