@@ -1,0 +1,1 @@
+{"metric":"router.success_rate","op":"lt","threshold":0.98,"window":"1h"}

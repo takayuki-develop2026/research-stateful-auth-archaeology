@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	defaultPort = "9011"
-	traceHeader = "X-Trace-Id"
-	serviceName = "opssvc"
+	defaultPort       = "9011"
+	traceHeader       = "X-Trace-Id"
+	serviceName       = "opssvc"
 	defaultEvidenceDir = "/var/opssvc/evidence"
 )
 
@@ -109,8 +109,43 @@ type IncidentStatusUpdateRequest struct {
 }
 
 // --------------------
-// main
+// Channels / Alert Rules / Alerts (A-1)
 // --------------------
+type ChannelUpsertRequest struct {
+	ChannelKey     string `json:"channel_key"`
+	ChannelType    string `json:"channel_type"`    // slack|email|webhook
+	DestinationRef string `json:"destination_ref"` // e.g. "#ops-alerts"
+	Status         string `json:"status"`          // active|paused (optional)
+}
+
+type AlertRuleUpsertRequest struct {
+	RuleKey            string  `json:"rule_key"`
+	Severity           string  `json:"severity"`           // info|warn|critical
+	Status             string  `json:"status"`             // active|paused
+	DedupeKeyTemplate  string  `json:"dedupe_key_template"`// required
+	CooldownSeconds    int     `json:"cooldown_seconds"`   // default 300
+	NotifyChannelIDs   []int64 `json:"notify_channel_ids"` // <=20
+	Condition          any     `json:"condition"`          // REQUIRED evidence JSON
+	IdempotencyKey     string  `json:"idempotency_key"`    // optional
+}
+
+type AlertFireRequest struct {
+	RuleID        int64  `json:"rule_id"`
+	DedupeKey     string `json:"dedupe_key"`
+	TraceID       string `json:"trace_id"`
+	RunID         string `json:"run_id"`          // optional uuid
+	PolicySetID   string `json:"policy_set_id"`   // optional uuid
+	PolicyVersionID string `json:"policy_version_id"` // optional uuid
+	ProviderHint  string `json:"provider_hint"`   // optional
+	Context       any    `json:"context"`         // REQUIRED evidence JSON
+	RelatedEvidenceAssetIDs []int64 `json:"related_evidence_asset_ids"` // optional <=50
+	IdempotencyKey string `json:"idempotency_key"` // optional
+}
+
+type SimpleConfirm struct {
+	Confirm bool `json:"confirm"`
+}
+
 func main() {
 	port := os.Getenv("OPSSVC_PORT")
 	if port == "" {
@@ -119,6 +154,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// /health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		traceID := ensureTraceID(w, r)
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -126,6 +162,7 @@ func main() {
 		})
 	})
 
+	// /health/db
 	mux.HandleFunc("/health/db", func(w http.ResponseWriter, r *http.Request) {
 		traceID := ensureTraceID(w, r)
 		conn, err := openDB(r.Context())
@@ -134,6 +171,7 @@ func main() {
 			return
 		}
 		defer conn.Close(r.Context())
+
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		var one int
@@ -144,6 +182,7 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]any{"db": "ak_postgres", "ok": true, "select_1": one, "service": serviceName, "trace_id": traceID})
 	})
 
+	// /v1/projects/{project_id}/ops/...
 	mux.HandleFunc("/v1/projects/", func(w http.ResponseWriter, r *http.Request) {
 		traceID := ensureTraceID(w, r)
 
@@ -159,7 +198,9 @@ func main() {
 			return
 		}
 
-		// ----- Incidents -----
+		// ---------------------------
+		// Incidents (B)
+		// ---------------------------
 		if parts[2] == "incidents" {
 			if len(parts) == 3 {
 				if r.Method == http.MethodGet {
@@ -189,7 +230,9 @@ func main() {
 			return
 		}
 
-		// ----- Runbooks -----
+		// ---------------------------
+		// Runbooks
+		// ---------------------------
 		if parts[2] == "runbooks" {
 			if len(parts) == 3 {
 				if r.Method == http.MethodGet {
@@ -211,7 +254,9 @@ func main() {
 			return
 		}
 
-		// ----- Actions -----
+		// ---------------------------
+		// Ops Actions (remediation_*)
+		// ---------------------------
 		if parts[2] == "actions" && len(parts) == 4 && parts[3] == "propose" && r.Method == http.MethodPost {
 			handleActionPropose(w, r, traceID, projectID)
 			return
@@ -241,9 +286,99 @@ func main() {
 			}
 		}
 
+		// ---------------------------
+		// Channels (A-1)
+		// ---------------------------
+		if parts[2] == "channels" {
+			if len(parts) == 3 {
+				if r.Method == http.MethodGet {
+					handleChannelList(w, r, traceID, projectID)
+					return
+				}
+				if r.Method == http.MethodPost {
+					handleChannelUpsert(w, r, traceID, projectID)
+					return
+				}
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error":"method_not_allowed","trace_id":traceID})
+				return
+			}
+			if len(parts) == 5 && r.Method == http.MethodPost {
+				channelID := parts[3]
+				if parts[4] == "pause" {
+					handleChannelSetStatus(w, r, traceID, projectID, channelID, "paused")
+					return
+				}
+				if parts[4] == "resume" {
+					handleChannelSetStatus(w, r, traceID, projectID, channelID, "active")
+					return
+				}
+			}
+			writeJSON(w, http.StatusNotFound, map[string]any{"error":"not_found","trace_id":traceID})
+			return
+		}
+
+		// ---------------------------
+		// Alert Rules (A-1)
+		// ---------------------------
+		if parts[2] == "alert-rules" {
+			if len(parts) == 3 {
+				if r.Method == http.MethodGet {
+					handleAlertRuleList(w, r, traceID, projectID)
+					return
+				}
+				if r.Method == http.MethodPost {
+					handleAlertRuleUpsert(w, r, traceID, projectID)
+					return
+				}
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error":"method_not_allowed","trace_id":traceID})
+				return
+			}
+			if len(parts) == 5 && r.Method == http.MethodPost {
+				ruleID := parts[3]
+				if parts[4] == "pause" {
+					handleAlertRuleSetStatus(w, r, traceID, projectID, ruleID, "paused")
+					return
+				}
+				if parts[4] == "resume" {
+					handleAlertRuleSetStatus(w, r, traceID, projectID, ruleID, "active")
+					return
+				}
+			}
+			writeJSON(w, http.StatusNotFound, map[string]any{"error":"not_found","trace_id":traceID})
+			return
+		}
+
+		// ---------------------------
+		// Alerts (A-1)
+		// ---------------------------
+		if parts[2] == "alerts" {
+			if len(parts) == 4 && parts[3] == "fire" && r.Method == http.MethodPost {
+				handleAlertFire(w, r, traceID, projectID)
+				return
+			}
+			if len(parts) == 3 && r.Method == http.MethodGet {
+				handleAlertList(w, r, traceID, projectID)
+				return
+			}
+			if len(parts) == 5 && r.Method == http.MethodPost {
+				alertID := parts[3]
+				if parts[4] == "ack" {
+					handleAlertAck(w, r, traceID, projectID, alertID)
+					return
+				}
+				if parts[4] == "resolve" {
+					handleAlertResolve(w, r, traceID, projectID, alertID)
+					return
+				}
+			}
+			writeJSON(w, http.StatusNotFound, map[string]any{"error":"not_found","trace_id":traceID})
+			return
+		}
+
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not_found", "trace_id": traceID})
 	})
 
+	// root
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		traceID := ensureTraceID(w, r)
 		writeJSON(w, http.StatusOK, map[string]any{"service": serviceName, "message": "opssvc up", "trace_id": traceID})
@@ -357,10 +492,7 @@ func handleIncidentList(w http.ResponseWriter, r *http.Request, traceID, project
 	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
 
 	conn, err := openDB(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
 	defer conn.Close(r.Context())
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -377,22 +509,17 @@ func handleIncidentList(w http.ResponseWriter, r *http.Request, traceID, project
 	idx := 2
 	if status != "" {
 		query += " AND lower(status)=lower($" + strconv.Itoa(idx) + ")"
-		args = append(args, status)
-		idx++
+		args = append(args, status); idx++
 	}
 	if severity != "" {
 		query += " AND upper(severity)=upper($" + strconv.Itoa(idx) + ")"
-		args = append(args, severity)
-		idx++
+		args = append(args, severity); idx++
 	}
 	query += " ORDER BY detected_at_utc DESC LIMIT $" + strconv.Itoa(idx) + " OFFSET $" + strconv.Itoa(idx+1)
 	args = append(args, limit, offset)
 
 	rows, err := conn.Query(ctx, query, args...)
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
 	defer rows.Close()
 
 	var out []map[string]any
@@ -408,8 +535,7 @@ func handleIncidentList(w http.ResponseWriter, r *http.Request, traceID, project
 			created, updated time.Time
 		)
 		if err := rows.Scan(&id,&proj,&ikey,&st,&sev,&itype,&dby,&dat,&res,&sumID,&priID,&owner,&created,&updated); err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"scan_failed","detail":err.Error(),"trace_id":traceID})
-			return
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"scan_failed","detail":err.Error(),"trace_id":traceID}); return
 		}
 		out = append(out, map[string]any{
 			"id": id, "project_id": proj, "incident_key": ikey, "status": st, "severity": sev, "incident_type": itype,
@@ -423,15 +549,10 @@ func handleIncidentList(w http.ResponseWriter, r *http.Request, traceID, project
 
 func handleIncidentGet(w http.ResponseWriter, r *http.Request, traceID, projectID, incidentID string) {
 	id, err := strconv.ParseInt(incidentID, 10, 64)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_incident_id","trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_incident_id","trace_id":traceID}); return }
+
 	conn, err := openDB(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
 	defer conn.Close(r.Context())
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -456,10 +577,8 @@ func handleIncidentGet(w http.ResponseWriter, r *http.Request, traceID, projectI
 	    FROM incidents
 	   WHERE id=$1 AND project_id=$2
 	`, id, projectID).Scan(&proj,&ikey,&st,&sev,&itype,&rootTrace,&rootRun,&dby,&dat,&sumID,&priID,&owner,&res,&created,&updated)
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
+
 	writeJSON(w, http.StatusOK, map[string]any{"incident": map[string]any{
 		"id": id, "project_id": proj, "incident_key": ikey, "status": st, "severity": sev, "incident_type": itype,
 		"root_trace_id": rootTrace, "root_run_id": rootRun,
@@ -472,27 +591,20 @@ func handleIncidentGet(w http.ResponseWriter, r *http.Request, traceID, projectI
 
 func handleIncidentEventAppend(w http.ResponseWriter, r *http.Request, traceID, projectID, incidentID string) {
 	id, err := strconv.ParseInt(incidentID, 10, 64)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_incident_id","trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_incident_id","trace_id":traceID}); return }
+
 	var req IncidentEventAppendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID})
-		return
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID}); return
 	}
 	if strings.TrimSpace(req.EventType) == "" || req.Body == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_fields","detail":"event_type and body required","trace_id":traceID})
-		return
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_fields","detail":"event_type and body required","trace_id":traceID}); return
 	}
 	if req.CreatedByType == "" { req.CreatedByType = "system" }
 	if req.IdempotencyKey == "" { req.IdempotencyKey = "incev-" + newTraceID() }
 
 	conn, err := openDB(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
 	defer conn.Close(r.Context())
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
@@ -507,21 +619,19 @@ func handleIncidentEventAppend(w http.ResponseWriter, r *http.Request, traceID, 
 			"created_by_type": req.CreatedByType, "created_by_id": req.CreatedByID,
 			"at": time.Now().Format(time.RFC3339Nano),
 		}), req.IdempotencyKey)
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID}); return }
+
+	conn2, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn2.Close(r.Context())
 
 	var eventRowID int64
-	err = conn.QueryRow(ctx, `
+	err = conn2.QueryRow(ctx, `
 	  INSERT INTO incident_events(project_id, incident_id, event_type, event_evidence_asset_id, created_by_type, created_by_id)
 	  VALUES($1,$2,$3,$4,$5,$6)
 	  RETURNING id
 	`, projectID, id, req.EventType, evID, req.CreatedByType, nullIfEmptyString(req.CreatedByID)).Scan(&eventRowID)
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"incident_event_id": eventRowID,
@@ -533,26 +643,19 @@ func handleIncidentEventAppend(w http.ResponseWriter, r *http.Request, traceID, 
 
 func handleIncidentStatusUpdate(w http.ResponseWriter, r *http.Request, traceID, projectID, incidentID string) {
 	id, err := strconv.ParseInt(incidentID, 10, 64)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_incident_id","trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_incident_id","trace_id":traceID}); return }
+
 	var req IncidentStatusUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID})
-		return
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID}); return
 	}
 	if strings.TrimSpace(req.Status) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_status","trace_id":traceID})
-		return
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_status","trace_id":traceID}); return
 	}
 	if req.IdempotencyKey == "" { req.IdempotencyKey = "incst-" + newTraceID() }
 
 	conn, err := openDB(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
 	defer conn.Close(r.Context())
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -569,14 +672,13 @@ func handleIncidentStatusUpdate(w http.ResponseWriter, r *http.Request, traceID,
 	         updated_at=now()
 	   WHERE id=$3 AND project_id=$4
 	`, req.Status, resolvedAt, id, projectID)
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
 
 	// best-effort note event
 	if strings.TrimSpace(req.Note) != "" {
-		_ = appendIncidentEventBestEffort(ctx, conn, projectID, id, "note", map[string]any{"status":req.Status,"note":req.Note,"user_id":req.UserID}, traceID, req.IdempotencyKey+"-note")
+		_ = appendIncidentEventBestEffort(ctx, conn, projectID, id, "note",
+			map[string]any{"status": req.Status, "note": req.Note, "user_id": req.UserID},
+			traceID, req.IdempotencyKey+"-note")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"incident_id": id, "status": req.Status, "trace_id": traceID})
@@ -599,17 +701,15 @@ func appendIncidentEventBestEffort(ctx context.Context, conn *pgx.Conn, projectI
 }
 
 // ============================================================
-// Runbooks (unchanged)
+// Runbooks (ops_v11)
 // ============================================================
 func handleRunbookUpsert(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
 	var req RunbookUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json", "trace_id": traceID})
-		return
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID}); return
 	}
 	if req.RunbookKey == "" || req.Title == "" || req.Steps == nil || req.SafetyChecks == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_fields","detail":"runbook_key,title,steps,safety_checks required","trace_id":traceID})
-		return
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_fields","detail":"runbook_key,title,steps,safety_checks required","trace_id":traceID}); return
 	}
 	if req.Status == "" { req.Status = "active" }
 	if req.CreatedByType == "" { req.CreatedByType = "system" }
@@ -617,10 +717,7 @@ func handleRunbookUpsert(w http.ResponseWriter, r *http.Request, traceID, projec
 	if req.IdempotencyKey == "" { req.IdempotencyKey = "rbk-" + newTraceID() }
 
 	conn, err := openDB(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
 	defer conn.Close(r.Context())
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
@@ -628,35 +725,26 @@ func handleRunbookUpsert(w http.ResponseWriter, r *http.Request, traceID, projec
 	evidenceDir := os.Getenv("OPSSVC_EVIDENCE_DIR")
 	if evidenceDir == "" { evidenceDir = defaultEvidenceDir }
 	if err := os.MkdirAll(evidenceDir, 0o755); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_dir_unavailable","detail":err.Error(),"trace_id":traceID})
-		return
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_dir_unavailable","detail":err.Error(),"trace_id":traceID}); return
 	}
 
 	stepsBytes, _ := json.Marshal(req.Steps)
 	stepsSha := sha256Hex(stepsBytes)
 	stepsPath := filepath.Join(evidenceDir, "runbook_steps_"+stepsSha+".json")
 	if err := writeFileIfNotExists(stepsPath, stepsBytes); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_write_failed","detail":err.Error(),"trace_id":traceID})
-		return
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_write_failed","detail":err.Error(),"trace_id":traceID}); return
 	}
 	stepsRef, _, err := evidenceRegisterV18(ctx, conn, projectID, traceID, "system", "opssvc", "text", "application/json", "generated", stepsPath, stepsSha, int64(len(stepsBytes)), "ja", "standard", nil, "evi-"+req.IdempotencyKey+"-steps")
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID}); return }
 
 	checkBytes, _ := json.Marshal(req.SafetyChecks)
 	checkSha := sha256Hex(checkBytes)
 	checkPath := filepath.Join(evidenceDir, "runbook_safety_"+checkSha+".json")
 	if err := writeFileIfNotExists(checkPath, checkBytes); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_write_failed","detail":err.Error(),"trace_id":traceID})
-		return
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_write_failed","detail":err.Error(),"trace_id":traceID}); return
 	}
 	checkRef, _, err := evidenceRegisterV18(ctx, conn, projectID, traceID, "system", "opssvc", "text", "application/json", "generated", checkPath, checkSha, int64(len(checkBytes)), "ja", "standard", nil, "evi-"+req.IdempotencyKey+"-checks")
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID})
-		return
-	}
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID}); return }
 
 	roles := req.RequiredRoles
 	if roles == nil { roles = []string{} }
@@ -668,8 +756,7 @@ func handleRunbookUpsert(w http.ResponseWriter, r *http.Request, traceID, projec
 		)::text
 	`, projectID, req.RunbookKey, req.Title, stepsRef, checkRef, roles, req.Status, req.CreatedByType, req.CreatedByID).Scan(&runbookID)
 	if err != nil || runbookID == nil || *runbookID == "" {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID})
-		return
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runbook_id": *runbookID, "steps_evidence_ref": stepsRef, "safety_checks_evidence_ref": checkRef, "trace_id": traceID})
 }
@@ -747,7 +834,7 @@ func handleRunbookGet(w http.ResponseWriter, r *http.Request, traceID, projectID
 }
 
 // ============================================================
-// Actions (minimal: propose/list/get/approve/reject/execute)
+// Actions (remediation_*)  --- minimal, kept same behavior
 // ============================================================
 func handleActionPropose(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
 	var req ActionProposeRequest
@@ -847,13 +934,11 @@ func handleActionList(w http.ResponseWriter, r *http.Request, traceID, projectID
 	idx := 2
 	if status != "" {
 		query += " AND lower(status)=lower($" + strconv.Itoa(idx) + ")"
-		args = append(args, status)
-		idx++
+		args = append(args, status); idx++
 	}
 	if incidentID != nil {
 		query += " AND incident_id=$" + strconv.Itoa(idx)
-		args = append(args, incidentID)
-		idx++
+		args = append(args, incidentID); idx++
 	}
 	query += " ORDER BY updated_at DESC LIMIT $" + strconv.Itoa(idx) + " OFFSET $" + strconv.Itoa(idx+1)
 	args = append(args, limit, offset)
@@ -897,6 +982,7 @@ func handleActionList(w http.ResponseWriter, r *http.Request, traceID, projectID
 func handleActionGet(w http.ResponseWriter, r *http.Request, traceID, projectID, proposalID string) {
 	id, err := strconv.ParseInt(proposalID, 10, 64)
 	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_proposal_id","trace_id":traceID}); return }
+
 	conn, err := openDB(r.Context())
 	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
 	defer conn.Close(r.Context())
@@ -953,13 +1039,9 @@ func handleActionApprove(w http.ResponseWriter, r *http.Request, traceID, projec
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
-	_, err = conn.Exec(ctx, `
-	  UPDATE remediation_proposals
-	     SET status='approved', approved_by_user_id=$1, approved_at_utc=now(), updated_at=now()
-	   WHERE id=$2 AND project_id=$3
-	`, req.UserID, id, projectID)
+	_, err = conn.Exec(ctx, `UPDATE remediation_proposals SET status='approved', approved_by_user_id=$1, approved_at_utc=now(), updated_at=now() WHERE id=$2 AND project_id=$3`,
+		req.UserID, id, projectID)
 	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
-
 	writeJSON(w, http.StatusOK, map[string]any{"proposal_id": id, "status":"approved", "trace_id": traceID})
 }
 
@@ -1020,7 +1102,8 @@ func handleActionExecute(w http.ResponseWriter, r *http.Request, traceID, projec
 
 	var pty, st string
 	var planAssetID int64
-	if err := conn.QueryRow(ctx, `SELECT proposal_type, status, proposal_plan_evidence_asset_id FROM remediation_proposals WHERE id=$1 AND project_id=$2`, id, projectID).Scan(&pty,&st,&planAssetID); err != nil {
+	if err := conn.QueryRow(ctx, `SELECT proposal_type, status, proposal_plan_evidence_asset_id FROM remediation_proposals WHERE id=$1 AND project_id=$2`,
+		id, projectID).Scan(&pty,&st,&planAssetID); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return
 	}
 	if strings.ToLower(st) != "approved" {
@@ -1046,8 +1129,8 @@ func handleActionExecute(w http.ResponseWriter, r *http.Request, traceID, projec
 	_ = os.MkdirAll(evidenceDir, 0o755)
 
 	actionKey := "act-" + req.IdempotencyKey
-
 	result := map[string]any{"proposal_id": id, "proposal_type": pty, "plan": plan}
+
 	execErr := ""
 	switch strings.ToLower(pty) {
 	case "policy_rollback":
@@ -1083,7 +1166,8 @@ func handleActionExecute(w http.ResponseWriter, r *http.Request, traceID, projec
 	}
 
 	if statusOut == "succeeded" {
-		_, _ = conn.Exec(ctx, `UPDATE remediation_proposals SET status='applied', applied_by_user_id=$1, applied_at_utc=now(), updated_at=now() WHERE id=$2 AND project_id=$3`, req.ExecutorUserID, id, projectID)
+		_, _ = conn.Exec(ctx, `UPDATE remediation_proposals SET status='applied', applied_by_user_id=$1, applied_at_utc=now(), updated_at=now() WHERE id=$2 AND project_id=$3`,
+			req.ExecutorUserID, id, projectID)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -1094,6 +1178,364 @@ func handleActionExecute(w http.ResponseWriter, r *http.Request, traceID, projec
 		"action_evidence_asset_id": actionEvidenceID,
 		"trace_id": traceID,
 	})
+}
+
+// ============================================================
+// Channels (ops_v11 exec-only)
+// ============================================================
+func handleChannelUpsert(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
+	var req ChannelUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID}); return
+	}
+	if strings.TrimSpace(req.ChannelKey) == "" || strings.TrimSpace(req.ChannelType) == "" || strings.TrimSpace(req.DestinationRef) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_fields","detail":"channel_key, channel_type, destination_ref required","trace_id":traceID}); return
+	}
+	if req.Status == "" { req.Status = "active" }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	var id *int64
+	err = conn.QueryRow(ctx, `SELECT ops_v11.notify_channel_upsert_v11($1::varchar,$2::text,$3::varchar,$4::text,$5::varchar)`,
+		projectID, req.ChannelKey, req.ChannelType, req.DestinationRef, req.Status).Scan(&id)
+	if err != nil || id == nil || *id == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"channel_id": *id, "trace_id": traceID})
+}
+
+func handleChannelList(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
+	status := r.URL.Query().Get("status")
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 50)
+	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
+	var statusArg any = nil
+	if status != "" { statusArg = status }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	rows, err := conn.Query(ctx, `
+	  SELECT id, project_id, channel_key, channel_type, destination_ref, status, created_at, updated_at
+	    FROM ops_v11.notify_channel_list_v11($1::varchar,$2::varchar,$3::int,$4::int)
+	`, projectID, statusArg, limit, offset)
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer rows.Close()
+
+	var out []map[string]any
+	for rows.Next() {
+		var id int64
+		var proj, key, ctype, dest, st string
+		var created, updated time.Time
+		if err := rows.Scan(&id,&proj,&key,&ctype,&dest,&st,&created,&updated); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"scan_failed","detail":err.Error(),"trace_id":traceID}); return
+		}
+		out = append(out, map[string]any{
+			"id": id, "project_id": proj, "channel_key": key, "channel_type": ctype, "destination_ref": dest,
+			"status": st, "created_at": created, "updated_at": updated,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"channels": out, "trace_id": traceID})
+}
+
+func handleChannelSetStatus(w http.ResponseWriter, r *http.Request, traceID, projectID, channelID, status string) {
+	var body SimpleConfirm
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !body.Confirm {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"confirm_required","trace_id":traceID}); return
+	}
+	id, err := strconv.ParseInt(channelID, 10, 64)
+	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_channel_id","trace_id":traceID}); return }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	var ok bool
+	err = conn.QueryRow(ctx, `SELECT ops_v11.notify_channel_set_status_v11($1::varchar,$2::bigint,$3::varchar)`,
+		projectID, id, status).Scan(&ok)
+	if err != nil || !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"channel_id": id, "status": status, "trace_id": traceID})
+}
+
+// ============================================================
+// Alert Rules (ops_v11 exec-only)
+// ============================================================
+func handleAlertRuleUpsert(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
+	var req AlertRuleUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID}); return
+	}
+	if strings.TrimSpace(req.RuleKey) == "" || strings.TrimSpace(req.Severity) == "" || strings.TrimSpace(req.DedupeKeyTemplate) == "" || req.Condition == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_fields","detail":"rule_key,severity,dedupe_key_template,condition required","trace_id":traceID}); return
+	}
+	if req.Status == "" { req.Status = "active" }
+	if req.CooldownSeconds == 0 { req.CooldownSeconds = 300 }
+	if req.IdempotencyKey == "" { req.IdempotencyKey = "rule-" + newTraceID() }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+
+	evidenceDir := os.Getenv("OPSSVC_EVIDENCE_DIR")
+	if evidenceDir == "" { evidenceDir = defaultEvidenceDir }
+	_ = os.MkdirAll(evidenceDir, 0o755)
+
+	condAssetID, _, err := evidenceRegisterV18AsAssetID(ctx, conn, projectID, traceID, "system", "opssvc", "generated",
+		writeJSONFile(evidenceDir, "alert_condition", req.Condition), req.IdempotencyKey+"-condition")
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID}); return
+	}
+
+	var ruleID *int64
+	err = conn.QueryRow(ctx, `
+	  SELECT ops_v11.alert_rule_upsert_v11(
+	    $1::varchar,$2::text,$3::varchar,$4::varchar,$5::bigint,$6::text,$7::int,$8::bigint[]
+	  )
+	`, projectID, req.RuleKey, req.Severity, req.Status, condAssetID, req.DedupeKeyTemplate, req.CooldownSeconds, req.NotifyChannelIDs).Scan(&ruleID)
+	if err != nil || ruleID == nil || *ruleID == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rule_id": *ruleID, "condition_evidence_asset_id": condAssetID, "trace_id": traceID})
+}
+
+func handleAlertRuleList(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
+	status := r.URL.Query().Get("status")
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 50)
+	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
+	var statusArg any = nil
+	if status != "" { statusArg = status }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	rows, err := conn.Query(ctx, `
+	  SELECT id, project_id, rule_key, severity, status,
+	         condition_evidence_asset_id, dedupe_key_template, cooldown_seconds, notify_channel_ids,
+	         created_at, updated_at
+	    FROM ops_v11.alert_rule_list_v11($1::varchar,$2::varchar,$3::int,$4::int)
+	`, projectID, statusArg, limit, offset)
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer rows.Close()
+
+	var out []map[string]any
+	for rows.Next() {
+		var id int64
+		var proj, key, sev, st, tmpl string
+		var condID int64
+		var cooldown int
+		var notifyIDs []int64
+		var created, updated time.Time
+		if err := rows.Scan(&id,&proj,&key,&sev,&st,&condID,&tmpl,&cooldown,&notifyIDs,&created,&updated); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"scan_failed","detail":err.Error(),"trace_id":traceID}); return
+		}
+		out = append(out, map[string]any{
+			"id": id, "project_id": proj, "rule_key": key, "severity": sev, "status": st,
+			"condition_evidence_asset_id": condID, "dedupe_key_template": tmpl, "cooldown_seconds": cooldown,
+			"notify_channel_ids": notifyIDs,
+			"created_at": created, "updated_at": updated,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"alert_rules": out, "trace_id": traceID})
+}
+
+func handleAlertRuleSetStatus(w http.ResponseWriter, r *http.Request, traceID, projectID, ruleID, status string) {
+	var body SimpleConfirm
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !body.Confirm {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"confirm_required","trace_id":traceID}); return
+	}
+	id, err := strconv.ParseInt(ruleID, 10, 64)
+	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_rule_id","trace_id":traceID}); return }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	var ok bool
+	err = conn.QueryRow(ctx, `SELECT ops_v11.alert_rule_set_status_v11($1::varchar,$2::bigint,$3::varchar)`, projectID, id, status).Scan(&ok)
+	if err != nil || !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rule_id": id, "status": status, "trace_id": traceID})
+}
+
+// ============================================================
+// Alerts (ops_v11 exec-only)
+// ============================================================
+func handleAlertFire(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
+	var req AlertFireRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_json","trace_id":traceID}); return
+	}
+	if req.RuleID == 0 || strings.TrimSpace(req.DedupeKey) == "" || req.Context == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error":"missing_fields","detail":"rule_id, dedupe_key, context required","trace_id":traceID}); return
+	}
+	if req.TraceID == "" { req.TraceID = traceID }
+	if req.IdempotencyKey == "" { req.IdempotencyKey = "alert-" + newTraceID() }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+
+	evidenceDir := os.Getenv("OPSSVC_EVIDENCE_DIR")
+	if evidenceDir == "" { evidenceDir = defaultEvidenceDir }
+	_ = os.MkdirAll(evidenceDir, 0o755)
+
+	ctxAssetID, _, err := evidenceRegisterV18AsAssetID(ctx, conn, projectID, req.TraceID, "system", "opssvc", "generated",
+		writeJSONFile(evidenceDir, "alert_context", req.Context), req.IdempotencyKey+"-context")
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"evidence_register_failed","detail":err.Error(),"trace_id":traceID}); return }
+
+	// optional uuid params
+	var runID any = nil
+	if strings.TrimSpace(req.RunID) != "" { runID = req.RunID }
+	var psID any = nil
+	if strings.TrimSpace(req.PolicySetID) != "" { psID = req.PolicySetID }
+	var pvID any = nil
+	if strings.TrimSpace(req.PolicyVersionID) != "" { pvID = req.PolicyVersionID }
+
+	var alertID int64
+	var found bool
+	err = conn.QueryRow(ctx, `
+	  SELECT alert_id, found_existing
+	    FROM ops_v11.alert_fire_v11(
+	      $1::varchar,
+	      $2::bigint,
+	      $3::text,
+	      $4::text,
+	      $5::uuid,
+	      $6::uuid,
+	      $7::uuid,
+	      $8::varchar,
+	      $9::bigint,
+	      $10::bigint[]
+	    )
+	`, projectID, req.RuleID, req.DedupeKey, req.TraceID, runID, psID, pvID, nullIfEmptyString(req.ProviderHint), ctxAssetID, req.RelatedEvidenceAssetIDs).Scan(&alertID, &found)
+	if err != nil || alertID == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"alert_id": alertID,
+		"found_existing": found,
+		"context_evidence_asset_id": ctxAssetID,
+		"trace_id": traceID,
+	})
+}
+
+func handleAlertList(w http.ResponseWriter, r *http.Request, traceID, projectID string) {
+	status := r.URL.Query().Get("status")
+	severity := r.URL.Query().Get("severity")
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 50)
+	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
+
+	var statusArg any = nil
+	if status != "" { statusArg = status }
+	var sevArg any = nil
+	if severity != "" { sevArg = severity }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	rows, err := conn.Query(ctx, `
+	  SELECT id, project_id, rule_id, severity, status, fired_at_utc, resolved_at_utc, dedupe_key,
+	         trace_id, run_id::text, policy_set_id::text, policy_version_id::text, provider_hint,
+	         context_evidence_asset_id, related_evidence_asset_ids, created_at, updated_at
+	    FROM ops_v11.alert_list_v11($1::varchar,$2::varchar,$3::varchar,$4::int,$5::int)
+	`, projectID, statusArg, sevArg, limit, offset)
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer rows.Close()
+
+	var out []map[string]any
+	for rows.Next() {
+		var (
+			id int64
+			proj string
+			ruleID int64
+			sev, st, dedupe string
+			fired time.Time
+			resolved *time.Time
+			tid *string
+			runID *string
+			pSet *string
+			pVer *string
+			provider *string
+			ctxID int64
+			rel []int64
+			created, updated time.Time
+		)
+		if err := rows.Scan(&id,&proj,&ruleID,&sev,&st,&fired,&resolved,&dedupe,&tid,&runID,&pSet,&pVer,&provider,&ctxID,&rel,&created,&updated); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"scan_failed","detail":err.Error(),"trace_id":traceID}); return
+		}
+		out = append(out, map[string]any{
+			"id": id, "project_id": proj, "rule_id": ruleID, "severity": sev, "status": st,
+			"fired_at_utc": fired, "resolved_at_utc": resolved, "dedupe_key": dedupe,
+			"trace_id": tid, "run_id": runID, "policy_set_id": pSet, "policy_version_id": pVer, "provider_hint": provider,
+			"context_evidence_asset_id": ctxID, "related_evidence_asset_ids": rel,
+			"created_at": created, "updated_at": updated,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"alerts": out, "trace_id": traceID})
+}
+
+func handleAlertAck(w http.ResponseWriter, r *http.Request, traceID, projectID, alertID string) {
+	var body SimpleConfirm
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !body.Confirm { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"confirm_required","trace_id":traceID}); return }
+	id, err := strconv.ParseInt(alertID, 10, 64)
+	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_alert_id","trace_id":traceID}); return }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	var ok bool
+	err = conn.QueryRow(ctx, `SELECT ops_v11.alert_ack_v11($1::varchar,$2::bigint)`, projectID, id).Scan(&ok)
+	if err != nil || !ok { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return }
+	writeJSON(w, http.StatusOK, map[string]any{"alert_id": id, "status":"acknowledged", "trace_id": traceID})
+}
+
+func handleAlertResolve(w http.ResponseWriter, r *http.Request, traceID, projectID, alertID string) {
+	var body SimpleConfirm
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !body.Confirm { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"confirm_required","trace_id":traceID}); return }
+	id, err := strconv.ParseInt(alertID, 10, 64)
+	if err != nil { writeJSON(w, http.StatusBadRequest, map[string]any{"error":"invalid_alert_id","trace_id":traceID}); return }
+
+	conn, err := openDB(r.Context())
+	if err != nil { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"connect_failed","detail":err.Error(),"trace_id":traceID}); return }
+	defer conn.Close(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	var ok bool
+	err = conn.QueryRow(ctx, `SELECT ops_v11.alert_resolve_v11($1::varchar,$2::bigint)`, projectID, id).Scan(&ok)
+	if err != nil || !ok { writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error":"db_call_failed","detail":errString(err),"trace_id":traceID}); return }
+	writeJSON(w, http.StatusOK, map[string]any{"alert_id": id, "status":"resolved", "trace_id": traceID})
 }
 
 // ============================================================
