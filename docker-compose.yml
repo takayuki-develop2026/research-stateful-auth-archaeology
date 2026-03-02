@@ -405,6 +405,63 @@ services:
     networks:
       - simulation1_network
 
+
+
+
+# ============================================================
+  # １８　　v12) Decision Core Service (decisioncoresvc)
+  # ============================================================
+  decisioncoresvc:
+    build:
+      context: .
+      dockerfile: services/decisioncoresvc/Dockerfile
+    environment:
+      AK_DB_DSN: postgres://decisioncoresvc:decisioncoresvc@ak_postgres:5432/ak?sslmode=disable
+      AK_PROJECT_ID: seed_project
+      AK_PIPELINE_VERSION: v23
+      AK_POLICY_VERSION_STR: v23
+      TZ: Asia/Tokyo
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    restart: "no"
+
+
+  decisioncore_server:
+    build:
+      context: .
+      dockerfile: services/decisioncoresvc/Dockerfile
+    environment:
+      AK_DB_DSN: postgres://decisioncoresvc:decisioncoresvc@ak_postgres:5432/ak?sslmode=disable
+      DECISIONCORESVC_PORT: "9023"
+      TZ: Asia/Tokyo
+    ports:
+      - "9023:9023"
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    command: ["/app/decisioncore_server"]
+
+  decisioncore_worker:
+    image: research-stateful-auth-archaeology-decisioncore_server:latest
+    entrypoint: ["/app/decisioncore_worker"]
+    environment:
+      AK_DB_DSN: postgres://decisioncoresvc:decisioncoresvc@ak_postgres:5432/ak?sslmode=disable
+      AK_PROJECT_ID: akproj_0000000000000000000
+      AK_WORKER_NAME: decisioncore-worker-1
+      DECISIONCORE_WORKER_POLL_MS: "500"
+      TZ: Asia/Tokyo
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    restart: unless-stopped
+
 # ============================================================
 # Network Definition
 # ============================================================
