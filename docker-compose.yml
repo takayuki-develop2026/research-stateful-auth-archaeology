@@ -261,7 +261,7 @@ services:
   # worker「常時2台」設定（buildなし：同一imageを参照）
   # ============================================================
   ak_go_worker:
-    image: research-stateful-auth-archaeology/ak-go-core:v3
+    image: research-stateful-auth-archaeology/ak-go-core:v4
     environment:
       AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
       AK_REDIS_ADDR: ak_redis:6379
@@ -279,7 +279,7 @@ services:
     restart: unless-stopped
 
   ak_go_worker_2:
-    image: research-stateful-auth-archaeology/ak-go-core:v3
+    image: research-stateful-auth-archaeology/ak-go-core:v4
     environment:
       AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
       AK_REDIS_ADDR: ak_redis:6379
@@ -572,6 +572,37 @@ services:
     restart: unless-stopped
     entrypoint: ["./ledgersvc_server"]
 
+
+# ============================================================
+  # 20) v15) Ledger Ingestor (ledgersvc_ingestor)
+  # ============================================================
+
+
+  runschedsvc:
+    build:
+      context: ./services/runschedsvc
+      dockerfile: Dockerfile
+    environment:
+      AK_PROJECT_ID: akproj_0000000000000000000
+      AK_PG_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
+      # RUNSCHED_FORCE_BUDGET_DENY: "true"
+      RUNSCHED_TICK_EVERY: "60s"
+      RUNSCHED_DISPATCH_EVERY: "2s"
+      RUNSCHED_TICK_LIMIT: "50"
+      RUNSCHED_DISPATCH_LIMIT: "200"
+      RUNSCHED_CRON_PREVIEW_LIMIT: "200"
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    networks:
+      - simulation1_network
 # ============================================================
 # Network Definition
 # ============================================================

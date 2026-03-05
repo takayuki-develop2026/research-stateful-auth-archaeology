@@ -27,8 +27,19 @@ type RunRow struct {
 	TraceID string
 }
 
+// PickQueuedRun claims a single queued run and transitions it to running.
+//
+// DB truth (public.runs):
+// - run_id uuid PK
+// - trace_id uuid NOT NULL
+// - status run_status (queued|created|running|done|failed)
+// - NO "state" column
+//
+// Contract:
+// - Never throw from DB layer: caller decides error policy.
+// - Use SKIP LOCKED to allow concurrent workers.
 func (s *Store) PickQueuedRun(ctx context.Context, workerID string) (RunRow, bool, error) {
-	_ = workerID // future: picked_by
+	_ = workerID // future: picked_by in run_artifacts or run_events
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -41,9 +52,9 @@ func (s *Store) PickQueuedRun(ctx context.Context, workerID string) (RunRow, boo
 
 	var r RunRow
 	err = tx.QueryRow(ctx, `
-		SELECT run_id, trace_id
+		SELECT run_id::text, trace_id::text
 		FROM runs
-		WHERE state = 'queued'
+		WHERE status = 'queued'
 		ORDER BY created_at ASC
 		FOR UPDATE SKIP LOCKED
 		LIMIT 1
@@ -58,37 +69,35 @@ func (s *Store) PickQueuedRun(ctx context.Context, workerID string) (RunRow, boo
 	r.RunID = NormalizeRunID(r.RunID)
 	r.TraceID = strings.TrimSpace(r.TraceID)
 
-	if !IsValidRunID(r.RunID) {
-		_, _ = tx.Exec(ctx, `
-			UPDATE runs
-			SET state='review_required', status='review_required', result=COALESCE(NULLIF(result,''),'pending'), updated_at=now()
-			WHERE run_id=$1
-		`, r.RunID)
-		_ = tx.Commit(ctx)
-		return RunRow{}, false, fmt.Errorf("invalid run_id length: %q", r.RunID)
-	}
-
+	// trace_id should always be present (DB NOT NULL), but guard anyway.
 	if r.TraceID == "" {
-		r.TraceID = NewTraceID()
-		_, err = tx.Exec(ctx, `
+		err = tx.QueryRow(ctx, `
 			UPDATE runs
-			SET trace_id=$2
-			WHERE run_id=$1
-		`, r.RunID, r.TraceID)
+			SET trace_id = gen_random_uuid(),
+			    updated_at = now()
+			WHERE run_id = $1::uuid
+			RETURNING trace_id::text
+		`, r.RunID).Scan(&r.TraceID)
 		if err != nil {
 			return RunRow{}, false, err
 		}
+		r.TraceID = strings.TrimSpace(r.TraceID)
 	}
 
+	// Transition queued -> running (idempotent check)
 	tag, err := tx.Exec(ctx, `
 		UPDATE runs
-		SET state='running', status=NULL, result=COALESCE(NULLIF(result,''),'pending'), updated_at=now()
-		WHERE run_id=$1 AND state='queued'
+		SET status = 'running',
+		    started_at = now(),
+		    updated_at = now()
+		WHERE run_id = $1::uuid
+		  AND status = 'queued'
 	`, r.RunID)
 	if err != nil {
 		return RunRow{}, false, err
 	}
 	if tag.RowsAffected() != 1 {
+		// Lost race (someone else updated) or run not queued anymore.
 		return RunRow{}, false, nil
 	}
 
@@ -108,12 +117,12 @@ func (s *Store) GetRunProjectID(ctx context.Context, runID string) (string, erro
 	err := s.db.QueryRow(ctx, `
 		SELECT project_id
 		FROM runs
-		WHERE run_id = $1
+		WHERE run_id = $1::uuid
 	`, runID).Scan(&projectID)
 	return strings.TrimSpace(projectID), err
 }
 
-func (s *Store) GetRunState(ctx context.Context, runID string) (string, error) {
+func (s *Store) GetRunStatus(ctx context.Context, runID string) (string, error) {
 	runID = NormalizeRunID(runID)
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -121,14 +130,19 @@ func (s *Store) GetRunState(ctx context.Context, runID string) (string, error) {
 
 	var st string
 	err := s.db.QueryRow(ctx, `
-		SELECT state
+		SELECT status::text
 		FROM runs
-		WHERE run_id=$1
+		WHERE run_id=$1::uuid
 	`, runID).Scan(&st)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(st), nil
+}
+
+// Kept for backward call sites (old name).
+func (s *Store) GetRunState(ctx context.Context, runID string) (string, error) {
+	return s.GetRunStatus(ctx, runID)
 }
 
 func (s *Store) GetRunModeFromEnqueuedEvent(ctx context.Context, runID string) (int, error) {
@@ -141,7 +155,7 @@ func (s *Store) GetRunModeFromEnqueuedEvent(ctx context.Context, runID string) (
 	err := s.db.QueryRow(ctx, `
 		SELECT COALESCE(payload->>'mode', '')
 		FROM run_events
-		WHERE run_id = $1 AND event_name = 'run.enqueued'
+		WHERE run_id = $1::uuid AND event_name = 'run.enqueued'
 		ORDER BY event_seq ASC
 		LIMIT 1
 	`, runID).Scan(&modeText)
@@ -168,16 +182,18 @@ func (s *Store) AppendEvent(ctx context.Context, runID, traceID, eventName strin
 	return s.appendEventInternal(ctx, runID, traceID, eventName, payload, "", false)
 }
 
-func (s *Store) AppendEventAndStatus(ctx context.Context, runID, traceID, eventName, newState string, payload map[string]any) error {
-	return s.appendEventInternal(ctx, runID, traceID, eventName, payload, newState, true)
+// AppendEventAndStatus updates runs.status to a new run_status value and writes a run_event.
+// newStatus must be a valid enum value in run_status.
+func (s *Store) AppendEventAndStatus(ctx context.Context, runID, traceID, eventName, newStatus string, payload map[string]any) error {
+	return s.appendEventInternal(ctx, runID, traceID, eventName, payload, newStatus, true)
 }
 
 func (s *Store) appendEventInternal(
 	ctx context.Context,
 	runID, traceID, eventName string,
 	payload map[string]any,
-	newState string,
-	updateState bool,
+	newStatus string,
+	updateStatus bool,
 ) error {
 	runID = NormalizeRunID(runID)
 	traceID = strings.TrimSpace(traceID)
@@ -191,80 +207,70 @@ func (s *Store) appendEventInternal(
 	}
 	defer tx.Rollback(ctx)
 
-	seq, err := nextEventSeqTx(ctx, tx, runID)
+	// Ensure we have a trace_id (uuid text).
+	var dbTraceID string
+	err = tx.QueryRow(ctx, `
+		SELECT trace_id::text
+		FROM runs
+		WHERE run_id=$1::uuid
+		FOR UPDATE
+	`, runID).Scan(&dbTraceID)
 	if err != nil {
 		return err
 	}
+	dbTraceID = strings.TrimSpace(dbTraceID)
+	if traceID == "" {
+		traceID = dbTraceID
+	}
 
-	if traceID != "" {
-		_, _ = tx.Exec(ctx, `
-			UPDATE runs
-			SET trace_id = CASE WHEN COALESCE(NULLIF(BTRIM(trace_id),''),'') = '' THEN $2 ELSE trace_id END
-			WHERE run_id=$1
-		`, runID, traceID)
+	seq, err := nextEventSeqTx(ctx, tx, runID)
+	if err != nil {
+		return err
 	}
 
 	pb := MarshalJSONOrEmptyMap(payload)
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
-		VALUES ($1,$2,$3,$4,$5::jsonb)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb)
 	`, runID, traceID, seq, eventName, pb)
 	if err != nil {
 		return err
 	}
 
-	if !updateState {
+	if !updateStatus {
 		_, err = tx.Exec(ctx, `
 			UPDATE runs
-			SET next_event_seq=$2, updated_at=now()
-			WHERE run_id=$1
-		`, runID, seq+1)
+			SET updated_at=now()
+			WHERE run_id=$1::uuid
+		`, runID)
 		if err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
 	}
 
-	// state/status/result policy
-	var status any = nil
-	var result any = nil
-
-	switch newState {
-	case "done":
-		status = nil
-		result = "success"
-	case "failed":
-		status = "failed"
-		result = "failed"
-	case "review_required":
-		status = "review_required"
-		result = "pending"
-	default:
-		status = nil
-		result = nil
-	}
-
+	// Update status and timestamps.
+	// - done => finished_at set
+	// - failed => finished_at set
+	// - others => no finished_at
 	var tag pgconn.CommandTag
-	if result == nil {
+	switch newStatus {
+	case "done", "failed":
 		tag, err = tx.Exec(ctx, `
 			UPDATE runs
-			SET state=$2,
-			    status=$3,
-			    next_event_seq=$4,
+			SET status=$2::run_status,
+			    finished_at=now(),
 			    updated_at=now()
-			WHERE run_id=$1
-		`, runID, newState, status, seq+1)
-	} else {
+			WHERE run_id=$1::uuid
+		`, runID, newStatus)
+	default:
 		tag, err = tx.Exec(ctx, `
 			UPDATE runs
-			SET state=$2,
-			    status=$3,
-			    result=$4,
-			    next_event_seq=$5,
+			SET status=$2::run_status,
 			    updated_at=now()
-			WHERE run_id=$1
-		`, runID, newState, status, result, seq+1)
+			WHERE run_id=$1::uuid
+		`, runID, newStatus)
 	}
 	if err != nil {
 		return err
@@ -276,48 +282,21 @@ func (s *Store) appendEventInternal(
 	return tx.Commit(ctx)
 }
 
+// nextEventSeqTx allocates next event_seq as max(event_seq)+1.
+// runs has no next_event_seq column in current DB.
 func nextEventSeqTx(ctx context.Context, tx pgx.Tx, runID string) (int64, error) {
 	runID = NormalizeRunID(runID)
 
-	var next int64
-	err := tx.QueryRow(ctx, `
-		SELECT COALESCE(NULLIF(next_event_seq,0), 1)
-		FROM runs
-		WHERE run_id=$1
-		FOR UPDATE
-	`, runID).Scan(&next)
-	if err != nil {
-		return 0, err
-	}
-
 	var maxSeq int64
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT COALESCE(MAX(event_seq), 0)
 		FROM run_events
-		WHERE run_id=$1
+		WHERE run_id=$1::uuid
 	`, runID).Scan(&maxSeq)
 	if err != nil {
 		return 0, err
 	}
-
-	safe := next
-	if maxSeq+1 > safe {
-		safe = maxSeq + 1
-	}
-
-	if safe != next {
-		_, err = tx.Exec(ctx, `
-			UPDATE runs
-			SET next_event_seq = $2,
-			    updated_at = now()
-			WHERE run_id = $1
-		`, runID, safe)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	return safe, nil
+	return maxSeq + 1, nil
 }
 
 func (s *Store) UpsertRunArtifact(ctx context.Context, runID, traceID, kind string, content any) error {
@@ -340,7 +319,7 @@ func (s *Store) UpsertRunArtifact(ctx context.Context, runID, traceID, kind stri
 		b = []byte(`{}`)
 	}
 
-	runIDText := runID // bpchar vs text parameter split
+	runIDText := runID
 
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO run_artifacts(
@@ -357,17 +336,17 @@ func (s *Store) UpsertRunArtifact(ctx context.Context, runID, traceID, kind stri
 			trace_trace_id
 		)
 		VALUES (
-			$1,
+			$1::uuid,
 			$2,
 			$3::jsonb,
 			now(),
 			now(),
 			$4,
-			$5,
+			$5::uuid,
 			$2,
 			$6,
-			$5,
-			$5
+			$5::uuid,
+			$5::uuid
 		)
 		ON CONFLICT (run_id, artifact_kind)
 		DO UPDATE SET
@@ -411,7 +390,7 @@ func (s *Store) BeginAttemptTx(ctx context.Context, runID, traceID, projectID, w
 	err = tx.QueryRow(ctx, `
 		SELECT COALESCE(content_json::text, '')
 		FROM run_artifacts
-		WHERE run_id = $1 AND artifact_kind = 'attempt_state'
+		WHERE run_id = $1::uuid AND artifact_kind = 'attempt_state'
 		LIMIT 1
 	`, runID).Scan(&raw)
 
@@ -466,17 +445,17 @@ func (s *Store) BeginAttemptTx(ctx context.Context, runID, traceID, projectID, w
 			trace_trace_id
 		)
 		VALUES (
-			$1,
+			$1::uuid,
 			'attempt_state',
 			$2::jsonb,
 			now(),
 			now(),
 			$3,
-			$4,
+			$4::uuid,
 			'attempt_state',
 			$5,
-			$4,
-			$4
+			$4::uuid,
+			$4::uuid
 		)
 		ON CONFLICT (run_id, artifact_kind)
 		DO UPDATE SET
@@ -503,7 +482,7 @@ func (s *Store) BeginAttemptTx(ctx context.Context, runID, traceID, projectID, w
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO run_events(run_id, trace_id, event_seq, event_name, payload)
-		VALUES ($1,$2,$3,$4,$5::jsonb)
+		VALUES ($1::uuid,$2::uuid,$3,$4,$5::jsonb)
 	`, runID, traceID, seq, "run.attempt_started", pb)
 	if err != nil {
 		return 0, err
@@ -511,9 +490,9 @@ func (s *Store) BeginAttemptTx(ctx context.Context, runID, traceID, projectID, w
 
 	_, err = tx.Exec(ctx, `
 		UPDATE runs
-		SET next_event_seq=$2, updated_at=now()
-		WHERE run_id=$1
-	`, runID, seq+1)
+		SET updated_at=now()
+		WHERE run_id=$1::uuid
+	`, runID)
 	if err != nil {
 		return 0, err
 	}
@@ -535,7 +514,43 @@ func (s *Store) InsertLearnSignal(ctx context.Context, runID, projectID, signalT
 
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO learn_signals(run_id, project_id, signal_type, payload)
-		VALUES ($1,$2,$3,$4::jsonb)
+		VALUES ($1::uuid,$2,$3,$4::jsonb)
 	`, runID, projectID, signalType, pb)
+	return err
+}
+
+func (s *Store) MarkDone(ctx context.Context, runID string) error {
+	runID = NormalizeRunID(runID)
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := s.db.Exec(ctx, `
+		UPDATE runs
+		SET status='done',
+		    finished_at=now(),
+		    updated_at=now()
+		WHERE run_id=$1::uuid
+	`, runID)
+	return err
+}
+
+func (s *Store) MarkFailed(ctx context.Context, runID, errorCode, errorMessage string) error {
+	runID = NormalizeRunID(runID)
+	errorCode = strings.TrimSpace(errorCode)
+	errorMessage = strings.TrimSpace(errorMessage)
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := s.db.Exec(ctx, `
+		UPDATE runs
+		SET status='failed',
+		    error_code=$2,
+		    error_message=$3,
+		    finished_at=now(),
+		    updated_at=now()
+		WHERE run_id=$1::uuid
+	`, runID, errorCode, errorMessage)
 	return err
 }
