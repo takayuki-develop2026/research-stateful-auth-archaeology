@@ -1,0 +1,431 @@
+openapi: 3.0.3
+info:
+  title: AtlasKernel Platform API
+  version: 1.0.0
+  description: Single Source of Contract (v24). Implementations must conform.
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:9023
+
+tags:
+  - name: Health
+    description: Service health endpoints.
+  - name: Policy
+    description: Policy evaluation endpoints.
+  - name: Decisions
+    description: Decision ledger and apply endpoints.
+
+# ✅ required by lint (security-defined rule)
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "500":
+          description: Internal (soft failure)
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/projects/{project_id}/policy/evaluate:
+    post:
+      tags: [Policy]
+      operationId: postPolicyEvaluate
+      summary: Policy evaluate (MVP)
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PolicyEvaluateRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyEvaluateResponse"
+        "400":
+          description: Bad Request (validation)
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/projects/{project_id}/decisions:
+    post:
+      tags: [Decisions]
+      operationId: postDecisionPropose
+      summary: Decision propose (create ledger)
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionProposeRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionProposeResponse"
+        "400":
+          description: Bad Request
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/projects/{project_id}/decisions/{decision_id}/approve:
+    post:
+      tags: [Decisions]
+      operationId: postDecisionApprove
+      summary: Approve a decision
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdPath"
+        - $ref: "#/components/parameters/DecisionIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionApproveRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionApproveResponse"
+        "400":
+          description: Bad Request
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/projects/{project_id}/decisions/{decision_id}/apply:
+    post:
+      tags: [Decisions]
+      operationId: postDecisionApply
+      summary: Apply a decision (enqueue action) with gate
+      description: v23 gate - if decision is not approved, actions=[] and blocked_reason is returned.
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdPath"
+        - $ref: "#/components/parameters/DecisionIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionApplyRequest"
+      responses:
+        "200":
+          description: OK (including blocked cases)
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionApplyResponse"
+        "400":
+          description: Bad Request
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Bearer token (user/service). In v24 this is mandatory by contract.
+
+  parameters:
+    ProjectIdPath:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: akproj_0000000000000000000
+
+    DecisionIdPath:
+      name: decision_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      example: 9
+
+  headers:
+    XTraceId:
+      description: Trace ID echoed back by server.
+      schema:
+        type: string
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [ok, now]
+      properties:
+        ok:
+          type: boolean
+          example: true
+        now:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message, trace_id]
+          properties:
+            type:
+              type: string
+              example: bad_request
+            message:
+              type: string
+              example: missing required fields
+            trace_id:
+              type: string
+              example: trc_v24_sample
+
+    PolicyEvaluateRequest:
+      type: object
+      required:
+        - run_id
+        - policy_version_str
+        - pipeline_version
+        - inputs_evidence_asset_id
+        - reason_evidence_asset_id
+        - obligations_evidence_asset_id
+      properties:
+        run_id:
+          type: string
+          example: "00000000-0000-0000-0000-000000000000"
+        policy_version_str:
+          type: string
+          example: v23
+        pipeline_version:
+          type: string
+          example: v23
+        inputs_evidence_asset_id:
+          type: integer
+          format: int64
+          example: 68
+        reason_evidence_asset_id:
+          type: integer
+          format: int64
+          example: 69
+        obligations_evidence_asset_id:
+          type: integer
+          format: int64
+          example: 44
+
+    PolicyEvaluateResponse:
+      type: object
+      required: [input_hash, policy_evaluation_id, result, trace_id]
+      properties:
+        input_hash:
+          type: string
+          example: "f475fdf47ee7a1b7d5a381cc56b4dd5c7ad8f25c0f1ae8f904ae9b1328e312cc"
+        policy_evaluation_id:
+          type: integer
+          format: int64
+          example: 11
+        result:
+          type: string
+          example: allow
+        trace_id:
+          type: string
+          example: trc_v24_ok
+
+    DecisionProposeRequest:
+      type: object
+      required:
+        - run_id
+        - policy_evaluation_id
+        - subject_type
+        - subject_id
+        - decision_scope
+        - policy_version_str
+        - pipeline_version
+        - input_hash
+        - inputs_evidence_asset_id
+        - obligations_evidence_asset_id
+      properties:
+        run_id:
+          type: string
+        policy_evaluation_id:
+          type: integer
+          format: int64
+        subject_type:
+          type: string
+        subject_id:
+          type: string
+        decision_scope:
+          type: string
+        policy_version_str:
+          type: string
+        pipeline_version:
+          type: string
+        input_hash:
+          type: string
+        inputs_evidence_asset_id:
+          type: integer
+          format: int64
+        obligations_evidence_asset_id:
+          type: integer
+          format: int64
+
+    DecisionProposeResponse:
+      type: object
+      required: [decision_id, decision_key, status, trace_id]
+      properties:
+        decision_id:
+          type: integer
+          format: int64
+        decision_key:
+          type: string
+        status:
+          type: string
+          example: proposed
+        trace_id:
+          type: string
+
+    DecisionApproveRequest:
+      type: object
+      properties:
+        decided_by_id:
+          type: string
+          example: curl
+
+    DecisionApproveResponse:
+      type: object
+      required: [decision_id, status, trace_id]
+      properties:
+        decision_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          example: approved
+        trace_id:
+          type: string
+
+    DecisionApplyRequest:
+      type: object
+      required:
+        - run_id
+        - target_evidence_asset_id
+        - plan_evidence_asset_id
+      properties:
+        run_id:
+          type: string
+        action_type:
+          type: string
+          example: publish_http
+        action_scope:
+          type: string
+          example: managed
+        target_evidence_asset_id:
+          type: integer
+          format: int64
+          example: 45
+        plan_evidence_asset_id:
+          type: integer
+          format: int64
+          example: 46
+        budget_currency:
+          type: string
+          example: usd_micros
+        budget_estimate_amount:
+          type: integer
+          format: int64
+          example: 1000
+
+    DecisionApplyResponse:
+      type: object
+      required: [trace_id, decision_id, actions]
+      properties:
+        trace_id:
+          type: string
+        decision_id:
+          type: integer
+          format: int64
+        decision_status:
+          type: string
+        decision_kind:
+          type: string
+        blocked_reason:
+          type: string
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActionRef"
+
+    ActionRef:
+      type: object
+      required: [action_id, status]
+      properties:
+        action_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          example: queued

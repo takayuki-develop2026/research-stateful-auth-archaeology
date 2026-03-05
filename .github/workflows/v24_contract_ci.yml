@@ -1,0 +1,56 @@
+name: v24 Contract CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  contract-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare dirs
+        run: |
+          mkdir -p artifacts/contract artifacts/sdk artifacts/conformance
+          mkdir -p contracts/openapi/releases
+
+      - name: Lint OpenAPI (redocly)
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work redocly/cli:latest \
+            lint contracts/openapi/v1.yaml
+
+      - name: Breaking diff vs latest release (openapitools/openapi-diff)
+        run: |
+          set -euo pipefail
+          REL_DIR="contracts/openapi/releases"
+          if ls "$REL_DIR"/v*.yaml >/dev/null 2>&1; then
+            BASE_VER=$(ls "$REL_DIR"/v*.yaml | sed 's|.*/v||; s|\.yaml$||' | sort -V | tail -n 1)
+            BASE="$REL_DIR/v${BASE_VER}.yaml"
+            echo "base=$BASE (v${BASE_VER})"
+            docker run --rm -v "$PWD:/work" -w /work openapitools/openapi-diff:latest \
+              --fail-on-incompatible \
+              "$BASE" "contracts/openapi/v1.yaml" | tee artifacts/contract/openapi_diff_v${BASE_VER}_to_head.txt
+          else
+            echo "No baseline release in contracts/openapi/releases; skipping diff."
+          fi
+
+      - name: SDK generation (openapi-generator)
+        run: |
+          rm -rf artifacts/sdk
+          mkdir -p artifacts/sdk
+          docker run --rm -v "$PWD:/work" -w /work openapitools/openapi-generator-cli:latest \
+            generate -i contracts/openapi/v1.yaml -g ruby -o artifacts/sdk/ruby --skip-validate-spec
+          docker run --rm -v "$PWD:/work" -w /work openapitools/openapi-generator-cli:latest \
+            generate -i contracts/openapi/v1.yaml -g typescript-fetch -o artifacts/sdk/typescript --skip-validate-spec
+          docker run --rm -v "$PWD:/work" -w /work openapitools/openapi-generator-cli:latest \
+            generate -i contracts/openapi/v1.yaml -g python -o artifacts/sdk/python --skip-validate-spec
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v24-contract-artifacts
+          path: |
+            artifacts/contract
+            artifacts/sdk
