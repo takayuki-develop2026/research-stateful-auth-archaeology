@@ -16,6 +16,10 @@ tags:
     description: Policy evaluation endpoints.
   - name: Decisions
     description: Decision ledger and apply endpoints.
+  - name: Ledger
+    description: Ledger ingest runs (v14) read-only endpoints.
+  - name: Evidence
+    description: Evidence assets read-only endpoints.
 
 # ✅ required by lint (security-defined rule)
 security:
@@ -182,6 +186,167 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/projects/{project_id}/ledger/ingest-runs:
+    get:
+      tags: [Ledger]
+      operationId: listLedgerIngestRuns
+      summary: List ledger ingest runs
+      description: Read-only. Returns run-based UTL→Ledger ingest runs (v14.1+).
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdPath"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [accepted, running, succeeded, failed_recorded]
+          description: Filter by ingest run status.
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: RFC3339 lower bound for created_at (inclusive).
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: RFC3339 upper bound for created_at (exclusive).
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+          description: Max items.
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerIngestRunListResponse"
+        "400":
+          description: Bad Request
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Error
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/projects/{project_id}/ledger/ingest-runs/{ingest_run_id}:
+    get:
+      tags: [Ledger]
+      operationId: getLedgerIngestRun
+      summary: Get ledger ingest run
+      description: Read-only. Returns a single ingest run by id (v14.1+).
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdPath"
+        - $ref: "#/components/parameters/IngestRunIdPath"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerIngestRun"
+        "404":
+          description: Not Found
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "400":
+          description: Bad Request
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Error
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/projects/{project_id}/evidence/{evidence_ref}:
+    get:
+      tags: [Evidence]
+      operationId: getEvidenceAssetByRef
+      summary: Get evidence asset by evidence_ref
+      description: Read-only. Returns evidence_assets row by (project_id, evidence_ref).
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdPath"
+        - $ref: "#/components/parameters/EvidenceRefPath"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceAsset"
+        "404":
+          description: Not Found
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "400":
+          description: Bad Request
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Error
+          headers:
+            X-Trace-Id:
+              $ref: "#/components/headers/XTraceId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -208,6 +373,24 @@ components:
         type: integer
         format: int64
       example: 9
+
+    IngestRunIdPath:
+      name: ingest_run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: b8233105-68ab-4cdd-8118-b6a59d030355
+
+    EvidenceRefPath:
+      name: evidence_ref
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 3699b593-a3e2-4dd6-8d8b-9d61f099fa04
 
   headers:
     XTraceId:
@@ -429,3 +612,147 @@ components:
         status:
           type: string
           example: queued
+
+    LedgerIngestRunListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerIngestRun"
+
+    LedgerIngestRun:
+      type: object
+      required:
+        - id
+        - project_id
+        - mode
+        - filter
+        - idempotency_key
+        - status
+        - run_id
+        - trace_id
+        - policy_version_id
+        - stats
+        - evidence_refs
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+        mode:
+          type: string
+          enum: [single_event, range]
+        source_event_key:
+          type: string
+          nullable: true
+          description: Present when mode=single_event.
+        from_ts:
+          type: string
+          format: date-time
+          nullable: true
+        to_ts:
+          type: string
+          format: date-time
+          nullable: true
+        filter:
+          type: object
+          additionalProperties: true
+        idempotency_key:
+          type: string
+        status:
+          type: string
+          enum: [accepted, running, succeeded, failed_recorded]
+        run_id:
+          type: string
+        trace_id:
+          type: string
+        policy_version_id:
+          type: string
+        stats:
+          type: object
+          additionalProperties: true
+        evidence_refs:
+          type: array
+          items:
+            type: string
+            format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    EvidenceAsset:
+      type: object
+      required:
+        - id
+        - project_id
+        - evidence_ref
+        - media_type
+        - source_kind
+        - content_sha256
+        - content_length
+        - mime_type
+        - retention_policy
+        - status
+        - created_by_type
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        project_id:
+          type: string
+        evidence_ref:
+          type: string
+          format: uuid
+        media_type:
+          type: string
+          enum: [text, image, audio, video, binary]
+        source_kind:
+          type: string
+          enum: [pisag_fetch, upload, webhook, generated, import]
+        source_uri:
+          type: string
+          nullable: true
+        content_sha256:
+          type: string
+          minLength: 64
+          maxLength: 64
+        content_length:
+          type: integer
+          format: int64
+        mime_type:
+          type: string
+        language:
+          type: string
+          nullable: true
+        retention_policy:
+          type: string
+          enum: [short, standard, legal_hold]
+        expires_at_utc:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [active, expired, tombstoned]
+        created_by_type:
+          type: string
+          enum: [system, user, service]
+        created_by_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

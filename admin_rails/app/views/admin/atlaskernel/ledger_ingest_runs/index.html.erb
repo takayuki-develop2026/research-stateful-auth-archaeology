@@ -1,0 +1,78 @@
+<%= render "admin/atlaskernel/nav" %>
+
+<h1>Ledger Ingest Runs</h1>
+
+<% if @error %>
+  <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
+    <strong>API Error</strong><br>
+    <div>status: <%= @error[:status] %></div>
+    <pre style="white-space:pre-wrap;"><%= JSON.pretty_generate(@error[:body]) rescue @error[:body].to_s %></pre>
+  </div>
+<% end %>
+
+<form method="get" style="margin:12px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+  <div>
+    <label>project_id</label><br>
+    <input name="project_id" value="<%= @project_id %>" style="width:320px;">
+  </div>
+  <div>
+    <label>status</label><br>
+    <input name="status" value="<%= @status %>" placeholder="accepted|running|succeeded|failed_recorded">
+  </div>
+  <div>
+    <label>from (RFC3339)</label><br>
+    <input name="from" value="<%= @from %>" placeholder="2026-03-01T00:00:00Z" style="width:240px;">
+  </div>
+  <div>
+    <label>to (RFC3339)</label><br>
+    <input name="to" value="<%= @to %>" placeholder="2026-03-06T00:00:00Z" style="width:240px;">
+  </div>
+  <div>
+    <label>limit</label><br>
+    <input name="limit" value="<%= @limit %>" style="width:80px;">
+  </div>
+  <div>
+    <button type="submit" style="padding:8px 12px;">Search</button>
+  </div>
+</form>
+
+<table style="width:100%; border-collapse:collapse;">
+  <thead>
+    <tr>
+      <th style="text-align:left; border-bottom:1px solid #ddd; padding:8px;">created_at</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd; padding:8px;">id</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd; padding:8px;">mode</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd; padding:8px;">status</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd; padding:8px;">counts</th>
+      <th style="text-align:left; border-bottom:1px solid #ddd; padding:8px;">evidence</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @items.each do |it| %>
+      <% stats = it["stats"] || {} %>
+      <% counts = [
+        "event=#{stats["event_count"]}",
+        "posted=#{stats["posted_count"]}",
+        "failed=#{stats["failed_count"]}",
+        "processed_utl=#{stats["utl_marked_processed"]}",
+        "needs_retry=#{stats["utl_marked_needs_retry"]}"
+      ].compact.join(" ") %>
+      <tr>
+        <td style="border-bottom:1px solid #eee; padding:8px;"><%= it["created_at"] %></td>
+        <td style="border-bottom:1px solid #eee; padding:8px;">
+          <%= link_to it["id"], "/admin/dashboard/atlaskernel/ledger/ingest-runs/#{it["id"]}?project_id=#{ERB::Util.url_encode(@project_id)}" %>
+        </td>
+        <td style="border-bottom:1px solid #eee; padding:8px;"><%= it["mode"] %></td>
+        <td style="border-bottom:1px solid #eee; padding:8px;"><%= it["status"] %></td>
+        <td style="border-bottom:1px solid #eee; padding:8px;"><%= counts %></td>
+        <td style="border-bottom:1px solid #eee; padding:8px;">
+          <% Array(it["evidence_refs"]).each do |ref| %>
+            <span style="display:inline-block; padding:2px 6px; border:1px solid #ddd; border-radius:6px; margin-right:4px; font-size:12px;">
+              <%= ref %>
+            </span>
+          <% end %>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

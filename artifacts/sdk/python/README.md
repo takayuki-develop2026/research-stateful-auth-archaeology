@@ -99,7 +99,10 @@ Class | Method | HTTP request | Description
 *DecisionsApi* | [**post_decision_apply**](docs/DecisionsApi.md#post_decision_apply) | **POST** /v1/projects/{project_id}/decisions/{decision_id}/apply | Apply a decision (enqueue action) with gate
 *DecisionsApi* | [**post_decision_approve**](docs/DecisionsApi.md#post_decision_approve) | **POST** /v1/projects/{project_id}/decisions/{decision_id}/approve | Approve a decision
 *DecisionsApi* | [**post_decision_propose**](docs/DecisionsApi.md#post_decision_propose) | **POST** /v1/projects/{project_id}/decisions | Decision propose (create ledger)
+*EvidenceApi* | [**get_evidence_asset_by_ref**](docs/EvidenceApi.md#get_evidence_asset_by_ref) | **GET** /v1/projects/{project_id}/evidence/{evidence_ref} | Get evidence asset by evidence_ref
 *HealthApi* | [**get_health**](docs/HealthApi.md#get_health) | **GET** /health | Health check
+*LedgerApi* | [**get_ledger_ingest_run**](docs/LedgerApi.md#get_ledger_ingest_run) | **GET** /v1/projects/{project_id}/ledger/ingest-runs/{ingest_run_id} | Get ledger ingest run
+*LedgerApi* | [**list_ledger_ingest_runs**](docs/LedgerApi.md#list_ledger_ingest_runs) | **GET** /v1/projects/{project_id}/ledger/ingest-runs | List ledger ingest runs
 *PolicyApi* | [**post_policy_evaluate**](docs/PolicyApi.md#post_policy_evaluate) | **POST** /v1/projects/{project_id}/policy/evaluate | Policy evaluate (MVP)
 
 
@@ -114,7 +117,10 @@ Class | Method | HTTP request | Description
  - [DecisionProposeResponse](docs/DecisionProposeResponse.md)
  - [ErrorResponse](docs/ErrorResponse.md)
  - [ErrorResponseError](docs/ErrorResponseError.md)
+ - [EvidenceAsset](docs/EvidenceAsset.md)
  - [HealthResponse](docs/HealthResponse.md)
+ - [LedgerIngestRun](docs/LedgerIngestRun.md)
+ - [LedgerIngestRunListResponse](docs/LedgerIngestRunListResponse.md)
  - [PolicyEvaluateRequest](docs/PolicyEvaluateRequest.md)
  - [PolicyEvaluateResponse](docs/PolicyEvaluateResponse.md)
 

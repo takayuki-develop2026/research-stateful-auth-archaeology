@@ -178,6 +178,8 @@ services:
       DB_PASSWORD: laravel_pass
       DB_DATABASE: admin_rails_development
       DECISIONCORE_BASE_URL: http://decisioncore_server:9023
+      LEDGERSVC_BASE_URL: http://ledgersvc-server:9031
+      ATLASKERNEL_DEFAULT_PROJECT_ID: akproj_0000000000000000000
     command: bash -lc "rm -f /app/tmp/pids/server.pid && bundle install && bin/rails server -b 0.0.0.0 -p 3000"
     ports:
       - "3001:3000"
@@ -482,6 +484,31 @@ services:
     entrypoint: ["./v1411_utl_to_ledger_smoke"]
 
 
+
+  ledgersvc-range-smoke:
+    build:
+      context: ./services/ledgersvc
+      dockerfile: Dockerfile
+    container_name: ledgersvc-range-smoke
+    environment:
+      PG_DSN: ${LEDGER_PG_DSN:-postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable}
+      PROJECT_ID: ${LEDGER_PROJECT_ID:-akproj_0000000000000000000}
+      POLICY_VERSION_ID: ${LEDGER_POLICY_VERSION_ID:-policy_v1_published}
+      FROM_TS: ${FROM_TS:-}
+      TO_TS: ${TO_TS:-}
+      UTL_STATUS: ${UTL_STATUS:-ingested}
+      LEDGERSVC_EVIDENCE_DIR: /var/ledgersvc/evidence
+    volumes:
+      - ./services/ledgersvc/var:/var/ledgersvc
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    restart: "no"
+    entrypoint: ["./v1412_range_smoke"]
+
+
 # ============================================================
   # １９　　v1４) Ledger Service (ledgersvc) - Smoke Test
   # ============================================================
@@ -506,7 +533,6 @@ services:
     restart: "no"
 
 
-
   ledgersvc-ingest-smoke:
     build:
       context: ./services/ledgersvc
@@ -523,6 +549,28 @@ services:
       - simulation1_network
     restart: "no"
     entrypoint: ["./v141_ingest_smoke"]
+
+
+  ledgersvc-server:
+    build:
+      context: ./services/ledgersvc
+      dockerfile: Dockerfile
+    container_name: ledgersvc-server
+    environment:
+      PG_DSN: ${LEDGER_PG_DSN:-postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable}
+      LEDGERSVC_ADDR: ":9031"
+      LEDGERSVC_EVIDENCE_DIR: /var/ledgersvc/evidence
+    volumes:
+      - ./services/ledgersvc/var:/var/ledgersvc
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    ports:
+      - "9031:9031"
+    restart: unless-stopped
+    entrypoint: ["./ledgersvc_server"]
 
 # ============================================================
 # Network Definition

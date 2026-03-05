@@ -46,6 +46,10 @@ Rails.application.routes.draw do
       # ✅ canonical
       get "/run-artifacts", to: "run_artifacts#index"
 
+      # ✅ Ledger ingest runs (v14)
+      get "/ledger/ingest-runs", to: "ledger_ingest_runs#index"
+      get "/ledger/ingest-runs/:id", to: "ledger_ingest_runs#show", as: :atlaskernel_ledger_ingest_run
+
       # ✅ Discovery Ops（★必ずこの scope の中）
       get  "/discovery-ops",               to: "discovery_ops#index"
       get  "/discovery-ops/stale",         to: "discovery_ops#stale"
@@ -64,14 +68,14 @@ Rails.application.routes.draw do
 
     # ✅ DecisionCore dashboard (v23)
     scope "/dashboard/decisioncore", module: "decisioncore" do
-      get  "/",      to: "dashboard#show"
+      get  "/",       to: "dashboard#show"
       get  "/health", to: "health#show"
 
       # ✅ v16 minimal
-  get  "/decisions",          to: "decisions#index"
-  get  "/decisions/:id",      to: "decisions#show"
-  post "/decisions/:id/approve", to: "decisions#approve"
-  post "/decisions/:id/apply",   to: "decisions#apply"
+      get  "/decisions",             to: "decisions#index"
+      get  "/decisions/:id",         to: "decisions#show"
+      post "/decisions/:id/approve", to: "decisions#approve"
+      post "/decisions/:id/apply",   to: "decisions#apply"
     end
 
     # -----------------------------
@@ -84,8 +88,8 @@ Rails.application.routes.draw do
       get "/",       to: redirect("/admin/dashboard/trustledger")
       get "/health", to: redirect("/admin/dashboard/trustledger/health")
 
-      get  "/webhook-events",              to: redirect("/admin/dashboard/trustledger/webhook-events")
-      get  "/webhook-events/:event_id",    to: redirect("/admin/dashboard/trustledger/webhook-events/%{event_id}")
+      get  "/webhook-events",               to: redirect("/admin/dashboard/trustledger/webhook-events")
+      get  "/webhook-events/:event_id",     to: redirect("/admin/dashboard/trustledger/webhook-events/%{event_id}")
       post "/webhook-events/:event_id/replay", to: redirect("/admin/dashboard/trustledger/webhook-events/%{event_id}/replay")
 
       get "/kpis/global", to: redirect("/admin/dashboard/trustledger/kpis/global")

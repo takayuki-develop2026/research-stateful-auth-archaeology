@@ -27,13 +27,18 @@ require 'openapi_client/models/decision_propose_request'
 require 'openapi_client/models/decision_propose_response'
 require 'openapi_client/models/error_response'
 require 'openapi_client/models/error_response_error'
+require 'openapi_client/models/evidence_asset'
 require 'openapi_client/models/health_response'
+require 'openapi_client/models/ledger_ingest_run'
+require 'openapi_client/models/ledger_ingest_run_list_response'
 require 'openapi_client/models/policy_evaluate_request'
 require 'openapi_client/models/policy_evaluate_response'
 
 # APIs
 require 'openapi_client/api/decisions_api'
+require 'openapi_client/api/evidence_api'
 require 'openapi_client/api/health_api'
+require 'openapi_client/api/ledger_api'
 require 'openapi_client/api/policy_api'
 
 module OpenapiClient
