@@ -1,0 +1,16 @@
+<%= render "admin/atlaskernel/nav" %>
+
+<h1 style="margin:8px 0 4px;">DecisionCore Health</h1>
+<p style="color:#555; margin:0 0 12px;">
+  <code><%= @base_url %>/health</code> の応答を表示します。
+</p>
+
+<div style="padding:12px; border:1px solid #ddd; border-radius:12px; background:#fff;">
+  <div style="font-weight:800;">status</div>
+  <div style="margin-top:6px;"><%= @status %></div>
+</div>
+
+<div style="margin-top:12px; padding:12px; border:1px solid #ddd; border-radius:12px; background:#fff;">
+  <div style="font-weight:800;">body</div>
+  <pre style="margin-top:8px; white-space:pre-wrap;"><%= JSON.pretty_generate(@body) rescue @body.inspect %></pre>
+</div>

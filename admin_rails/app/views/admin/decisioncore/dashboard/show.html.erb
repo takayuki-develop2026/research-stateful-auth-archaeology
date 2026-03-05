@@ -1,0 +1,44 @@
+<%= render "admin/atlaskernel/nav" %>
+
+<h1 style="margin:8px 0 4px;">DecisionCore (v23) Dashboard</h1>
+<p style="color:#555; margin:0 0 12px;">
+  Decision / Action の承認・適用を運用します（Railsは薄いクライアント、SoTはPostgres）。
+</p>
+
+<% pid = @project_id.presence %>
+<% pid_q = pid ? "?project_id=#{pid}" : "" %>
+
+<div style="display:grid; gap:12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top:14px;">
+  <a href="/admin/dashboard/decisioncore/health<%= pid_q %>"
+     style="display:block; padding:14px; border:1px solid #ddd; border-radius:14px; background:#fff; text-decoration:none; color:#111;">
+    <div style="font-weight:800; font-size:16px;">DecisionCore Health</div>
+    <div style="margin-top:6px; font-size:12px; color:#666;">
+      /health をRails経由で確認（接続死活）
+    </div>
+  </a>
+
+  <a href="<%= @decisioncore_base_url %>/health"
+     target="_blank" rel="noreferrer"
+     style="display:block; padding:14px; border:1px solid #ddd; border-radius:14px; background:#fff; text-decoration:none; color:#111;">
+    <div style="font-weight:800; font-size:16px;">DecisionCore /health（直）</div>
+    <div style="margin-top:6px; font-size:12px; color:#666;">
+      ブラウザで直接開く
+    </div>
+  </a>
+</div>
+
+<div style="margin-top:14px; padding:12px; border:1px solid #ddd; border-radius:12px; background:#fff;">
+  <div style="font-weight:800;">project_id</div>
+  <div style="margin-top:6px; color:#666; font-size:12px;">
+    <%= pid || "(required) navのフォームでproject_idを入れてください" %>
+  </div>
+</div>
+
+<div style="margin-top:14px; padding:12px; border:1px dashed #ddd; border-radius:12px; background:#fff; color:#666; font-size:12px;">
+  次のUI（v16の運用OSとして追加予定）:
+  <ul style="margin:8px 0 0;">
+    <li>Decisions 一覧（project_id必須）</li>
+    <li>Decision 詳細（Actions含む）</li>
+    <li>Approve / Apply ボタン（approved以外はapply不可＝v23ゲート）</li>
+  </ul>
+</div>

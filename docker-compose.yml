@@ -177,6 +177,7 @@ services:
       DB_USERNAME: laravel_user
       DB_PASSWORD: laravel_pass
       DB_DATABASE: admin_rails_development
+      DECISIONCORE_BASE_URL: http://decisioncore_server:9023
     command: bash -lc "rm -f /app/tmp/pids/server.pid && bundle install && bin/rails server -b 0.0.0.0 -p 3000"
     ports:
       - "3001:3000"

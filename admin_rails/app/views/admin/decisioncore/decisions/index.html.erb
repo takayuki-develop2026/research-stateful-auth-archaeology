@@ -1,0 +1,49 @@
+<%= render "admin/atlaskernel/nav" %>
+
+<h1 style="margin:8px 0 4px;">DecisionCore Decisions</h1>
+<p style="color:#555; margin:0 0 12px;">
+  decision_id を入力して詳細へ移動（薄皮運用）。次段で一覧APIを追加予定。
+</p>
+
+<% pid = params[:project_id].presence || @project_id.presence %>
+
+<% if pid.blank? %>
+  <div style="padding:10px; background:#fff5f5; border:1px solid #f99; margin-top:12px; border-radius:10px;">
+    project_id が未指定です。navのフォームで設定してください。
+  </div>
+<% else %>
+  <div style="padding:12px; border:1px solid #ddd; border-radius:12px; background:#fff;">
+    <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+      <div>
+        <label style="font-size:12px; color:#555;">decision_id</label><br>
+        <input id="decision_id_input" placeholder="例: 9"
+               style="width:220px; padding:8px 10px; border:1px solid #ddd; border-radius:10px;" />
+      </div>
+      <button id="open_btn" type="button"
+              style="padding:8px 12px; border:1px solid #ddd; border-radius:10px; background:#222; color:#fff; cursor:pointer;">
+        Open
+      </button>
+    </div>
+
+    <p style="margin-top:8px; font-size:12px; color:#666;">
+      <code>/admin/dashboard/decisioncore/decisions/&lt;id&gt;?project_id=<%= pid %></code> に遷移します。
+    </p>
+  </div>
+
+  <script>
+    (function () {
+      var btn = document.getElementById("open_btn");
+      var input = document.getElementById("decision_id_input");
+      btn.addEventListener("click", function () {
+        var id = (input.value || "").trim();
+        if (!id) return;
+        // only digits
+        if (!/^\d+$/.test(id)) return;
+        window.location.href = "/admin/dashboard/decisioncore/decisions/" + id + "?project_id=<%= pid %>";
+      });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") btn.click();
+      });
+    })();
+  </script>
+<% end %>
