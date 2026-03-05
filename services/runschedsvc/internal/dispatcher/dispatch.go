@@ -54,7 +54,7 @@ func envInt64(k string, def int64) int64 {
 	return n
 }
 
-// DispatchOnce: claim queued scheduled_runs -> BudgetGate(v19) -> (PolicyGate later) -> create_run -> budget consume
+// DispatchOnce: claim queued scheduled_runs -> BudgetGate(v19 Phase2) -> create_run -> consume -> PolicyEval(v23) -> optional deny handling
 func (d *Dispatcher) DispatchOnce(ctx context.Context) (created int, skipped int, err error) {
 	claimed, err := d.repo.ClaimQueuedScheduledRuns(ctx, d.cfg.ProjectID, d.cfg.LimitRuns)
 	if err != nil {
@@ -64,8 +64,6 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (created int, skipped int
 	forceBudgetDeny := envBool("RUNSCHED_FORCE_BUDGET_DENY")
 	forcePolicyDeny := envBool("RUNSCHED_FORCE_POLICY_DENY")
 
-	// cost per run (credits). MVP: fixed 1.
-	// You can override with RUNSCHED_RUN_COST=5 etc.
 	runCost := envInt64("RUNSCHED_RUN_COST", 1)
 	if runCost < 0 {
 		runCost = 0
@@ -133,7 +131,7 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (created int, skipped int
 			continue
 		}
 
-		// reserve before create_run (contract: gate before dispatch)
+		// reserve before create_run
 		reserveEvID, reserveEvErr := d.repo.RegisterReasonEvidenceV19(
 			ctx, d.cfg.ProjectID, traceID, d.cfg.ActorType, d.cfg.ActorID,
 			"budget_reserved",
@@ -154,31 +152,6 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (created int, skipped int
 		}
 
 		// -------------------------
-		// Policy Gate (Phase1 keep forced deny only)
-		// Phase2 policy ledger wiring comes next chat.
-		// -------------------------
-		if forcePolicyDeny {
-			log.Printf("[runschedsvc][gate] policy deny (forced) scheduled_run_id=%d schedule_id=%d trace_id=%s",
-				c.ScheduledRunID, c.ScheduleID, traceID)
-
-			evID, evErr := d.repo.RegisterReasonEvidenceV19(
-				ctx, d.cfg.ProjectID, traceID, d.cfg.ActorType, d.cfg.ActorID,
-				"policy_default_deny",
-				"forced deny by RUNSCHED_FORCE_POLICY_DENY",
-				"runschedsvc:policydeny:"+d.cfg.ProjectID+":"+traceID,
-			)
-			if evErr != nil {
-				log.Printf("[runschedsvc][gate] policy deny evidence FAILED scheduled_run_id=%d err=%v", c.ScheduledRunID, evErr)
-				_ = d.repo.MarkError(ctx, d.cfg.ProjectID, c.ScheduledRunID, "policy_gate_evidence_failed", 0)
-				errorsCount++
-				continue
-			}
-			_ = d.repo.MarkSkipped(ctx, d.cfg.ProjectID, c.ScheduledRunID, "skipped_policy", "policy_default_deny", evID)
-			skipped++
-			continue
-		}
-
-		// -------------------------
 		// OK -> create run
 		// -------------------------
 		res, err := d.repo.CreateRunForScheduled(ctx, d.cfg.ProjectID, c.ScheduledRunID, nowUTC)
@@ -189,19 +162,100 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (created int, skipped int
 			continue
 		}
 
-		if res.Status == "dispatched" && res.RunID != "" {
-			// consume budget after run exists (writes budget_ledger with reason runsched.consume)
-			if err := d.repo.BudgetConsumeV19(ctx, d.cfg.ProjectID, c.ScheduledRunID, res.RunID, traceID); err != nil {
-				// do not throw: leave run created; repair later
-				log.Printf("[runschedsvc][gate] budget consume FAILED run_id=%s scheduled_run_id=%d err=%v", res.RunID, c.ScheduledRunID, err)
-			}
-			created++
-			log.Printf("[runschedsvc][dispatch] created run_id=%s scheduled_run_id=%d", res.RunID, c.ScheduledRunID)
-		} else {
+		if res.Status != "dispatched" || res.RunID == "" {
 			log.Printf("[runschedsvc][dispatch] create_run returned status=%s run_id=%s scheduled_run_id=%d",
 				res.Status, res.RunID, c.ScheduledRunID,
 			)
+			continue
 		}
+
+		// consume budget after run exists (writes budget_ledger with reason runsched.consume)
+		if err := d.repo.BudgetConsumeV19(ctx, d.cfg.ProjectID, c.ScheduledRunID, res.RunID, traceID); err != nil {
+			// do not throw: leave run created; repair later
+			log.Printf("[runschedsvc][gate] budget consume FAILED run_id=%s scheduled_run_id=%d err=%v", res.RunID, c.ScheduledRunID, err)
+		}
+
+		// -------------------------
+		// Policy Gate (Phase2: v23 evaluation ledger)
+		// -------------------------
+		rf, rfErr := d.repo.GetRunFields(ctx, res.RunID)
+		if rfErr != nil {
+			log.Printf("[runschedsvc][policy] GetRunFields FAILED run_id=%s err=%v", res.RunID, rfErr)
+			created++ // run exists; count it
+			continue
+		}
+
+		// policy decision in Phase2:
+		// - allow by default
+		// - forced deny supported
+		policyAllowed := !forcePolicyDeny
+		policyResult := "allow"
+		policyScore := 1.0
+		reasonCode := "policy_allow"
+		reasonMsg := "policy allow (local)"
+
+		if !policyAllowed {
+			policyResult = "deny"
+			policyScore = 0.0
+			reasonCode = "policy_default_deny"
+			reasonMsg = "forced deny by RUNSCHED_FORCE_POLICY_DENY"
+		}
+
+		reasonAssetID, rerr := d.repo.RegisterReasonEvidenceV19(
+			ctx, d.cfg.ProjectID, traceID, d.cfg.ActorType, d.cfg.ActorID,
+			reasonCode, reasonMsg,
+			"runschedsvc:policyreason:"+d.cfg.ProjectID+":"+traceID+":"+res.RunID,
+		)
+		if rerr != nil {
+			log.Printf("[runschedsvc][policy] reason evidence FAILED run_id=%s err=%v", res.RunID, rerr)
+			created++ // run exists
+			continue
+		}
+
+		// obligations evidence must be NOT NULL in policy_evaluations_v23
+		obAssetID, oerr := d.repo.RegisterReasonEvidenceV19(
+			ctx, d.cfg.ProjectID, traceID, d.cfg.ActorType, d.cfg.ActorID,
+			"policy_obligations_empty", "obligations={}",
+			"runschedsvc:policyob:"+d.cfg.ProjectID+":"+traceID+":"+res.RunID,
+		)
+		if oerr != nil {
+			log.Printf("[runschedsvc][policy] obligations evidence FAILED run_id=%s err=%v", res.RunID, oerr)
+			created++
+			continue
+		}
+
+		_, perr := d.repo.PolicyEvalUpsertV23(
+			ctx,
+			d.cfg.ProjectID,
+			traceID,
+			res.RunID,
+			rf.PolicyVersionID, // policy_version_str
+			rf.PipelineVersion,
+			rf.InputHash,
+			"local",            // pdp_mode (check constraint)
+			policyResult,       // result (check constraint)
+			policyScore,
+			reasonAssetID,
+			obAssetID,
+		)
+		if perr != nil {
+			log.Printf("[runschedsvc][policy] upsert FAILED run_id=%s err=%v", res.RunID, perr)
+			created++
+			continue
+		}
+
+		if !policyAllowed {
+			// scheduled_runs: mark skipped_policy (asset id only)
+			_ = d.repo.MarkSkipped(ctx, d.cfg.ProjectID, c.ScheduledRunID, "skipped_policy", "policy_default_deny", reasonAssetID)
+			// run: mark failed (schema has no review_required)
+			_ = d.repo.MarkRunFailedPolicy(ctx, res.RunID, "blocked_policy", "blocked by policy gate (forced)")
+			skipped++
+			log.Printf("[runschedsvc][policy] DENY run_id=%s scheduled_run_id=%d", res.RunID, c.ScheduledRunID)
+			continue
+		}
+
+		created++
+		log.Printf("[runschedsvc][dispatch] created run_id=%s scheduled_run_id=%d (policy allow)", res.RunID, c.ScheduledRunID)
 	}
 
 	log.Printf("[runschedsvc][dispatch] summary created=%d skipped=%d errors=%d", created, skipped, errorsCount)

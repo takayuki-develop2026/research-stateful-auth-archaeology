@@ -2,10 +2,11 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -152,8 +153,7 @@ func (r *RunSchedRepoV19) CreateRunForScheduled(ctx context.Context, projectID s
 	return &res, nil
 }
 
-// RegisterReasonEvidenceV19 registers a tiny evidence record and returns evidence_assets.id (BIGINT)
-// so it can be stored into scheduled_runs.reason_evidence_asset_id.
+// RegisterReasonEvidenceV19 registers a tiny evidence record and returns evidence_assets.id (BIGINT).
 func (r *RunSchedRepoV19) RegisterReasonEvidenceV19(
 	ctx context.Context,
 	projectID string,
@@ -164,31 +164,18 @@ func (r *RunSchedRepoV19) RegisterReasonEvidenceV19(
 	message string,
 	idempotencyKey string,
 ) (int64, error) {
-	// ---- build deterministic content
 	content := fmt.Sprintf("reason_code=%s message=%s", reasonCode, message)
 	sum := sha256.Sum256([]byte(content))
 	sha := hex.EncodeToString(sum[:])
 
-	// ---- evidence_register_v18 -> evidence_ref (uuid)
 	var evidenceRef string
 	var foundExisting bool
 	err := r.db.Pool.QueryRow(ctx, `
 		SELECT evidence_ref::text, found_existing
 		FROM evidence_register_v18(
-			$1,  -- project_id
-			$2,  -- trace_id (varchar)
-			$3,  -- actor_type  (must satisfy created_by_type_ck when materialized)
-			$4,  -- actor_id
-			$5,  -- media_type  (text/image/audio/video/binary)
-			$6,  -- mime_type
-			$7,  -- source_kind (MUST be one of evidence_assets_source_kind_ck)
-			$8,  -- source_uri
-			$9,  -- content_sha256 (len=64)
-			$10, -- content_length (>=0)
-			$11, -- language
-			$12, -- retention_policy (short/standard/legal_hold)
-			$13, -- expires_at_utc
-			$14  -- idempotency_key
+			$1,$2,$3,$4,
+			$5,$6,$7,$8,
+			$9,$10,$11,$12,$13,$14
 		)
 	`, projectID,
 		traceID,
@@ -196,7 +183,7 @@ func (r *RunSchedRepoV19) RegisterReasonEvidenceV19(
 		actorID,
 		"text",
 		"text/plain",
-		"generated", // ★ FIX: allowed by evidence_assets_source_kind_ck
+		"generated",
 		"runschedsvc://reason/"+reasonCode,
 		sha,
 		int64(len(content)),
@@ -210,7 +197,6 @@ func (r *RunSchedRepoV19) RegisterReasonEvidenceV19(
 	}
 	_ = foundExisting
 
-	// ---- evidence_assets.id lookup by (project_id, evidence_ref) unique key
 	var assetID int64
 	err = r.db.Pool.QueryRow(ctx, `
 		SELECT id
@@ -252,4 +238,60 @@ func (r *RunSchedRepoV19) BudgetConsumeV19(ctx context.Context, projectID string
 		SELECT runsched_budget_consume_v19($1,$2,$3::uuid,$4)
 	`, projectID, scheduledRunID, runID, traceID)
 	return err
+}
+
+func (r *RunSchedRepoV19) PolicyEvalUpsertV23(
+	ctx context.Context,
+	projectID string,
+	traceID string,
+	runID string,
+	policyVersionStr string,
+	pipelineVersion string,
+	inputHash string,
+	pdpMode string,
+	result string,
+	score float64,
+	reasonAssetID int64,
+	obligationsAssetID int64,
+) (int64, error) {
+	var id int64
+	err := r.db.Pool.QueryRow(ctx, `
+		SELECT policy_evaluation_upsert_v23(
+			$1,$2,$3::uuid,$4,$5,$6,$7,$8,$9::numeric,$10,$11,NULL,NULL
+		)
+	`, projectID, traceID, runID, policyVersionStr, pipelineVersion, inputHash, pdpMode, result, score, reasonAssetID, obligationsAssetID).Scan(&id)
+	return id, err
+}
+
+func (r *RunSchedRepoV19) MarkRunFailedPolicy(ctx context.Context, runID string, errorCode, errorMessage string) error {
+	_, err := r.db.Pool.Exec(ctx, `
+		UPDATE runs
+		SET status='failed',
+		    error_code=$2,
+		    error_message=$3,
+		    finished_at=now(),
+		    updated_at=now()
+		WHERE run_id=$1::uuid
+	`, runID, errorCode, errorMessage)
+	return err
+}
+
+// RunFields are used for policy ledger write.
+type RunFields struct {
+	PolicyVersionID string
+	PipelineVersion string
+	InputHash       string
+}
+
+func (r *RunSchedRepoV19) GetRunFields(ctx context.Context, runID string) (RunFields, error) {
+	var f RunFields
+	err := r.db.Pool.QueryRow(ctx, `
+		SELECT policy_version_id, pipeline_version, input_hash
+		FROM runs
+		WHERE run_id=$1::uuid
+	`, runID).Scan(&f.PolicyVersionID, &f.PipelineVersion, &f.InputHash)
+	f.PolicyVersionID = strings.TrimSpace(f.PolicyVersionID)
+	f.PipelineVersion = strings.TrimSpace(f.PipelineVersion)
+	f.InputHash = strings.TrimSpace(f.InputHash)
+	return f, err
 }
