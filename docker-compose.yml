@@ -463,6 +463,67 @@ services:
       - simulation1_network
     restart: unless-stopped
 
+  ledgersvc-utl-to-ledger-smoke:
+    build:
+      context: ./services/ledgersvc
+      dockerfile: Dockerfile
+    container_name: ledgersvc-utl-to-ledger-smoke
+    environment:
+      PG_DSN: ${LEDGER_PG_DSN:-postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable}
+      PROJECT_ID: ${LEDGER_PROJECT_ID:-akproj_0000000000000000000}
+      POLICY_VERSION_ID: ${LEDGER_POLICY_VERSION_ID:-policy_v1_published}
+      UTL_EVENT_KEY: ${UTL_EVENT_KEY}
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    restart: "no"
+    entrypoint: ["./v1411_utl_to_ledger_smoke"]
+
+
+# ============================================================
+  # １９　　v1４) Ledger Service (ledgersvc) - Smoke Test
+  # ============================================================
+
+  ledgersvc-smoke:
+    build:
+      context: ./services/ledgersvc
+      dockerfile: Dockerfile
+    container_name: ledgersvc-smoke
+    environment:
+      # Use AK Postgres (service name: ak_postgres)
+      # DB: ak / User: ak / Pass: ak (defined in ak_postgres env)
+      PG_DSN: ${LEDGER_PG_DSN:-postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable}
+      PROJECT_ID: ${LEDGER_PROJECT_ID:-proj_smoke}
+      POLICY_VERSION_ID: ${LEDGER_POLICY_VERSION_ID:-policy_v1_published}
+      CURRENCY: ${LEDGER_CURRENCY:-JPY}
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    restart: "no"
+
+
+
+  ledgersvc-ingest-smoke:
+    build:
+      context: ./services/ledgersvc
+      dockerfile: Dockerfile
+    container_name: ledgersvc-ingest-smoke
+    environment:
+      PG_DSN: ${LEDGER_PG_DSN:-postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable}
+      PROJECT_ID: ${LEDGER_PROJECT_ID:-seed_project}
+      POLICY_VERSION_ID: ${LEDGER_POLICY_VERSION_ID:-policy_v1_published}
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    restart: "no"
+    entrypoint: ["./v141_ingest_smoke"]
+
 # ============================================================
 # Network Definition
 # ============================================================
