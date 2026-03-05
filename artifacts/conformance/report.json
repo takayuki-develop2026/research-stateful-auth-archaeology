@@ -1,0 +1,9 @@
+{
+  "base": "http://localhost:9023",
+  "project_id": "akproj_0000000000000000000",
+  "trace_id": "trc_conformance_1772677914",
+  "health": {"now":"2026-03-05T02:31:54Z","ok":true},
+  "error_response": {"error":{"type":"bad_request","message":"missing required fields","trace_id":"trc_conformance_1772677914"}},
+  "evaluate_ok": {"input_hash":"06698dc1c8e9360d139a5678c8ba8154440072bfa8a1e9247c7f828ed3fd56cd","policy_evaluation_id":12,"result":"allow","trace_id":"trc_conformance_1772677914"},
+  "status": "passed"
+}
