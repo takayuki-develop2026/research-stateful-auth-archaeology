@@ -38,13 +38,17 @@ type Config struct {
 
 type Exporter struct {
 	repo *postgres.Repo
+	db   *postgres.DB
 	cfg  Config
 	sink Sink
 }
 
-func NewExporter(repo *postgres.Repo, cfg Config) (*Exporter, error) {
+func NewExporter(repo *postgres.Repo, db *postgres.DB, cfg Config) (*Exporter, error) {
 	if repo == nil {
 		return nil, fmt.Errorf("repo required")
+	}
+	if db == nil {
+		return nil, fmt.Errorf("db required")
 	}
 	cfg.ProjectID = strings.TrimSpace(cfg.ProjectID)
 	if cfg.ProjectID == "" {
@@ -84,7 +88,7 @@ func NewExporter(repo *postgres.Repo, cfg Config) (*Exporter, error) {
 		return nil, fmt.Errorf("unknown sink: %s", cfg.Sink)
 	}
 
-	return &Exporter{repo: repo, cfg: cfg, sink: sink}, nil
+	return &Exporter{repo: repo, db: db, cfg: cfg, sink: sink}, nil
 }
 
 type exportPayloadV21 struct {
@@ -96,6 +100,27 @@ type exportPayloadV21 struct {
 	EventEvidenceAssetID   int64     `json:"event_evidence_asset_id"`
 	PrimaryArtifactAssetID *int64    `json:"primary_artifact_asset_id,omitempty"`
 	SchemaVersion          string    `json:"schema_version"`
+}
+
+type exportResultEvidence struct {
+	SchemaVersion string `json:"schema_version"`
+
+	ProjectID string `json:"project_id"`
+	TraceID   string `json:"trace_id"`
+	EventID   int64  `json:"event_id"`
+	EventType string `json:"event_type"`
+
+	Sink        string `json:"sink"`
+	ObjectKey   string `json:"object_key"`
+	ContentType string `json:"content_type"`
+	Bytes       int64  `json:"bytes"`
+	Sha256      string `json:"sha256"`
+
+	Status    string `json:"status"` // succeeded|failed
+	ErrorCode string `json:"error_code,omitempty"`
+	ErrorMsg  string `json:"error_message,omitempty"`
+
+	ExportedAtUTC string `json:"exported_at_utc"`
 }
 
 func sha256Hex(b []byte) string {
@@ -165,6 +190,8 @@ func (e *Exporter) runOnce(ctx context.Context) {
 				continue
 			}
 
+			// evidence (failure)
+			evAssetID := e.registerExportResultEvidence(ctx, ev, objKey, "application/json", 0, "", "failed", "json_marshal_failed", jerr.Error())
 			_ = e.repo.MarkResult(
 				ctx,
 				ev.ProjectID,
@@ -174,6 +201,7 @@ func (e *Exporter) runOnce(ctx context.Context) {
 				false,
 				"json_marshal_failed",
 				e.cfg.MarkSummaryMax,
+				evAssetID,
 			)
 			continue
 		}
@@ -194,6 +222,8 @@ func (e *Exporter) runOnce(ctx context.Context) {
 				continue
 			}
 
+			evAssetID := e.registerExportResultEvidence(ctx, ev, objKey, req.ContentType, int64(len(b)), req.Sha256, "failed", "sink_put_failed", werr.Error())
+
 			if merr := e.repo.MarkResult(
 				ctx,
 				ev.ProjectID,
@@ -203,6 +233,7 @@ func (e *Exporter) runOnce(ctx context.Context) {
 				false,
 				"sink_put_failed",
 				e.cfg.MarkSummaryMax,
+				evAssetID,
 			); merr != nil {
 				log.Printf("[wormexportersvc][mark] WARN event_id=%d trace_id=%s err=%v", ev.ID, ev.TraceID, merr)
 			}
@@ -214,11 +245,13 @@ func (e *Exporter) runOnce(ctx context.Context) {
 			ev.ID, ev.TraceID, res.Sink, res.Bytes, res.ObjectKey, res.Sha256,
 		)
 
-		// ✅ skipMark を本当に効かせる
+		// ✅ skipMark を本当に効かせる（MarkResultもevidence登録もスキップ）
 		if e.cfg.SkipMark {
 			log.Printf("[wormexportersvc][mark] SKIP event_id=%d trace_id=%s (WORM_SKIP_MARK=true)", ev.ID, ev.TraceID)
 			continue
 		}
+
+		evAssetID := e.registerExportResultEvidence(ctx, ev, objKey, req.ContentType, res.Bytes, res.Sha256, "succeeded", "", "")
 
 		if merr := e.repo.MarkResult(
 			ctx,
@@ -229,8 +262,60 @@ func (e *Exporter) runOnce(ctx context.Context) {
 			true,
 			"exported:"+e.cfg.Sink,
 			e.cfg.MarkSummaryMax,
+			evAssetID,
 		); merr != nil {
 			log.Printf("[wormexportersvc][mark] WARN event_id=%d trace_id=%s err=%v", ev.ID, ev.TraceID, merr)
 		}
 	}
+}
+
+func (e *Exporter) registerExportResultEvidence(
+	ctx context.Context,
+	ev shared.ComplianceEvent,
+	objKey string,
+	contentType string,
+	bytes int64,
+	sha string,
+	status string,
+	errCode string,
+	errMsg string,
+) int64 {
+	// best-effort: evidence登録に失敗しても throw しない（E条文の理想は満たせないが、処理は継続）
+	body := exportResultEvidence{
+		SchemaVersion: "v21.worm_export_result.1",
+		ProjectID:     ev.ProjectID,
+		TraceID:       ev.TraceID,
+		EventID:       ev.ID,
+		EventType:     ev.EventType,
+		Sink:          e.cfg.Sink,
+		ObjectKey:     objKey,
+		ContentType:   contentType,
+		Bytes:         bytes,
+		Sha256:        sha,
+		Status:        status,
+		ErrorCode:     errCode,
+		ErrorMsg:      errMsg,
+		ExportedAtUTC: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	idem := fmt.Sprintf("wormexportersvc:export_result:%s:%d:%s", ev.ProjectID, ev.ID, e.cfg.Sink)
+	sourceURI := fmt.Sprintf("wormexportersvc://export_result/%s/%s", e.cfg.Sink, objKey)
+
+	assetID, err := postgres.RegisterTextEvidenceAssetV18(
+		ctx,
+		e.db,
+		ev.ProjectID,
+		ev.TraceID,
+		"service",
+		"wormexportersvc",
+		"generated",
+		sourceURI,
+		body,
+		idem,
+	)
+	if err != nil {
+		log.Printf("[wormexportersvc][evidence] WARN export_result evidence_register failed event_id=%d trace_id=%s err=%v", ev.ID, ev.TraceID, err)
+		return 0
+	}
+	return assetID
 }

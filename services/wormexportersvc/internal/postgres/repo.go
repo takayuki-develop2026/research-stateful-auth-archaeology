@@ -200,7 +200,6 @@ func (r *Repo) ClaimBatch(
 				continue
 			}
 		}
-		// else: not claimable (already succeeded OR non-stale started OR reclaim disabled)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -214,6 +213,7 @@ func (r *Repo) ClaimBatch(
 // ✅ “収束更新” (完成版):
 // - ok=true  : started/failed/review_required -> succeeded に収束（succeeded は維持）
 // - ok=false : started/review_required/failed -> failed に収束（succeeded は絶対に落とさない）
+// - resultEvidenceAssetID: 0 means "no update"; otherwise set by COALESCE (don't erase existing)
 // - summaryMax: call-site policy (default 256)
 func (r *Repo) MarkResult(
 	ctx context.Context,
@@ -224,6 +224,7 @@ func (r *Repo) MarkResult(
 	ok bool,
 	summary string,
 	summaryMax int,
+	resultEvidenceAssetID int64, // ✅ NEW: 0 means ignore
 ) error {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -242,18 +243,24 @@ func (r *Repo) MarkResult(
 
 	idemKey := shared.IdemKeyV13(projectID, eventID, sink, objectKey)
 
+	var evID any = nil
+	if resultEvidenceAssetID > 0 {
+		evID = resultEvidenceAssetID
+	}
+
 	if ok {
 		_, err := r.db.Pool.Exec(ctx, `
 			UPDATE public.idempotency_records_v13
 			SET status = 'succeeded',
 			    result_summary = COALESCE(NULLIF($3,''), result_summary),
+			    result_evidence_asset_id = COALESCE($4, result_evidence_asset_id),
 			    finished_at = COALESCE(finished_at, now()),
 			    updated_at = now()
 			WHERE project_id = $1
 			  AND scope = 'worm_export_v21'
 			  AND idempotency_key = $2
 			  AND status IN ('started','failed','review_required','succeeded')
-		`, projectID, idemKey, summary)
+		`, projectID, idemKey, summary, evID)
 		return err
 	}
 
@@ -261,12 +268,13 @@ func (r *Repo) MarkResult(
 		UPDATE public.idempotency_records_v13
 		SET status = CASE WHEN status = 'succeeded' THEN status ELSE 'failed' END,
 		    result_summary = COALESCE(NULLIF($3,''), result_summary),
+		    result_evidence_asset_id = COALESCE($4, result_evidence_asset_id),
 		    finished_at = CASE WHEN status = 'succeeded' THEN finished_at ELSE now() END,
 		    updated_at = now()
 		WHERE project_id = $1
 		  AND scope = 'worm_export_v21'
 		  AND idempotency_key = $2
 		  AND status IN ('started','failed','review_required','succeeded')
-	`, projectID, idemKey, summary)
+	`, projectID, idemKey, summary, evID)
 	return err
 }
