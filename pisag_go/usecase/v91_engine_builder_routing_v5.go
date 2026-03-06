@@ -147,12 +147,12 @@ func (b *RoutingV5EngineDecisionBuilder) Build(
 	result = map[string]any{
 		"routing_version": "v5",
 		"route_decision": map[string]any{
-			"decision_id": commitOut.DecisionID,
-			"status":      commitOut.Status,
-			"chosen_route_id":   commitOut.ChosenRouteID,
-			"chosen_provider_id": commitOut.ChosenProviderID,
-			"denied_reason": commitOut.DeniedReason,
-			"why_evidence_ref": commitOut.WhyEvidenceRef,
+			"decision_id":             commitOut.DecisionID,
+			"status":                  commitOut.Status,
+			"chosen_route_id":         commitOut.ChosenRouteID,
+			"chosen_provider_id":      commitOut.ChosenProviderID,
+			"denied_reason":           commitOut.DeniedReason,
+			"why_evidence_ref":        commitOut.WhyEvidenceRef,
 			"v5_utl_commit_event_key": commitOut.UtlCommitEventKey,
 		},
 		"utl": map[string]any{
