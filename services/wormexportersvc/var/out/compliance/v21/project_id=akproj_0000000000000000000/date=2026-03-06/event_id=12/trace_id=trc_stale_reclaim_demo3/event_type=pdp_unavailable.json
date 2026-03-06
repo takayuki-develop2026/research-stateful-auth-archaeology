@@ -1,0 +1,12 @@
+{
+  "exported_at_utc": "2026-03-06T01:45:37.902867589Z",
+  "payload": {
+    "compliance_event_id": 12,
+    "created_at_utc": "2026-03-06T01:45:29.710857Z",
+    "event_evidence_asset_id": 106,
+    "event_type": "pdp_unavailable",
+    "primary_artifact_asset_id": null,
+    "project_id": "akproj_0000000000000000000",
+    "trace_id": "trc_stale_reclaim_demo3"
+  }
+}

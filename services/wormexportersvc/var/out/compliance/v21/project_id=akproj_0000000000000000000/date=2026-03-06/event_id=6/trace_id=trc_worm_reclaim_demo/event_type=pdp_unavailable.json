@@ -1,0 +1,12 @@
+{
+  "exported_at_utc": "2026-03-06T00:52:17.91814226Z",
+  "payload": {
+    "compliance_event_id": 6,
+    "created_at_utc": "2026-03-06T00:52:04.139192Z",
+    "event_evidence_asset_id": 106,
+    "event_type": "pdp_unavailable",
+    "primary_artifact_asset_id": null,
+    "project_id": "akproj_0000000000000000000",
+    "trace_id": "trc_worm_reclaim_demo"
+  }
+}

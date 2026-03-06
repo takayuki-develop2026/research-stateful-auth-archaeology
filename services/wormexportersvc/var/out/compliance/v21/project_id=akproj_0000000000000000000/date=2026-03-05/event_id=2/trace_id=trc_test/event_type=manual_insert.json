@@ -1,0 +1,12 @@
+{
+  "exported_at_utc": "2026-03-06T00:13:28.16161621Z",
+  "payload": {
+    "compliance_event_id": 2,
+    "created_at_utc": "2026-03-05T23:42:30.544399Z",
+    "event_evidence_asset_id": 1,
+    "event_type": "manual_insert",
+    "primary_artifact_asset_id": null,
+    "project_id": "akproj_0000000000000000000",
+    "trace_id": "trc_test"
+  }
+}
