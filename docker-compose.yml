@@ -151,12 +151,14 @@ services:
     ports:
       - "8081:8081"
     environment:
-      # 任意：Laravel -> PaymentCore の最小認証（X-TrustLedger-Key）
       TRUSTLEDGER_API_KEY: dev-secret
+      TRUSTLEDGER_ADMIN_API_KEY: dev-local-admin-key
       SERVER_PORT: 8081
       TZ: Asia/Tokyo
     networks:
-      - simulation1_network
+      simulation1_network:
+        aliases:
+          - payment-core
 
 
 
@@ -494,8 +496,8 @@ services:
       PG_DSN: ${LEDGER_PG_DSN:-postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable}
       PROJECT_ID: ${LEDGER_PROJECT_ID:-akproj_0000000000000000000}
       POLICY_VERSION_ID: ${LEDGER_POLICY_VERSION_ID:-policy_v1_published}
-      FROM_TS: ${FROM_TS:-}
-      TO_TS: ${TO_TS:-}
+      FROM_TS: ${FROM_TS:-2026-03-05T00:00:00+09:00}
+      TO_TS: ${TO_TS:-2026-03-06T00:00:00+09:00}
       UTL_STATUS: ${UTL_STATUS:-ingested}
       LEDGERSVC_EVIDENCE_DIR: /var/ledgersvc/evidence
     volumes:

@@ -42,13 +42,11 @@ module TrustLedger
         def list_missing_sales(params = {}) = instance.list_missing_sales(params)
         def replay_sale(params = {}) = instance.replay_sale(params)
 
-
         # Discovery Ops (AtlasKernel)
         def list_discovery_ops(params = {}) = instance.list_discovery_ops(params)
         def get_discovery_candidate(id) = instance.get_discovery_candidate(id)
         def get_discovery_candidate_events(id, params = {}) = instance.get_discovery_candidate_events(id, params)
         def post_discovery_candidate_action(id, action, payload = {}) = instance.post_discovery_candidate_action(id, action, payload)
-
 
         # Shops
         def list_shops(params = {}) = instance.list_shops(params)
@@ -105,10 +103,13 @@ module TrustLedger
       #   TrustLedger Admin API (Go/SpringBoot) base
       # ATLASKERNEL_ADMIN_API_BASE_URL:
       #   AtlasKernel Admin API (Laravel) base
+      # TRUSTLEDGER_LARAVEL_API_BASE_URL:
+      #   TrustLedger KPI API (Laravel) base
       #
       # 例（docker compose 内）:
-      #   TRUSTLEDGER_ADMIN_API_BASE_URL=http://payment_core:8081
+      #   TRUSTLEDGER_ADMIN_API_BASE_URL=http://payment-core:8081
       #   ATLASKERNEL_ADMIN_API_BASE_URL=http://nginx
+      #   TRUSTLEDGER_LARAVEL_API_BASE_URL=http://nginx
       #
       def initialize(
         base_url: ENV.fetch("TRUSTLEDGER_ADMIN_API_BASE_URL", "http://localhost:8081"),
@@ -116,10 +117,12 @@ module TrustLedger
           "ATLASKERNEL_ADMIN_API_BASE_URL",
           ENV.fetch("TRUSTLEDGER_ADMIN_API_BASE_URL", "http://localhost:8081")
         ),
+        laravel_base_url: ENV.fetch("TRUSTLEDGER_LARAVEL_API_BASE_URL", "http://nginx"),
         admin_key: ENV.fetch("TRUSTLEDGER_ADMIN_X_ADMIN_KEY", "")
       )
         @base_url = normalize_base_url(base_url)
         @atlas_base_url = normalize_base_url(atlas_base_url)
+        @laravel_base_url = normalize_base_url(laravel_base_url)
         @admin_key = admin_key.to_s
       end
 
@@ -143,13 +146,13 @@ module TrustLedger
         post_json("/api/admin/trustledger/webhooks/events/#{event_id}/replay", {})
       end
 
-      # KPI
+      # KPI -> Laravel backend を真実源にする
       def get_global_kpis(params = {})
-        get_json(with_query("/api/admin/trustledger/kpis/global", params))
+        get_json_laravel(with_query("/api/admin/trustledger/kpis/global", params))
       end
 
       def get_shop_kpis(params = {})
-        get_json(with_query("/api/admin/trustledger/kpis/shops", params))
+        get_json_laravel(with_query("/api/admin/trustledger/kpis/shops", params))
       end
 
       # Postings
@@ -249,35 +252,32 @@ module TrustLedger
       # -----------------------------
       # AtlasKernel APIs (Laravel)
       # -----------------------------
-      #
-      # ✅ Run Artifacts は Laravel 側へ必ず流す
-      #
       def list_run_artifacts(params = {})
         get_json_atlas(with_query("/api/admin/atlaskernel/run-artifacts", params))
       end
 
       # -----------------------------
-# Discovery Ops (AtlasKernel)
-# -----------------------------
-def discovery_ops_path
-  ENV.fetch("ATLASKERNEL_ADMIN_DISCOVERY_OPS_PATH", "/api/admin/atlaskernel/discovery-ops")
-end
+      # Discovery Ops (AtlasKernel)
+      # -----------------------------
+      def discovery_ops_path
+        ENV.fetch("ATLASKERNEL_ADMIN_DISCOVERY_OPS_PATH", "/api/admin/atlaskernel/discovery-ops")
+      end
 
-def list_discovery_ops(params = {})
-  get_json_atlas(with_query("#{discovery_ops_path}/candidates", params))
-end
+      def list_discovery_ops(params = {})
+        get_json_atlas(with_query("#{discovery_ops_path}/candidates", params))
+      end
 
-def get_discovery_candidate(id)
-  get_json_atlas("#{discovery_ops_path}/candidates/#{id}")
-end
+      def get_discovery_candidate(id)
+        get_json_atlas("#{discovery_ops_path}/candidates/#{id}")
+      end
 
-def get_discovery_candidate_events(id, params = {})
-  get_json_atlas(with_query("#{discovery_ops_path}/candidates/#{id}/events", params))
-end
+      def get_discovery_candidate_events(id, params = {})
+        get_json_atlas(with_query("#{discovery_ops_path}/candidates/#{id}/events", params))
+      end
 
-def post_discovery_candidate_action(id, action, payload = {})
-  post_json_atlas("#{discovery_ops_path}/candidates/#{id}/#{action}", payload)
-end
+      def post_discovery_candidate_action(id, action, payload = {})
+        post_json_atlas("#{discovery_ops_path}/candidates/#{id}/#{action}", payload)
+      end
 
       private
 
@@ -299,6 +299,15 @@ end
         request_json(Net::HTTP::Post, path, payload: payload, base_url: @base_url)
       end
 
+      # TrustLedger KPI を Laravel へ
+      def get_json_laravel(path)
+        request_json(Net::HTTP::Get, path, base_url: @laravel_base_url)
+      end
+
+      def post_json_laravel(path, payload)
+        request_json(Net::HTTP::Post, path, payload: payload, base_url: @laravel_base_url)
+      end
+
       # AtlasKernel base_url へ
       def get_json_atlas(path)
         request_json(Net::HTTP::Get, path, base_url: @atlas_base_url)
@@ -309,43 +318,43 @@ end
       end
 
       def request_json(klass, path, payload: nil, base_url:)
-  uri  = URI.parse(base_url + path)
-  http = Net::HTTP.new(uri.host, uri.port)
-  http.open_timeout = 5
-  http.read_timeout = 10
-  http.use_ssl = (uri.scheme == "https")
+        uri  = URI.parse(base_url + path)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.open_timeout = 5
+        http.read_timeout = 10
+        http.use_ssl = (uri.scheme == "https")
 
-  http.set_debug_output($stderr) if ENV["TRUSTLEDGER_ADMIN_API_DEBUG"] == "1"
+        http.set_debug_output($stderr) if ENV["TRUSTLEDGER_ADMIN_API_DEBUG"] == "1"
 
-  req = klass.new(uri.request_uri)
-  req["Accept"] = "application/json"
-  req["X-Admin-Key"] = @admin_key unless @admin_key.empty?
+        req = klass.new(uri.request_uri)
+        req["Accept"] = "application/json"
+        req["X-Admin-Key"] = @admin_key unless @admin_key.empty?
 
-  if payload
-    req["Content-Type"] = "application/json"
-    req.body = JSON.dump(payload)
-  end
+        if payload
+          req["Content-Type"] = "application/json"
+          req.body = JSON.dump(payload)
+        end
 
-  res = nil
-  body = ""
+        res = nil
+        body = ""
 
-  res  = http.request(req)
-  body = res.body.to_s
+        res  = http.request(req)
+        body = res.body.to_s
 
-  if res.code.to_i >= 400
-    raise Error.new("Admin API error", status: res.code.to_i, body: body)
-  end
+        if res.code.to_i >= 400
+          raise Error.new("Admin API error", status: res.code.to_i, body: body)
+        end
 
-  return {} if body.strip.empty?
-  JSON.parse(body)
+        return {} if body.strip.empty?
+        JSON.parse(body)
 
-rescue Error
-  raise
-rescue JSON::ParserError
-  raise Error.new("Invalid JSON response", status: res&.code&.to_i, body: body)
-rescue => e
-  raise Error.new("Request failed: #{e.class}: #{e.message}")
-end
+      rescue Error
+        raise
+      rescue JSON::ParserError
+        raise Error.new("Invalid JSON response", status: res&.code&.to_i, body: body)
+      rescue => e
+        raise Error.new("Request failed: #{e.class}: #{e.message}")
+      end
     end
   end
 end

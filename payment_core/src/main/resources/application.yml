@@ -1,6 +1,6 @@
 server:
   port: 8081
 
-
 trustledger:
   apiKey: ${TRUSTLEDGER_API_KEY:}
+  adminApiKey: ${TRUSTLEDGER_ADMIN_API_KEY:${TRUSTLEDGER_API_KEY:}}

@@ -11,6 +11,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -56,7 +59,12 @@ public class LedgerController {
   }
 
   @GetMapping("/health")
-  public String health() {
-    return "ok";
+  public ResponseEntity<Map<String, Object>> health() {
+    Map<String, Object> body = new HashMap<>();
+    body.put("status", "ok");
+    body.put("service", "payment_core");
+    body.put("time", Instant.now().toString());
+
+    return ResponseEntity.ok(body);
   }
 }
