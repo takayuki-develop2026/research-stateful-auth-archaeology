@@ -19,4 +19,12 @@ final class AtlasRequestListQuery
     {
         return $this->repository->listByShopCode($shopCode);
     }
+
+    /**
+     * @return array<int, \stdClass>
+     */
+    public function listAllShops(): array
+    {
+        return $this->repository->listAllShops();
+    }
 }

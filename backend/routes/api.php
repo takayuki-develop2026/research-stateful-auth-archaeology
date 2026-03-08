@@ -753,3 +753,13 @@ Route::middleware(['admin.fixed_or_key']) // ← あなたの admin.fixed_or_key
     ->group(function () {
         Route::get('run-artifacts', [AdminRunArtifactsController::class, 'index']);
     });
+
+
+
+    use App\Modules\Item\Presentation\Http\Controllers\AtlasKernel\AdminAtlasRequestController;
+
+Route::middleware(['auth.occ'])
+    ->prefix('admin/atlas')
+    ->group(function () {
+        Route::get('requests', [AdminAtlasRequestController::class, 'index']);
+    });

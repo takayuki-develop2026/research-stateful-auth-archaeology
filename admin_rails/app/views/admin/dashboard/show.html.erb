@@ -7,10 +7,15 @@
 <% pid = params[:project_id].presence || ENV["ATLASKERNEL_DEFAULT_PROJECT_ID"] %>
 <% pid_q = pid ? "?project_id=#{pid}" : "" %>
 
-<%# 有効範囲：TrustLedger for OCC + AtlasKernel を有効化 %>
+<%# OCC 側 Atlas Review（Phase 1 暫定URL） %>
+<% occ_atlas_review_url = "#{occore_web}/shops/ALL/dashboard/atlas/requests" %>
+<% occ_atlas_apply_logs_url = "#{occore_web}/shops/ALL/dashboard/atlas/history" %>
+<% occ_atlas_quarantine_url = "#{occore_web}/shops/ALL/dashboard/atlas/requests?filter=high_risk_review" %>
+
+<%# 有効範囲：TrustLedger for OCC + AtlasKernel for OCC を有効化 %>
 <% enabled = {
   atlaskernel: true,
-  atlaskernel_occ: false,
+  atlaskernel_occ: true,
   trustledger: false,
   trustledger_occ: true
 } %>
@@ -75,23 +80,23 @@
       <% end %>
     </div>
 
-    <!-- =============== AtlasKernel for OCC (まだ無効) =============== -->
+    <!-- =============== AtlasKernel for OCC =============== -->
     <div
       class="card card--right <%= enabled[:atlaskernel_occ] ? "" : "card--disabled" %>"
-      <%= tag.attributes(dash_card_link(enabled: enabled[:atlaskernel_occ], href: "/admin/occore/atlaskernel")) %>
+      <%= tag.attributes(dash_card_link(enabled: enabled[:atlaskernel_occ], href: occ_atlas_review_url)) %>
     >
       <div class="card__top">
         <div>
           <h2 class="card__title">AtlasKernel　for　OmniCommerce Core</h2>
-          <p class="card__desc">OCC 商品・Provider情報へ安全に反映する導線</p>
+          <p class="card__desc">OCC 商品・Provider情報へ安全に反映する導線(admin以上のログインで画面移動できます。１つはログインをして、もう１つはログインページで待機のページを別に準備してログイン後、２つ目のログインページから入ってください。)</p>
         </div>
-        <span></span>
+        <span class="pill pill--blue">OCC</span>
       </div>
 
       <div class="card__actions">
-        <%= dash_action("OCC側 Review", "/admin/occore/atlaskernel", enabled: enabled[:atlaskernel_occ], style: :primary, note: "準備中") %>
-        <%= dash_action("Apply Logs", "/admin/occore/atlaskernel/applies", enabled: enabled[:atlaskernel_occ], style: :ghost, note: "準備中") %>
-        <%= dash_action("要確認", "/admin/occore/atlaskernel/quarantine", enabled: enabled[:atlaskernel_occ], style: :dangerGhost, note: "準備中") %>
+        <%= dash_action("OCC側 Review", occ_atlas_review_url, enabled: enabled[:atlaskernel_occ], style: :primary) %>
+        <%= dash_action("Apply Logs", occ_atlas_apply_logs_url, enabled: enabled[:atlaskernel_occ], style: :ghost) %>
+        <%= dash_action("要確認", occ_atlas_quarantine_url, enabled: enabled[:atlaskernel_occ], style: :dangerGhost) %>
       </div>
 
       <div class="card__meta">
@@ -111,7 +116,10 @@
     </div>
 
     <!-- =============== TrustLedger =============== -->
-    <div class="card <%= enabled[:trustledger] ? "" : "card--disabled" %>" <%= tag.attributes(dash_card_link(enabled: enabled[:trustledger], href: "/admin/trustledger")) %>>
+    <div
+      class="card <%= enabled[:trustledger] ? "" : "card--disabled" %>"
+      <%= tag.attributes(dash_card_link(enabled: enabled[:trustledger], href: "/admin/trustledger")) %>
+    >
       <div class="card__top">
         <div>
           <h2 class="card__title">TrustLedger</h2>
@@ -143,8 +151,11 @@
       <% end %>
     </div>
 
-    <!-- ✅ ここだけ有効 -->
-    <div class="card card--right <%= enabled[:trustledger_occ] ? "" : "card--disabled" %>" <%= tag.attributes(dash_card_link(enabled: enabled[:trustledger_occ], href: "/admin/trustledger")) %>>
+    <!-- =============== TrustLedger for OCC =============== -->
+    <div
+      class="card card--right <%= enabled[:trustledger_occ] ? "" : "card--disabled" %>"
+      <%= tag.attributes(dash_card_link(enabled: enabled[:trustledger_occ], href: "/admin/trustledger")) %>
+    >
       <div class="card__top">
         <div>
           <h2 class="card__title">TrustLedger　for　OmniCommerce Core</h2>

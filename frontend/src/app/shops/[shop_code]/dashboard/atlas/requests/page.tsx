@@ -7,7 +7,7 @@ import useSWR from "swr";
 import { useAuth } from "@/ui/auth/AuthProvider";
 
 /* =========================================================
-   Types (match your current backend payload)
+   Types
 ========================================================= */
 
 type DecisionType =
@@ -23,13 +23,26 @@ type TriggerBy = "system" | "human" | "policy" | string;
 
 type DiffValue = { before: string | null; after: string | null };
 
+type GlobalRole = {
+  role_id: number;
+  role: string;
+  name: string;
+};
+
+type ShopRole = {
+  role_id?: number;
+  shop_id?: number;
+  shop_code: string | null;
+  role: string;
+  name?: string;
+};
+
 type AtlasRequestRow = {
   request_id: number;
   shop_code: string;
 
   item: { id: number; name: string };
 
-  // timeline
   submitted_at: string | null;
   analyzed_at: string;
   decided_at: string | null;
@@ -47,7 +60,7 @@ type AtlasRequestRow = {
 
   before: {
     brand: string | null;
-    condition: string | null; // "" may come
+    condition: string | null;
     color: string | null;
   };
 
@@ -84,19 +97,89 @@ type AtlasRequestRow = {
 
 type ApiResponse = { requests: AtlasRequestRow[] };
 
+type AuthUserLike = {
+  shop_roles?: ShopRole[];
+  global_roles?: GlobalRole[];
+};
+
 /* =========================================================
-   apiClient fetcher (no credentials include)
+   apiClient fetcher
 ========================================================= */
 
 function normalizeApiPath(path: string): string {
-  // apiClient が /api prefix を付ける想定があるので、SWRキーが /api/... でも剥がして叩く
   return path.startsWith("/api/") ? path.replace(/^\/api/, "") : path;
 }
 
 function unwrap<T>(r: any): T {
-  // axios-like {data} / fetch-like plain
   if (r && typeof r === "object" && "data" in r) return r.data as T;
   return r as T;
+}
+
+/* =========================================================
+   Permission / route helpers
+========================================================= */
+
+const GLOBAL_ATLAS_ADMIN_ROLES = ["domain_lead_admin"];
+
+function isAllScope(shopCode: string): boolean {
+  return shopCode.toUpperCase() === "ALL";
+}
+
+function hasGlobalAtlasAdmin(user?: AuthUserLike | null): boolean {
+  return (
+    user?.global_roles?.some((r) =>
+      GLOBAL_ATLAS_ADMIN_ROLES.includes(String(r.role)),
+    ) ?? false
+  );
+}
+
+function hasShopReviewerRole(
+  user: AuthUserLike | null | undefined,
+  shopCode: string,
+): boolean {
+  return (
+    user?.shop_roles?.some(
+      (r) =>
+        r.shop_code === shopCode && ["owner", "manager"].includes(String(r.role)),
+    ) ?? false
+  );
+}
+
+function canViewAtlasRequests(
+  user: AuthUserLike | null | undefined,
+  shopCode: string,
+): boolean {
+  const globalAdmin = hasGlobalAtlasAdmin(user);
+
+  if (isAllScope(shopCode)) {
+    return globalAdmin;
+  }
+
+  return globalAdmin || hasShopReviewerRole(user, shopCode);
+}
+
+function listApiPathForShopScope(shopCode: string): string {
+  return isAllScope(shopCode)
+    ? "/api/admin/atlas/requests"
+    : `/api/shops/${shopCode}/atlas/requests`;
+}
+
+function dashboardHrefForScope(shopCode: string): string {
+  return isAllScope(shopCode) ? "/admin" : `/shops/${shopCode}/dashboard`;
+}
+
+function historyListHrefForScope(shopCode: string): string {
+  return isAllScope(shopCode)
+    ? "/admin/atlas/history"
+    : `/shops/${shopCode}/dashboard/atlas/history`;
+}
+
+/**
+ * ALL表示では、行ごとの実 shop_code に落として既存の shop 画面へ遷移する。
+ * これにより Phase 1 では既存画面を壊さず流用できる。
+ */
+function rowBaseHref(row: AtlasRequestRow): string {
+  return `/shops/${row.shop_code}/dashboard/atlas`;
 }
 
 /* =========================================================
@@ -248,8 +331,9 @@ function EmptyHint({ text }: { text: string }) {
 }
 
 /* =========================================================
-  Tabs / filters
+   Tabs / filters
 ========================================================= */
+
 type TabKey = "timeline" | "diff" | "confidence" | "replay" | "policy";
 
 function TabHeader({
@@ -355,15 +439,19 @@ function isFailed(r: AtlasRequestRow) {
     String(r.request_status).toLowerCase().includes("fail")
   );
 }
+
 function isReview(r: AtlasRequestRow) {
   return r.decision === null;
 }
+
 function isAuto(r: AtlasRequestRow) {
   return r.decision?.type === "system_approve";
 }
+
 function isRejected(r: AtlasRequestRow) {
   return r.decision?.type === "reject";
 }
+
 function isHuman(r: AtlasRequestRow) {
   return (
     !!r.decision &&
@@ -371,6 +459,7 @@ function isHuman(r: AtlasRequestRow) {
     r.decision.type !== "reject"
   );
 }
+
 function highRiskReview(r: AtlasRequestRow) {
   const c = r.ai?.max_confidence;
   return isReview(r) && c !== null && c !== undefined && c >= 0.85;
@@ -383,8 +472,9 @@ function riskSignals(
   const c = r.ai?.max_confidence;
   const decided = !!r.decision;
 
-  if (highRiskReview(r))
+  if (highRiskReview(r)) {
     out.push({ tone: "red", text: "HighConfidenceReview" });
+  }
 
   if (
     decided &&
@@ -395,8 +485,9 @@ function riskSignals(
     out.push({ tone: "red", text: "LowConfidenceApproved" });
   }
 
-  if (decided && !r.final)
+  if (decided && !r.final) {
     out.push({ tone: "yellow", text: "FinalMissingAfterDecision" });
+  }
 
   if (
     decided &&
@@ -478,15 +569,17 @@ function beforeValueLabel(v: string | null) {
 
 function finalMissingReason(r: AtlasRequestRow): string {
   if (!r.decision) return "No decision yet";
-  if (r.decision.type === "approve" && r.ai?.brand)
+  if (r.decision.type === "approve" && r.ai?.brand) {
     return "Approved but SoT not applied (brand may be unregistered)";
+  }
   return "Decided but SoT not applied yet";
 }
 
 function diffMissingReason(r: AtlasRequestRow): string {
   if (!r.decision) return "No decision yet";
-  if (r.decision.type === "manual_override")
+  if (r.decision.type === "manual_override") {
     return "Override decided; snapshot may not have been saved for diff";
+  }
   return "Snapshot missing or diff not computed";
 }
 
@@ -511,6 +604,7 @@ function SectionTitle({
 
 function RowHeader({ r }: { r: AtlasRequestRow }) {
   const signals = riskSignals(r);
+  const baseHref = rowBaseHref(r);
 
   return (
     <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -549,18 +643,17 @@ function RowHeader({ r }: { r: AtlasRequestRow }) {
         )}
       </div>
 
-      {/* ✅ 導線を強化（機能追加、デザインは現状テイストで最小） */}
       <div className="flex flex-wrap items-center gap-3 text-xs">
         {r.decision ? (
           <Link
-            href={`/shops/${r.shop_code}/dashboard/atlas/history/${r.request_id}`}
+            href={`${baseHref}/history/${r.request_id}`}
             className="font-semibold text-gray-900 underline"
           >
             履歴
           </Link>
         ) : (
           <Link
-            href={`/shops/${r.shop_code}/dashboard/atlas/review/${r.request_id}`}
+            href={`${baseHref}/review/${r.request_id}`}
             className="font-semibold text-blue-600 underline"
           >
             判断
@@ -568,21 +661,21 @@ function RowHeader({ r }: { r: AtlasRequestRow }) {
         )}
 
         <Link
-          href={`/shops/${r.shop_code}/dashboard/atlas/compare/${r.request_id}`}
+          href={`${baseHref}/compare/${r.request_id}`}
           className="font-semibold text-gray-900 underline"
         >
           Compare
         </Link>
 
         <Link
-          href={`/shops/${r.shop_code}/dashboard/atlas/decide/${r.request_id}`}
+          href={`${baseHref}/decide/${r.request_id}`}
           className="font-semibold text-gray-900 underline"
         >
           Decide
         </Link>
 
         <Link
-          href={`/shops/${r.shop_code}/dashboard/atlas/requests/${r.request_id}`}
+          href={`${baseHref}/requests/${r.request_id}`}
           className="font-semibold text-gray-900 underline"
         >
           Raw
@@ -628,8 +721,9 @@ function Line({
 }
 
 function TimelineView({ rows }: { rows: AtlasRequestRow[] }) {
-  if (!rows.length)
+  if (!rows.length) {
     return <EmptyHint text="表示できるリクエストがありません。" />;
+  }
 
   return (
     <div className="space-y-4">
@@ -1013,30 +1107,43 @@ export default function AtlasRequestsPage() {
   const params = useParams();
   const shop_code = String((params as any)?.shop_code ?? "");
 
-  const { authReady, isAuthenticated, user, apiClient } = useAuth() as any;
+  const { authReady, isAuthenticated, user, apiClient } = useAuth() as {
+    authReady: boolean;
+    isAuthenticated: boolean;
+    user: AuthUserLike | null;
+    apiClient: {
+      get: (url: string) => Promise<any>;
+    };
+  };
 
-  const isReviewer =
-    user?.shop_roles?.some(
-      (r: any) =>
-        r.shop_code === shop_code && ["owner", "manager"].includes(r.role),
-    ) ?? false;
+  const allScope = isAllScope(shop_code);
+  const globalAdmin = hasGlobalAtlasAdmin(user);
+  const shopReviewer = hasShopReviewerRole(user, shop_code);
+  const canView = canViewAtlasRequests(user, shop_code);
 
-  // ✅ apiClient 版 fetcher（JWT/IdaaSでも動く）
+  const apiPath = listApiPathForShopScope(shop_code);
+
+  const pageTitle = allScope
+    ? "Atlas Console（All Shops Requests）"
+    : "Atlas Console（Requests）";
+
+  const scopeLabel = allScope ? "ALL / Platform Scope" : shop_code;
+
   const apiFetcher = async (url: string): Promise<ApiResponse> => {
     const r = await apiClient.get(normalizeApiPath(url));
     return unwrap<ApiResponse>(r);
   };
 
   const { data, error, isLoading } = useSWR<ApiResponse>(
-    isReviewer ? `/api/shops/${shop_code}/atlas/requests` : null,
+    canView ? apiPath : null,
     apiFetcher,
   );
 
   const all = data?.requests ?? [];
 
-  // filter + sort
   const [filter, setFilter] = useState<FilterKey>("review");
   const [sort, setSort] = useState<SortKey>("confidence_desc");
+  const [activeTab, setActiveTab] = useState<TabKey>("timeline");
 
   const filtered = useMemo(() => {
     let rows = [...all];
@@ -1091,52 +1198,77 @@ export default function AtlasRequestsPage() {
     const hasPolicy = filtered.filter(
       (r) => r.decision?.type === "system_approve",
     ).length;
+
     return { diff, hasConfidenceMap, hasReplay, hasPolicy };
   }, [filtered]);
 
-  const [activeTab, setActiveTab] = useState<TabKey>("timeline");
-
-  if (!authReady || !isAuthenticated)
+  if (!authReady || !isAuthenticated) {
     return <div className="p-6">認証確認中...</div>;
-  if (!isReviewer) return <div className="p-6">アクセス権限がありません。</div>;
-  if (isLoading) return <div className="p-6">読み込み中...</div>;
-  if (error)
+  }
+
+  if (!canView) {
+    return (
+      <div className="p-6 space-y-2">
+        <div className="text-base font-semibold text-red-700">
+          アクセス権限がありません。
+        </div>
+        <div className="text-sm text-gray-600">
+          scope: <span className="font-semibold">{shop_code}</span>
+        </div>
+        <div className="text-sm text-gray-600">
+          globalAdmin:{" "}
+          <span className="font-semibold">{globalAdmin ? "true" : "false"}</span>
+        </div>
+        <div className="text-sm text-gray-600">
+          shopReviewer:{" "}
+          <span className="font-semibold">{shopReviewer ? "true" : "false"}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return <div className="p-6">読み込み中...</div>;
+  }
+
+  if (error) {
     return (
       <div className="p-6 text-red-600">
         取得失敗：{(error as Error).message}
       </div>
     );
+  }
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Atlas Console（Requests）
-          </h1>
+          <h1 className="text-2xl font-semibold text-gray-900">{pageTitle}</h1>
           <div className="text-sm text-gray-500 mt-1">
-            Shop:{" "}
-            <span className="font-semibold text-gray-800">{shop_code}</span> /
-            Total:{" "}
-            <span className="font-semibold text-gray-800">{all.length}</span> /
-            Showing:{" "}
-            <span className="font-semibold text-gray-800">
-              {filtered.length}
-            </span>
+            Scope: <span className="font-semibold text-gray-800">{scopeLabel}</span>{" "}
+            / Total: <span className="font-semibold text-gray-800">{all.length}</span>{" "}
+            / Showing:{" "}
+            <span className="font-semibold text-gray-800">{filtered.length}</span>
           </div>
+
+          {allScope && (
+            <div className="mt-2 text-xs text-blue-700 bg-blue-50 ring-1 ring-blue-200 rounded px-2 py-1 inline-block">
+              Phase 1 暫定全体表示モード：一覧は platform scope、個別遷移は各 shop
+              画面へ移動します。
+            </div>
+          )}
         </div>
 
-        {/* ✅ 導線：戻る/履歴一覧 */}
         <div className="flex items-center gap-3 flex-wrap">
           <Link
-            href={`/shops/${shop_code}/dashboard`}
+            href={dashboardHrefForScope(shop_code)}
             className="text-sm font-semibold text-gray-900 underline"
           >
             ダッシュボードへ戻る
           </Link>
 
           <Link
-            href={`/shops/${shop_code}/dashboard/atlas/history`}
+            href={historyListHrefForScope(shop_code)}
             className="text-sm font-semibold text-gray-900 underline"
           >
             判断履歴一覧
@@ -1144,7 +1276,6 @@ export default function AtlasRequestsPage() {
         </div>
       </div>
 
-      {/* Filter / Sort controls */}
       <div className="rounded-xl border bg-white p-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-gray-700">Filter</span>
@@ -1210,6 +1341,13 @@ export default function AtlasRequestsPage() {
         <br />
         あなたが指定した優先順（Review Queue → Risk → Mini Confidence → Decision
         詳細 → 理由）で強化されています。
+        {allScope && (
+          <>
+            <br />
+            現在は Phase 1 の暫定構成のため、全体一覧は `/api/admin/atlas/requests`
+            を参照し、個別画面遷移は各 shop スコープ画面を利用します。
+          </>
+        )}
       </div>
     </div>
   );

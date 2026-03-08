@@ -41,17 +41,22 @@ class RoleUserSeeder extends Seeder
             ]);
         }
 
-        // domain_lead_admin（shop 非依存）
-        $adminUser = User::where('email', 't.principle.k2024@gmail.com')->first();
+        // domain_lead_admin（shop 非依存）を複数ユーザーに付与
+        if ($adminRole) {
+            $adminUsers = User::whereIn('email', [
+                't.principle.k2024@gmail.com',
+                'pro.t@coachtech.com',
+            ])->get();
 
-        if ($adminUser && $adminRole) {
-            DB::table('role_user')->insert([
-                'user_id' => $adminUser->id,
-                'role_id' => $adminRole->id,
-                'shop_id' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            foreach ($adminUsers as $adminUser) {
+                DB::table('role_user')->insert([
+                    'user_id' => $adminUser->id,
+                    'role_id' => $adminRole->id,
+                    'shop_id' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
         }
     }
 }

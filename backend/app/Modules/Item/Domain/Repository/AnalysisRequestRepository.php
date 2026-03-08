@@ -25,4 +25,12 @@ interface AnalysisRequestRepository
      * @return array<int,\stdClass>
      */
     public function listByShopCode(string $shopCode): array;
+
+
+
+
+/**
+     * @return array<int, \stdClass>
+     */
+    public function listAllShops(): array;
 }

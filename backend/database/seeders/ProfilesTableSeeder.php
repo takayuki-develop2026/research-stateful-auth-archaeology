@@ -48,6 +48,14 @@ class ProfilesTableSeeder extends Seeder
                 'user_image'   => null,
             ],
             [
+                'email'        => 'pro.t@coachtech.com',
+                'display_name' => 'テスト用のユーザ5',
+                'post_number'  => '326-1234',
+                'address'      => '栃木県',
+                'building'     => '足利',
+                'user_image'   => null,
+            ],
+            [
                 'email'        => 't.principle.k2024@gmail.com',
                 'display_name' => '川田隆之',
                 'post_number'  => '326-0000',

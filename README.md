@@ -73,7 +73,11 @@ laravel環境構築
    (各 テストショップのトップページから管理画面ボタンで各ショップのダッシュボードに入れます。)<br>
    ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
    ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
-   ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner　です。<br><br>
+   ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner<br>
+   ５：名前:'テスト用のユーザ5'、アドレス:　'pro.t@coachtech.com'　パスワード:　'Testtest5'　出品数：'0'　ロール：Domain Lead Admin
+   　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br>
+   6：名前:'川田　隆之'、アドレス:　't.principle.k2024@gmail.com'　パスワード:　'git hub　ログイン'　出品数：'0'　ロール：Domain Lead Admin
+   　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br><br>
 
 - Stripe決済実行前<br>
 （ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
