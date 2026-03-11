@@ -46,6 +46,11 @@ Rails.application.routes.draw do
       # ✅ canonical
       get "/run-artifacts", to: "run_artifacts#index"
 
+      # ✅ AI Runtime (v22.1)
+      get  "/ai-runtime",      to: "ai_runtime#index"
+      post "/ai-runtime/run",  to: "ai_runtime#create"
+      get  "/ai-runtime/:id",  to: "ai_runtime#show", as: :atlaskernel_ai_runtime_run
+
       # ✅ Ledger ingest runs (v14)
       get "/ledger/ingest-runs", to: "ledger_ingest_runs#index"
       get "/ledger/ingest-runs/:id", to: "ledger_ingest_runs#show", as: :atlaskernel_ledger_ingest_run
@@ -81,15 +86,14 @@ Rails.application.routes.draw do
     # -----------------------------
     # 旧URL互換（当面redirect）
     # -----------------------------
-    # ✅ 旧: /admin/run-artifacts -> 新: /admin/dashboard/atlaskernel/run-artifacts
     get "/run-artifacts", to: redirect("/admin/dashboard/atlaskernel/run-artifacts")
 
     namespace :trustledger do
       get "/",       to: redirect("/admin/dashboard/trustledger")
       get "/health", to: redirect("/admin/dashboard/trustledger/health")
 
-      get  "/webhook-events",               to: redirect("/admin/dashboard/trustledger/webhook-events")
-      get  "/webhook-events/:event_id",     to: redirect("/admin/dashboard/trustledger/webhook-events/%{event_id}")
+      get  "/webhook-events", to: redirect("/admin/dashboard/trustledger/webhook-events")
+      get  "/webhook-events/:event_id", to: redirect("/admin/dashboard/trustledger/webhook-events/%{event_id}")
       post "/webhook-events/:event_id/replay", to: redirect("/admin/dashboard/trustledger/webhook-events/%{event_id}/replay")
 
       get "/kpis/global", to: redirect("/admin/dashboard/trustledger/kpis/global")

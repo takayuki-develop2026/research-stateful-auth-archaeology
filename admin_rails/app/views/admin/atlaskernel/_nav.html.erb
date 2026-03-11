@@ -7,6 +7,7 @@
   <strong>AtlasKernel 管理</strong>
   <div style="margin-top:8px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
     <a href="/admin/dashboard/atlaskernel<%= pid_q %>">Dashboard</a>
+    <a href="/admin/dashboard/atlaskernel/ai-runtime<%= pid_q %>">AI Runtime</a>
     <a href="/admin/dashboard/atlaskernel/run-artifacts<%= pid_q %>">Run Artifacts</a>
     <a href="/admin/dashboard/atlaskernel/discovery-ops/stale<%= pid_q %>">Discovery Ops (Stale)</a>
     <a href="/admin/dashboard/atlaskernel/discovery-ops/retry<%= pid_q %>">Retry</a>
@@ -24,9 +25,17 @@
     <form method="get" action="<%= current_path %>" style="display:flex; gap:8px; align-items:flex-end;">
       <div>
         <label style="font-size:12px; color:#555;">project_id</label><br>
-        <input name="project_id" value="<%= pid %>" placeholder="akproj_..." style="width:360px; padding:6px 10px; border:1px solid #ddd; border-radius:10px;" />
+        <input
+          name="project_id"
+          value="<%= pid %>"
+          placeholder="akproj_..."
+          style="width:360px; padding:6px 10px; border:1px solid #ddd; border-radius:10px;"
+        />
       </div>
-      <button type="submit" style="padding:6px 12px; border:1px solid #ddd; border-radius:10px; background:#222; color:#fff; cursor:pointer;">
+      <button
+        type="submit"
+        style="padding:6px 12px; border:1px solid #ddd; border-radius:10px; background:#222; color:#fff; cursor:pointer;"
+      >
         Set
       </button>
     </form>

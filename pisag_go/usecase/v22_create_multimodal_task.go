@@ -25,10 +25,19 @@ type CreateMultimodalTaskInput struct {
 	PolicyVersionStr string
 	InputHash        string
 
+	// Week1方針:
+	// - UI / preset / engine selection から作られた options canonical JSON は
+	//   evidence asset 化して OptionsEvidenceAssetID に入れる
+	// - v22_route_model_task.go で生成された route plan canonical JSON は
+	//   evidence asset 化して RouterPlanEvidenceAssetID に入れる
 	RouterPlanEvidenceAssetID int64
 	OptionsEvidenceAssetID    int64
-	ModelRunID                *int64
-	SoftErrorEvidenceAssetID  *int64
+
+	// 任意: run 単位や親モデル実行との接続
+	ModelRunID *int64
+
+	// 任意: task 作成時点でソフトエラーをぶら下げたい場合に使う
+	SoftErrorEvidenceAssetID *int64
 }
 
 type CreateMultimodalTaskOutput struct {

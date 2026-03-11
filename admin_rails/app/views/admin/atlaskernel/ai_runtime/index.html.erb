@@ -1,0 +1,333 @@
+<%= render "admin/atlaskernel/nav" %>
+
+<h1>AI Runtime</h1>
+
+<% if @error %>
+  <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
+    <strong>API Error</strong><br>
+    <div>message: <%= @error[:message] %></div>
+    <div>status: <%= @error[:status] %></div>
+    <pre style="white-space:pre-wrap;"><%= @error[:body] %></pre>
+  </div>
+<% end %>
+
+<% selected = @selected || {} %>
+<% selected_preprocess = Array(selected["preprocess"]) %>
+<% selected_ocr        = Array(selected["ocr"]) %>
+<% selected_docparse   = Array(selected["docparse"]) %>
+<% selected_embedding  = Array(selected["embedding"]) %>
+<% selected_vision     = Array(selected["vision"]) %>
+<% selected_llm        = Array(selected["llm"]) %>
+
+<% catalog = @catalog || {} %>
+
+<% preprocess_catalog = Array(catalog["preprocess"]) %>
+<% ocr_catalog        = Array(catalog["ocr"]) %>
+<% docparse_catalog   = Array(catalog["docparse"]) %>
+<% embedding_catalog  = Array(catalog["embedding"]) %>
+<% vision_catalog     = Array(catalog["vision"]) %>
+<% llm_catalog        = Array(catalog["llm"]) %>
+
+<form method="post" action="/admin/dashboard/atlaskernel/ai-runtime/run" style="margin-top:16px;">
+  <%= hidden_field_tag :authenticity_token, form_authenticity_token %>
+
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+    <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+      <div style="font-size:18px; font-weight:600; margin-bottom:12px;">Execution Config</div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+        <div>
+          <div style="font-size:12px; color:#666;">project_id</div>
+          <input
+            type="text"
+            name="project_id"
+            value="<%= @project_id %>"
+            placeholder="akproj_..."
+            style="width:100%; padding:8px; border:1px solid #ccc;"
+          >
+        </div>
+
+        <div>
+          <div style="font-size:12px; color:#666;">trace_id (optional)</div>
+          <input
+            type="text"
+            name="trace_id"
+            value="<%= params[:trace_id].to_s %>"
+            placeholder="auto if blank"
+            style="width:100%; padding:8px; border:1px solid #ccc;"
+          >
+        </div>
+
+        <div>
+          <div style="font-size:12px; color:#666;">task_type</div>
+          <select name="task_type" style="width:100%; padding:8px; border:1px solid #ccc;">
+            <% [
+              ["ocr", "OCR"],
+              ["vision", "Vision"],
+              ["fulltext_extract", "Fulltext Extract"],
+              ["preprocess", "Preprocess"],
+              ["docparse", "DocParse"],
+              ["embedding", "Embedding"],
+              ["llm", "LLM"]
+            ].each do |value, label| %>
+              <option value="<%= value %>" <%= "selected" if @task_type.to_s == value %>>
+                <%= label %>
+              </option>
+            <% end %>
+          </select>
+        </div>
+
+        <div>
+          <div style="font-size:12px; color:#666;">preset</div>
+          <select name="preset" style="width:100%; padding:8px; border:1px solid #ccc;">
+            <% [
+              ["fast", "Fast"],
+              ["balanced", "Balanced"],
+              ["high_accuracy", "High Accuracy"],
+              ["custom", "Custom"]
+            ].each do |value, label| %>
+              <option value="<%= value %>" <%= "selected" if @preset.to_s == value %>>
+                <%= label %>
+              </option>
+            <% end %>
+          </select>
+        </div>
+
+        <div>
+          <div style="font-size:12px; color:#666;">pipeline_version</div>
+          <input
+            type="text"
+            name="pipeline_version"
+            value="<%= params[:pipeline_version].presence || "v22.1" %>"
+            style="width:100%; padding:8px; border:1px solid #ccc;"
+          >
+        </div>
+
+        <div>
+          <div style="font-size:12px; color:#666;">policy_version_str</div>
+          <input
+            type="text"
+            name="policy_version_str"
+            value="<%= params[:policy_version_str].presence || "v1" %>"
+            style="width:100%; padding:8px; border:1px solid #ccc;"
+          >
+        </div>
+      </div>
+
+      <div style="margin-top:14px;">
+        <div style="font-size:12px; color:#666; margin-bottom:6px;">inputs_json</div>
+        <textarea
+          name="inputs_json"
+          rows="8"
+          placeholder='[{"input_role":"primary","evidence_id":123,"seq":1,"sha256":"...","kind":"image/jpeg","bytes":102400}]'
+          style="width:100%; padding:8px; border:1px solid #ccc; font-family:monospace;"
+        ><%= params[:inputs_json].to_s %></textarea>
+        <div style="font-size:12px; color:#999; margin-top:4px;">
+          JSON array を直接指定します。Week1 では自由入力でよく、後で uploader / picker を追加します。
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+      <div style="font-size:18px; font-weight:600; margin-bottom:12px;">Presets & Summary</div>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+        <% [
+          ["fast", "Fast"],
+          ["balanced", "Balanced"],
+          ["high_accuracy", "High Accuracy"],
+          ["custom", "Custom"]
+        ].each do |value, label| %>
+          <a
+            href="/admin/dashboard/atlaskernel/ai-runtime?project_id=<%= CGI.escape(@project_id.to_s) %>&task_type=<%= CGI.escape(@task_type.to_s) %>&preset=<%= CGI.escape(value) %>"
+            style="display:inline-block; padding:6px 10px; border:1px solid #ddd; text-decoration:none; background:<%= @preset.to_s == value ? "#222" : "#fff" %>; color:<%= @preset.to_s == value ? "#fff" : "#222" %>;"
+          >
+            <%= label %>
+          </a>
+        <% end %>
+      </div>
+
+      <div style="font-size:14px; font-weight:600; margin-bottom:6px;">Current Selection</div>
+      <div style="font-size:12px; color:#666; margin-bottom:8px;">
+        preset: <strong><%= @preset %></strong>
+      </div>
+
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr>
+            <th style="text-align:left; border-bottom:1px solid #eee; padding:6px;">Capability</th>
+            <th style="text-align:left; border-bottom:1px solid #eee; padding:6px;">Selected</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;">preprocess</td>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;"><%= selected_preprocess.presence&.join(", ") || "-" %></td>
+          </tr>
+          <tr>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;">ocr</td>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;"><%= selected_ocr.presence&.join(", ") || "-" %></td>
+          </tr>
+          <tr>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;">docparse</td>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;"><%= selected_docparse.presence&.join(", ") || "-" %></td>
+          </tr>
+          <tr>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;">embedding</td>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;"><%= selected_embedding.presence&.join(", ") || "-" %></td>
+          </tr>
+          <tr>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;">vision</td>
+            <td style="border-bottom:1px solid #f3f3f3; padding:6px;"><%= selected_vision.presence&.join(", ") || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px;">llm</td>
+            <td style="padding:6px;"><%= selected_llm.presence&.join(", ") || "-" %></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:14px; padding:10px; border:1px solid #eee; background:#fafafa;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Notes</div>
+        <ul style="margin:0; padding-left:18px; color:#666; font-size:12px;">
+          <li>Week1 は複数選択と task 作成を優先します。</li>
+          <li>比較実行・再実行・差分表示は後続フェーズです。</li>
+          <li>catalog が空でも直接選択して送れる構成にしていません。catalog API が空なら一覧も空です。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff; margin-bottom:16px;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:12px;">Engine Selection</div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+      <div style="border:1px solid #eee; padding:12px;">
+        <div style="font-weight:600; margin-bottom:8px;">Preprocess</div>
+        <% if preprocess_catalog.empty? %>
+          <div style="font-size:12px; color:#999;">No preprocess engines</div>
+        <% else %>
+          <% preprocess_catalog.each do |engine| %>
+            <% kind = engine["kind"].to_s %>
+            <% checked = selected_preprocess.include?(kind) %>
+            <label style="display:block; margin-bottom:6px;">
+              <input type="checkbox" name="preprocess[]" value="<%= kind %>" <%= "checked" if checked %>>
+              <strong><%= engine["display_name"] || kind %></strong>
+              <span style="font-size:12px; color:#666;">
+                (<%= engine["provider"] || "unknown" %> / <%= engine["version"] || "-" %>)
+              </span>
+            </label>
+          <% end %>
+        <% end %>
+      </div>
+
+      <div style="border:1px solid #eee; padding:12px;">
+        <div style="font-weight:600; margin-bottom:8px;">OCR</div>
+        <% if ocr_catalog.empty? %>
+          <div style="font-size:12px; color:#999;">No OCR engines</div>
+        <% else %>
+          <% ocr_catalog.each do |engine| %>
+            <% kind = engine["kind"].to_s %>
+            <% checked = selected_ocr.include?(kind) %>
+            <label style="display:block; margin-bottom:6px;">
+              <input type="checkbox" name="ocr[]" value="<%= kind %>" <%= "checked" if checked %>>
+              <strong><%= engine["display_name"] || kind %></strong>
+              <span style="font-size:12px; color:#666;">
+                (<%= engine["provider"] || "unknown" %> / <%= engine["version"] || "-" %>)
+              </span>
+            </label>
+          <% end %>
+        <% end %>
+      </div>
+
+      <div style="border:1px solid #eee; padding:12px;">
+        <div style="font-weight:600; margin-bottom:8px;">DocParse</div>
+        <% if docparse_catalog.empty? %>
+          <div style="font-size:12px; color:#999;">No docparse engines</div>
+        <% else %>
+          <% docparse_catalog.each do |engine| %>
+            <% kind = engine["kind"].to_s %>
+            <% checked = selected_docparse.include?(kind) %>
+            <label style="display:block; margin-bottom:6px;">
+              <input type="checkbox" name="docparse[]" value="<%= kind %>" <%= "checked" if checked %>>
+              <strong><%= engine["display_name"] || kind %></strong>
+              <span style="font-size:12px; color:#666;">
+                (<%= engine["provider"] || "unknown" %> / <%= engine["version"] || "-" %>)
+              </span>
+            </label>
+          <% end %>
+        <% end %>
+      </div>
+
+      <div style="border:1px solid #eee; padding:12px;">
+        <div style="font-weight:600; margin-bottom:8px;">Embedding</div>
+        <% if embedding_catalog.empty? %>
+          <div style="font-size:12px; color:#999;">No embedding engines</div>
+        <% else %>
+          <% embedding_catalog.each do |engine| %>
+            <% kind = engine["kind"].to_s %>
+            <% checked = selected_embedding.include?(kind) %>
+            <label style="display:block; margin-bottom:6px;">
+              <input type="checkbox" name="embedding[]" value="<%= kind %>" <%= "checked" if checked %>>
+              <strong><%= engine["display_name"] || kind %></strong>
+              <span style="font-size:12px; color:#666;">
+                (<%= engine["provider"] || "unknown" %> / <%= engine["version"] || "-" %>)
+              </span>
+            </label>
+          <% end %>
+        <% end %>
+      </div>
+
+      <div style="border:1px solid #eee; padding:12px;">
+        <div style="font-weight:600; margin-bottom:8px;">Vision</div>
+        <% if vision_catalog.empty? %>
+          <div style="font-size:12px; color:#999;">No vision engines</div>
+        <% else %>
+          <% vision_catalog.each do |engine| %>
+            <% kind = engine["kind"].to_s %>
+            <% checked = selected_vision.include?(kind) %>
+            <label style="display:block; margin-bottom:6px;">
+              <input type="checkbox" name="vision[]" value="<%= kind %>" <%= "checked" if checked %>>
+              <strong><%= engine["display_name"] || kind %></strong>
+              <span style="font-size:12px; color:#666;">
+                (<%= engine["provider"] || "unknown" %> / <%= engine["version"] || "-" %>)
+              </span>
+            </label>
+          <% end %>
+        <% end %>
+      </div>
+
+      <div style="border:1px solid #eee; padding:12px;">
+        <div style="font-weight:600; margin-bottom:8px;">LLM</div>
+        <% if llm_catalog.empty? %>
+          <div style="font-size:12px; color:#999;">No LLM engines</div>
+        <% else %>
+          <% llm_catalog.each do |engine| %>
+            <% kind = engine["kind"].to_s %>
+            <% checked = selected_llm.include?(kind) %>
+            <label style="display:block; margin-bottom:6px;">
+              <input type="checkbox" name="llm[]" value="<%= kind %>" <%= "checked" if checked %>>
+              <strong><%= engine["display_name"] || kind %></strong>
+              <span style="font-size:12px; color:#666;">
+                (<%= engine["provider"] || "unknown" %> / <%= engine["version"] || "-" %>)
+              </span>
+            </label>
+          <% end %>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:10px; align-items:center;">
+    <button type="submit" style="padding:10px 16px;">
+      Run AI Runtime
+    </button>
+
+    <a
+      href="/admin/dashboard/atlaskernel/ai-runtime?project_id=<%= CGI.escape(@project_id.to_s) %>"
+      style="display:inline-block; padding:10px 16px; border:1px solid #ddd; text-decoration:none;"
+    >
+      Reset
+    </a>
+  </div>
+</form>

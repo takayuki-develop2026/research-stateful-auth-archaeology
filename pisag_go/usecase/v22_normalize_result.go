@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	run "example.com/pisag_go/run"
 )
@@ -40,7 +41,7 @@ func (uc *NormalizeV22MultimodalResultUseCase) Handle(ctx context.Context, in No
 	if uc.Normalized == nil {
 		return NormalizeV22MultimodalResultOutput{}, fmt.Errorf("normalize v22 multimodal result: normalized repository is nil")
 	}
-	if in.ProjectID == "" {
+	if strings.TrimSpace(in.ProjectID) == "" {
 		return NormalizeV22MultimodalResultOutput{}, fmt.Errorf("normalize v22 multimodal result: project_id is required")
 	}
 	if in.ResultID <= 0 {
@@ -72,10 +73,23 @@ func (uc *NormalizeV22MultimodalResultUseCase) Handle(ctx context.Context, in No
 	if err != nil {
 		return NormalizeV22MultimodalResultOutput{}, fmt.Errorf("normalize v22 multimodal result load task: %w", err)
 	}
+	if task.ProjectID != in.ProjectID {
+		return NormalizeV22MultimodalResultOutput{}, fmt.Errorf("normalize v22 multimodal result: task project mismatch")
+	}
 
 	kind := in.NormalizedKind
 	if kind == "" {
 		kind = normalizedKindFromResultType(result.ResultType)
+	}
+
+	summary := strings.TrimSpace(in.SummaryText)
+	if summary == "" {
+		summary = defaultSummaryFromResultType(result.ResultType)
+	}
+
+	reasonCode := strings.TrimSpace(in.ReasonCode)
+	if reasonCode == "" {
+		reasonCode = "normalized"
 	}
 
 	reviewPayload := in.ReviewPayloadEvidenceAssetID
@@ -98,17 +112,15 @@ func (uc *NormalizeV22MultimodalResultUseCase) Handle(ctx context.Context, in No
 		ResultID:                         result.ID,
 		NormalizedKind:                   kind,
 		NormalizedStatus:                 run.NormalizedMultimodalResultStatusReady,
-		SummaryText:                      in.SummaryText,
+		SummaryText:                      summary,
 		ConfidenceScore:                  in.ConfidenceScore,
-		ReasonCode:                       in.ReasonCode,
+		ReasonCode:                       reasonCode,
 		ReviewPayloadEvidenceAssetID:     reviewPayload,
 		DownstreamPayloadEvidenceAssetID: downstreamPayload,
 	})
 	if err != nil {
 		return NormalizeV22MultimodalResultOutput{}, fmt.Errorf("normalize v22 multimodal result create: %w", err)
 	}
-
-	_ = task // task is intentionally loaded to validate linkage
 
 	return NormalizeV22MultimodalResultOutput{
 		Result:           result,
@@ -119,11 +131,55 @@ func (uc *NormalizeV22MultimodalResultUseCase) Handle(ctx context.Context, in No
 
 func normalizedKindFromResultType(rt run.MultimodalResultType) run.NormalizedMultimodalResultKind {
 	switch rt {
+	case run.MultimodalResultTypePreprocessImage:
+		return run.NormalizedMultimodalResultKindImagePreprocess
+
 	case run.MultimodalResultTypeOCRText, run.MultimodalResultTypeExtractedText:
 		return run.NormalizedMultimodalResultKindOCRText
+
+	case run.MultimodalResultTypeDocParseStructure:
+		return run.NormalizedMultimodalResultKindDocumentStructure
+
+	case run.MultimodalResultTypeEmbeddingCandidates:
+		return run.NormalizedMultimodalResultKindSimilarityCandidates
+
 	case run.MultimodalResultTypeTranscript:
 		return run.NormalizedMultimodalResultKindAudioTranscript
+
+	case run.MultimodalResultTypeLLMText, run.MultimodalResultTypeLLMJSON:
+		return run.NormalizedMultimodalResultKindLLMOutput
+
+	case run.MultimodalResultTypeFusedMultimodal:
+		return run.NormalizedMultimodalResultKindFusedMultimodal
+
+	case run.MultimodalResultTypeVisionEntities:
+		fallthrough
 	default:
 		return run.NormalizedMultimodalResultKindVisionEntity
+	}
+}
+
+func defaultSummaryFromResultType(rt run.MultimodalResultType) string {
+	switch rt {
+	case run.MultimodalResultTypePreprocessImage:
+		return "preprocess completed"
+	case run.MultimodalResultTypeOCRText, run.MultimodalResultTypeExtractedText:
+		return "ocr text normalized"
+	case run.MultimodalResultTypeDocParseStructure:
+		return "document structure normalized"
+	case run.MultimodalResultTypeEmbeddingCandidates:
+		return "embedding candidates normalized"
+	case run.MultimodalResultTypeTranscript:
+		return "audio transcript normalized"
+	case run.MultimodalResultTypeLLMText:
+		return "llm text normalized"
+	case run.MultimodalResultTypeLLMJSON:
+		return "llm json normalized"
+	case run.MultimodalResultTypeFusedMultimodal:
+		return "fused multimodal normalized"
+	case run.MultimodalResultTypeVisionEntities:
+		fallthrough
+	default:
+		return "vision entities normalized"
 	}
 }

@@ -1,0 +1,342 @@
+<%= render "admin/atlaskernel/nav" %>
+
+<h1>AI Runtime Run Detail</h1>
+
+<% if @error %>
+  <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
+    <strong>API Error</strong><br>
+    <div>message: <%= @error[:message] %></div>
+    <div>status: <%= @error[:status] %></div>
+    <pre style="white-space:pre-wrap;"><%= @error[:body] %></pre>
+  </div>
+<% end %>
+
+<% run = @run || {} %>
+<% task = @task || {} %>
+<% model_runs = Array(@model_runs) %>
+<% results = Array(@results) %>
+<% normalized = @normalized_result || {} %>
+<% review_item = @review_queue_item || {} %>
+<% downstreams = Array(@downstream_handoffs) %>
+<% evidence_refs = @evidence_refs || [] %>
+<% selected_engines = task["engine_selection"] || run["engine_selection"] || {} %>
+
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px;">
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Run Summary</div>
+
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <tbody>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">run.id</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= run["id"] || @run_id %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">project_id</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= run["project_id"] || task["project_id"] || @project_id %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">trace_id</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= run["trace_id"] || task["trace_id"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">run_id</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= run["run_id"] || task["run_id"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">status</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;">
+            <strong><%= run["status"] || task["status"] || "-" %></strong>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">task_type</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= task["task_type"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">pipeline_version</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= task["pipeline_version"] || run["pipeline_version"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">policy_version</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= task["policy_version_str"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">started_at</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= run["started_at"] || task["started_at_utc"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; color:#666;">finished_at</td>
+          <td style="padding:6px;"><%= run["finished_at"] || task["finished_at_utc"] || "-" %></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Selected Engines</div>
+
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <tbody>
+        <% [
+          ["preprocess", selected_engines["preprocess"]],
+          ["ocr", selected_engines["ocr"]],
+          ["docparse", selected_engines["docparse"]],
+          ["embedding", selected_engines["embedding"]],
+          ["vision", selected_engines["vision"]],
+          ["llm", selected_engines["llm"]]
+        ].each do |capability, list| %>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666; width:120px;"><%= capability %></td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;">
+              <% ary = Array(list).reject(&:blank?) %>
+              <%= ary.present? ? ary.join(", ") : "-" %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+
+    <div style="margin-top:12px; font-size:12px; color:#666;">
+      task_key: <%= task["task_key"] || "-" %><br>
+      input_hash: <%= task["input_hash"] || "-" %>
+    </div>
+  </div>
+</div>
+
+<div style="padding:12px; border:1px solid #ddd; background:#fff; margin-top:16px;">
+  <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Model Runs</div>
+
+  <% if model_runs.empty? %>
+    <div style="font-size:13px; color:#999;">No model runs.</div>
+  <% else %>
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+        <tr>
+          <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">capability</th>
+          <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">engine</th>
+          <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">provider</th>
+          <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">status</th>
+          <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">latency_ms</th>
+          <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% model_runs.each do |mr| %>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["capability"] || "-" %></td>
+            <td style="padding:6px; border-bottom:1px solid #f5f5f5;">
+              <%= mr["engine_kind"] || "-" %>
+              <% if mr["engine_version"].present? %>
+                <span style="color:#888;">(<%= mr["engine_version"] %>)</span>
+              <% end %>
+            </td>
+            <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["provider"] || "-" %></td>
+            <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["status"] || "-" %></td>
+            <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["latency_ms"] || "-" %></td>
+            <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["cost_estimate"] || "-" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+</div>
+
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px;">
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Normalized Result</div>
+
+    <% if normalized.blank? %>
+      <div style="font-size:13px; color:#999;">No normalized result.</div>
+    <% else %>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <tbody>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">id</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= normalized["id"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">kind</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= normalized["normalized_kind"] || normalized["kind"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">status</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= normalized["normalized_status"] || normalized["status"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">summary</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= normalized["summary_text"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">confidence</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= normalized["confidence_score"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; color:#666;">reason_code</td>
+            <td style="padding:6px;"><%= normalized["reason_code"] || "-" %></td>
+          </tr>
+        </tbody>
+      </table>
+    <% end %>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Review Queue / Downstream</div>
+
+    <div style="margin-bottom:12px;">
+      <div style="font-weight:600; margin-bottom:6px;">Review Queue</div>
+      <% if review_item.blank? %>
+        <div style="font-size:13px; color:#999;">Not enqueued.</div>
+      <% else %>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <tbody>
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">id</td>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= review_item["id"] || "-" %></td>
+            </tr>
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">priority</td>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= review_item["priority"] || "-" %></td>
+            </tr>
+            <tr>
+              <td style="padding:6px; color:#666;">reason_code</td>
+              <td style="padding:6px;"><%= review_item["reason_code"] || "-" %></td>
+            </tr>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+
+    <div>
+      <div style="font-weight:600; margin-bottom:6px;">Downstream Handoffs</div>
+      <% if downstreams.empty? %>
+        <div style="font-size:13px; color:#999;">No downstream handoffs.</div>
+      <% else %>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">destination</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">status</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% downstreams.each do |dh| %>
+              <tr>
+                <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= dh["destination_kind"] || "-" %></td>
+                <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= dh["status"] || "-" %></td>
+                <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= dh["reason_code"] || "-" %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+  </div>
+</div>
+
+<div style="padding:12px; border:1px solid #ddd; background:#fff; margin-top:16px;">
+  <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Results</div>
+
+  <% if results.empty? %>
+    <div style="font-size:13px; color:#999;">No results.</div>
+  <% else %>
+    <% results.each_with_index do |res, idx| %>
+      <div style="border:1px solid #eee; padding:12px; margin-bottom:12px; background:#fafafa;">
+        <div style="font-weight:600; margin-bottom:6px;">
+          Result #<%= idx + 1 %> / <%= res["result_type"] || "-" %>
+        </div>
+
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <tbody>
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666; width:180px;">id</td>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= res["id"] || "-" %></td>
+            </tr>
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">result_type</td>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= res["result_type"] || "-" %></td>
+            </tr>
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">output_hash</td>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= res["output_hash"] || "-" %></td>
+            </tr>
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">payload_evidence_asset_id</td>
+              <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= res["payload_evidence_asset_id"] || "-" %></td>
+            </tr>
+            <tr>
+              <td style="padding:6px; color:#666;">confidence_evidence_asset_id</td>
+              <td style="padding:6px;"><%= res["confidence_evidence_asset_id"] || "-" %></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <% if res["summary_text"].present? || res["reason_code"].present? || res["confidence_score"].present? %>
+          <div style="margin-top:10px; padding:10px; background:#fff; border:1px solid #eee;">
+            <div style="font-size:12px; color:#666;">Result Summary</div>
+            <div style="margin-top:4px;"><strong>summary:</strong> <%= res["summary_text"].presence || "-" %></div>
+            <div><strong>confidence:</strong> <%= res["confidence_score"].presence || "-" %></div>
+            <div><strong>reason_code:</strong> <%= res["reason_code"].presence || "-" %></div>
+          </div>
+        <% end %>
+
+        <% if res["metadata_json"].present? %>
+          <details style="margin-top:10px;">
+            <summary style="cursor:pointer;">metadata_json</summary>
+            <pre style="white-space:pre-wrap; background:#fff; border:1px solid #eee; padding:10px; margin-top:8px;"><%= JSON.pretty_generate(res["metadata_json"]) rescue res["metadata_json"].inspect %></pre>
+          </details>
+        <% end %>
+      </div>
+    <% end %>
+  <% end %>
+</div>
+
+<div style="padding:12px; border:1px solid #ddd; background:#fff; margin-top:16px;">
+  <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Evidence Refs</div>
+
+  <% if evidence_refs.blank? || (evidence_refs.respond_to?(:empty?) && evidence_refs.empty?) %>
+    <div style="font-size:13px; color:#999;">No evidence refs.</div>
+  <% else %>
+    <% if evidence_refs.is_a?(Array) %>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr>
+            <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">id</th>
+            <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">kind</th>
+            <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">sha256</th>
+            <th style="text-align:left; padding:6px; border-bottom:1px solid #eee;">bytes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% evidence_refs.each do |ev| %>
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= ev["id"] || "-" %></td>
+              <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= ev["kind"] || "-" %></td>
+              <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= ev["sha256"] || "-" %></td>
+              <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= ev["bytes"] || "-" %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% else %>
+      <pre style="white-space:pre-wrap; background:#fafafa; border:1px solid #eee; padding:10px;"><%= JSON.pretty_generate(evidence_refs) rescue evidence_refs.inspect %></pre>
+    <% end %>
+  <% end %>
+</div>
+
+<div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+  <a
+    href="/admin/dashboard/atlaskernel/ai-runtime?project_id=<%= CGI.escape((@project_id || "").to_s) %>"
+    style="display:inline-block; padding:8px 12px; border:1px solid #ddd; text-decoration:none;"
+  >
+    ← Back to AI Runtime
+  </a>
+
+  <a
+    href="/admin/dashboard/atlaskernel?project_id=<%= CGI.escape((@project_id || "").to_s) %>"
+    style="display:inline-block; padding:8px 12px; border:1px solid #ddd; text-decoration:none;"
+  >
+    AtlasKernel Dashboard
+  </a>
+</div>

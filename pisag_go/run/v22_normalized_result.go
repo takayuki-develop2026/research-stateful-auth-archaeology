@@ -8,9 +8,14 @@ import (
 type NormalizedMultimodalResultKind string
 
 const (
-	NormalizedMultimodalResultKindOCRText         NormalizedMultimodalResultKind = "ocr_text"
-	NormalizedMultimodalResultKindVisionEntity    NormalizedMultimodalResultKind = "vision_entities"
-	NormalizedMultimodalResultKindAudioTranscript NormalizedMultimodalResultKind = "audio_transcript"
+	NormalizedMultimodalResultKindImagePreprocess    NormalizedMultimodalResultKind = "image_preprocess"
+	NormalizedMultimodalResultKindOCRText            NormalizedMultimodalResultKind = "ocr_text"
+	NormalizedMultimodalResultKindDocumentStructure  NormalizedMultimodalResultKind = "document_structure"
+	NormalizedMultimodalResultKindSimilarityCandidates NormalizedMultimodalResultKind = "similarity_candidates"
+	NormalizedMultimodalResultKindVisionEntity       NormalizedMultimodalResultKind = "vision_entities"
+	NormalizedMultimodalResultKindLLMOutput          NormalizedMultimodalResultKind = "llm_output"
+	NormalizedMultimodalResultKindFusedMultimodal    NormalizedMultimodalResultKind = "fused_multimodal"
+	NormalizedMultimodalResultKindAudioTranscript    NormalizedMultimodalResultKind = "audio_transcript"
 )
 
 type NormalizedMultimodalResultStatus string

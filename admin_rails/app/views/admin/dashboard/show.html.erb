@@ -47,13 +47,14 @@
       <div class="card__top">
         <div>
           <h2 class="card__title">AtlasKernel</h2>
-          <p class="card__desc">Provider Intelligence / Review / Replay の運用OS</p>
+          <p class="card__desc">Provider Intelligence / Review / Replay / AI Runtime の運用OS</p>
         </div>
         <span></span>
       </div>
 
       <div class="card__actions">
         <%= dash_action("AtlasKernel へ", "/admin/dashboard/atlaskernel#{pid_q}", enabled: enabled[:atlaskernel], style: :primary) %>
+        <%= dash_action("AI Runtime", "/admin/dashboard/atlaskernel/ai-runtime#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
         <%= dash_action("Run Artifacts", "/admin/dashboard/atlaskernel/run-artifacts#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
         <%= dash_action("Discovery Ops (Stale)", "/admin/dashboard/atlaskernel/discovery-ops/stale#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
       </div>
@@ -71,7 +72,7 @@
         </div>
         <div class="kv">
           <span class="kv__k">Primary</span>
-          <span class="kv__v">Discovery Ops → Review → Decide</span>
+          <span class="kv__v">Discovery Ops → AI Runtime → Review → Decide</span>
         </div>
       </div>
 
