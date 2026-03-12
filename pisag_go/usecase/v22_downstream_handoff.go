@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	run "example.com/pisag_go/run"
 )
@@ -31,28 +32,35 @@ func (uc *CreateV22DownstreamHandoffUseCase) Handle(ctx context.Context, in Crea
 	if uc.Normalized == nil {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff: normalized repository is nil")
 	}
-	if in.ProjectID == "" {
+	if strings.TrimSpace(in.ProjectID) == "" {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff: project_id is required")
 	}
 	if in.NormalizedResultID <= 0 {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff: normalized_result_id is required")
 	}
-	if in.DestinationKind == "" {
+	if strings.TrimSpace(in.DestinationKind) == "" {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff: destination_kind is required")
+	}
+
+	projectID := strings.TrimSpace(in.ProjectID)
+	destinationKind := strings.TrimSpace(in.DestinationKind)
+	reasonCode := strings.TrimSpace(in.ReasonCode)
+	if reasonCode == "" {
+		reasonCode = "handoff_requested"
 	}
 
 	norm, err := uc.Normalized.FindByID(ctx, in.NormalizedResultID)
 	if err != nil {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff load normalized result: %w", err)
 	}
-	if norm.ProjectID != in.ProjectID {
+	if norm.ProjectID != projectID {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff: normalized result project mismatch")
 	}
 	if norm.DownstreamPayloadEvidenceAssetID == nil || *norm.DownstreamPayloadEvidenceAssetID <= 0 {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff: downstream payload evidence is missing")
 	}
 
-	updatedNorm, err := uc.Normalized.UpdateStatus(ctx, in.ProjectID, norm.ID, run.NormalizedMultimodalResultStatusHandedOff)
+	updatedNorm, err := uc.Normalized.UpdateStatus(ctx, projectID, norm.ID, run.NormalizedMultimodalResultStatusHandedOff)
 	if err != nil {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff update normalized status: %w", err)
 	}
@@ -64,10 +72,10 @@ func (uc *CreateV22DownstreamHandoffUseCase) Handle(ctx context.Context, in Crea
 		TaskID:                 updatedNorm.TaskID,
 		ResultID:               updatedNorm.ResultID,
 		NormalizedResultID:     updatedNorm.ID,
-		DestinationKind:        in.DestinationKind,
+		DestinationKind:        destinationKind,
 		PayloadEvidenceAssetID: *updatedNorm.DownstreamPayloadEvidenceAssetID,
 		HandoffStatus:          run.MultimodalDownstreamHandoffStatusPending,
-		ReasonCode:             in.ReasonCode,
+		ReasonCode:             reasonCode,
 	})
 	if err != nil {
 		return CreateV22DownstreamHandoffOutput{}, fmt.Errorf("create v22 downstream handoff create: %w", err)

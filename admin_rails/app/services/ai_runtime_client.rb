@@ -30,8 +30,8 @@ class AiRuntimeClient
       instance.create_run(payload)
     end
 
-    def get_run(id)
-      instance.get_run(id)
+    def get_run(id, project_id:)
+      instance.get_run(id, project_id: project_id)
     end
   end
 
@@ -100,8 +100,8 @@ class AiRuntimeClient
   #   "downstream_handoffs": [...],
   #   "evidence_refs": [...]
   # }
-  def get_run(id)
-    get_json("#{runs_path}/#{id}")
+  def get_run(id, project_id:)
+    get_json(with_query("#{runs_path}/#{id}", { project_id: project_id }))
   end
 
   # ---------------------------------

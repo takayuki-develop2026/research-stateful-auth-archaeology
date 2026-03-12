@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	run "example.com/pisag_go/run"
@@ -26,28 +27,32 @@ func (uc *MarkMultimodalTaskSucceededUseCase) Handle(ctx context.Context, in Mar
 	if uc.Tasks == nil {
 		return MarkMultimodalTaskSucceededOutput{}, fmt.Errorf("mark multimodal task succeeded: tasks repository is nil")
 	}
-	if in.ProjectID == "" {
+	if strings.TrimSpace(in.ProjectID) == "" {
 		return MarkMultimodalTaskSucceededOutput{}, fmt.Errorf("mark multimodal task succeeded: project_id is required")
 	}
 	if in.TaskID <= 0 {
 		return MarkMultimodalTaskSucceededOutput{}, fmt.Errorf("mark multimodal task succeeded: task_id is required")
 	}
-	if in.FinishedAt.IsZero() {
-		in.FinishedAt = time.Now().UTC()
+
+	finishedAt := in.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = time.Now().UTC()
+	} else {
+		finishedAt = finishedAt.UTC()
 	}
 
 	task, err := uc.Tasks.FindByID(ctx, in.TaskID)
 	if err != nil {
 		return MarkMultimodalTaskSucceededOutput{}, fmt.Errorf("mark multimodal task succeeded load task: %w", err)
 	}
-	if task.ProjectID != in.ProjectID {
+	if task.ProjectID != strings.TrimSpace(in.ProjectID) {
 		return MarkMultimodalTaskSucceededOutput{}, fmt.Errorf("mark multimodal task succeeded: task project mismatch")
 	}
 	if task.Status != run.MultimodalTaskStatusRunning {
 		return MarkMultimodalTaskSucceededOutput{}, fmt.Errorf("mark multimodal task succeeded: invalid current status=%s", task.Status)
 	}
 
-	updated, err := uc.Tasks.MarkSucceeded(ctx, in.ProjectID, in.TaskID, in.FinishedAt.UTC())
+	updated, err := uc.Tasks.MarkSucceeded(ctx, strings.TrimSpace(in.ProjectID), in.TaskID, finishedAt)
 	if err != nil {
 		return MarkMultimodalTaskSucceededOutput{}, fmt.Errorf("mark multimodal task succeeded update: %w", err)
 	}

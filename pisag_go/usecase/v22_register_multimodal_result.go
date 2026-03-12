@@ -70,6 +70,9 @@ func (uc *RegisterMultimodalResultUseCase) Handle(ctx context.Context, in Regist
 	if task.ProjectID != in.ProjectID {
 		return RegisterMultimodalResultOutput{}, fmt.Errorf("register multimodal result: task project mismatch")
 	}
+	if task.TraceID != in.TraceID {
+		return RegisterMultimodalResultOutput{}, fmt.Errorf("register multimodal result: task trace mismatch")
+	}
 	if task.RunID != in.RunID {
 		return RegisterMultimodalResultOutput{}, fmt.Errorf("register multimodal result: task run mismatch")
 	}
@@ -118,6 +121,7 @@ func buildMultimodalResultKey(in run.BuildMultimodalResultKeyInput) string {
 	if in.ModelRunID != nil {
 		modelRun = strconv.FormatInt(*in.ModelRunID, 10)
 	}
+
 	s := strings.Join([]string{
 		strings.TrimSpace(in.ProjectID),
 		strconv.FormatInt(in.TaskID, 10),
@@ -125,6 +129,7 @@ func buildMultimodalResultKey(in run.BuildMultimodalResultKeyInput) string {
 		modelRun,
 		strings.TrimSpace(in.OutputHash),
 	}, "|")
+
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
 }

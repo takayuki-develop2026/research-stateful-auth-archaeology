@@ -69,7 +69,7 @@ class Admin::Atlaskernel::AiRuntimeController < ApplicationController
     @project_id = current_project_id
     @run_id = params[:id].to_s
 
-    @data = AiRuntimeClient.get_run(@run_id)
+    @data = AiRuntimeClient.get_run(@run_id, project_id: @project_id)
     @error = nil
 
     @run = @data["run"] || {}
@@ -89,7 +89,7 @@ class Admin::Atlaskernel::AiRuntimeController < ApplicationController
     @normalized_result = {}
     @review_queue_item = {}
     @downstream_handoffs = []
-    @evidence_refs = {}
+    @evidence_refs = []
   end
 
   private

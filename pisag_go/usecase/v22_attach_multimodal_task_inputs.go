@@ -2,8 +2,11 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	run "example.com/pisag_go/run"
 )
@@ -97,6 +100,10 @@ func (uc *AttachMultimodalTaskInputsUseCase) Handle(ctx context.Context, in Atta
 
 		v, err := uc.TaskInputs.Create(ctx, item)
 		if err != nil {
+			if isUniqueViolation(err) {
+				// 既に同じ input が attach 済みなら成功扱いでスキップ
+				continue
+			}
 			return AttachMultimodalTaskInputsOutput{}, fmt.Errorf("attach multimodal task inputs create: %w", err)
 		}
 		created = append(created, v)
@@ -106,4 +113,12 @@ func (uc *AttachMultimodalTaskInputsUseCase) Handle(ctx context.Context, in Atta
 		Task:   task,
 		Inputs: created,
 	}, nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return false
 }

@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	run "example.com/pisag_go/run"
 )
@@ -48,14 +49,30 @@ func (uc *AttachMultimodalResultOutputsUseCase) Handle(ctx context.Context, in A
 		return AttachMultimodalResultOutputsOutput{}, fmt.Errorf("attach multimodal result outputs: result project mismatch")
 	}
 
-	var created []run.MultimodalResultOutput
-	for _, item := range in.Outputs {
+	outputs := make([]run.AttachMultimodalResultOutputInput, len(in.Outputs))
+	copy(outputs, in.Outputs)
+
+	sort.Slice(outputs, func(i, j int) bool {
+		if outputs[i].Seq != outputs[j].Seq {
+			return outputs[i].Seq < outputs[j].Seq
+		}
+		if outputs[i].OutputRole != outputs[j].OutputRole {
+			return outputs[i].OutputRole < outputs[j].OutputRole
+		}
+		return outputs[i].EvidenceID < outputs[j].EvidenceID
+	})
+
+	seen := map[string]struct{}{}
+	created := make([]run.MultimodalResultOutput, 0, len(outputs))
+
+	for idx, item := range outputs {
 		if item.ProjectID == "" {
 			item.ProjectID = in.ProjectID
 		}
 		if item.ResultID == 0 {
 			item.ResultID = in.ResultID
 		}
+
 		if item.ProjectID != in.ProjectID {
 			return AttachMultimodalResultOutputsOutput{}, fmt.Errorf("attach multimodal result outputs: output project mismatch")
 		}
@@ -68,9 +85,17 @@ func (uc *AttachMultimodalResultOutputsUseCase) Handle(ctx context.Context, in A
 		if item.OutputRole == "" {
 			return AttachMultimodalResultOutputsOutput{}, fmt.Errorf("attach multimodal result outputs: output_role is required")
 		}
-		if item.Seq < 0 {
-			return AttachMultimodalResultOutputsOutput{}, fmt.Errorf("attach multimodal result outputs: seq must be >= 0")
+
+		// adapter 側が seq=0 を返してもここで補正する
+		if item.Seq <= 0 {
+			item.Seq = idx + 1
 		}
+
+		key := fmt.Sprintf("%d|%s|%d", item.EvidenceID, item.OutputRole, item.Seq)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 
 		v, err := uc.ResultOutputs.Create(ctx, item)
 		if err != nil {

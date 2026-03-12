@@ -72,14 +72,14 @@ func (r *RuntimeRunDetailRepo) GetRuntimeRunDetail(ctx context.Context, projectI
 	}
 
 	detail := run.RuntimeRunDetail{
-		Run:               buildRuntimeRunSummaryFromTask(task),
-		Task:              task,
-		ModelRuns:         modelRuns,
-		Results:           results,
-		NormalizedResult:  normalized,
-		ReviewQueueItem:   reviewItem,
+		Run:                buildRuntimeRunSummaryFromTask(task),
+		Task:               task,
+		ModelRuns:          modelRuns,
+		Results:            results,
+		NormalizedResult:   normalized,
+		ReviewQueueItem:    reviewItem,
 		DownstreamHandoffs: downstreams,
-		EvidenceRefs:      evidenceRefs,
+		EvidenceRefs:       evidenceRefs,
 	}
 
 	return detail, nil
@@ -408,7 +408,7 @@ func (r *RuntimeRunDetailRepo) getDownstreamHandoffs(ctx context.Context, projec
 			project_id,
 			normalized_result_id,
 			destination_kind,
-			status,
+			handoff_status,
 			reason_code,
 			created_at_utc,
 			updated_at_utc
@@ -500,10 +500,9 @@ func (r *RuntimeRunDetailRepo) getEvidenceRefs(
 		SELECT
 			id,
 			kind,
-			sha256,
-			bytes,
-			created_at_utc,
-			metadata_json::text
+			content_sha256,
+			content_length,
+			created_at
 		FROM public.evidence_assets
 		WHERE project_id = $1
 		  AND id = ANY($2)
@@ -518,7 +517,6 @@ func (r *RuntimeRunDetailRepo) getEvidenceRefs(
 	for rows.Next() {
 		var item run.RuntimeEvidenceRef
 		var createdAt time.Time
-		var metadataRaw string
 
 		if err := rows.Scan(
 			&item.ID,
@@ -526,13 +524,12 @@ func (r *RuntimeRunDetailRepo) getEvidenceRefs(
 			&item.SHA256,
 			&item.Bytes,
 			&createdAt,
-			&metadataRaw,
 		); err != nil {
 			return nil, err
 		}
 
 		item.CreatedAt = createdAt.UTC().Format(time.RFC3339)
-		item.Metadata = parseJSONMap(metadataRaw)
+		item.Metadata = map[string]any{}
 
 		out = append(out, item)
 	}

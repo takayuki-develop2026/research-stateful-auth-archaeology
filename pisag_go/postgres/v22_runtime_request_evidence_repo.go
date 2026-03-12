@@ -36,30 +36,40 @@ func (r *RuntimeRequestEvidenceRepo) RegisterJSONEvidence(
 		return run.RegisterRuntimeJSONEvidenceOutput{}, fmt.Errorf("register runtime json evidence: sha256 is required")
 	}
 
-	metadata := fmt.Sprintf(
-		`{"description":%q,"body_json":%s}`,
-		in.Description,
-		in.BodyJSON,
-	)
-
 	var id int64
 	err := r.DB.QueryRow(ctx, `
 		INSERT INTO public.evidence_assets (
 			project_id,
 			trace_id,
+			run_id,
 			kind,
-			sha256,
-			bytes,
-			metadata_json,
-			created_at_utc
+			media_type,
+			source_kind,
+			source_uri,
+			content_sha256,
+			content_length,
+			mime_type,
+			status,
+			created_by_type,
+			created_by_id,
+			created_at,
+			updated_at
 		)
 		VALUES (
 			$1,
 			$2,
+			NULL,
 			$3,
+			'text',
+			'generated',
 			$4,
 			$5,
-			$6::jsonb,
+			$6,
+			'application/json',
+			'active',
+			'system',
+			'v22_runtime_api',
+			NOW(),
 			NOW()
 		)
 		RETURNING id
@@ -67,9 +77,9 @@ func (r *RuntimeRequestEvidenceRepo) RegisterJSONEvidence(
 		in.ProjectID,
 		in.TraceID,
 		in.Kind,
+		in.Description,
 		in.SHA256,
 		int64(len(in.BodyJSON)),
-		metadata,
 	).Scan(&id)
 	if err != nil {
 		return run.RegisterRuntimeJSONEvidenceOutput{}, fmt.Errorf("register runtime json evidence insert: %w", err)
