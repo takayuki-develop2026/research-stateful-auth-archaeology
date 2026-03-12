@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	run "example.com/pisag_go/run"
 )
@@ -48,14 +49,30 @@ func (uc *AttachMultimodalTaskInputsUseCase) Handle(ctx context.Context, in Atta
 		return AttachMultimodalTaskInputsOutput{}, fmt.Errorf("attach multimodal task inputs: task project mismatch")
 	}
 
-	var created []run.MultimodalTaskInput
-	for _, item := range in.Inputs {
+	inputs := make([]run.AttachMultimodalTaskInputInput, len(in.Inputs))
+	copy(inputs, in.Inputs)
+
+	sort.Slice(inputs, func(i, j int) bool {
+		if inputs[i].Seq != inputs[j].Seq {
+			return inputs[i].Seq < inputs[j].Seq
+		}
+		if inputs[i].InputRole != inputs[j].InputRole {
+			return inputs[i].InputRole < inputs[j].InputRole
+		}
+		return inputs[i].EvidenceID < inputs[j].EvidenceID
+	})
+
+	seen := map[string]struct{}{}
+	created := make([]run.MultimodalTaskInput, 0, len(inputs))
+
+	for _, item := range inputs {
 		if item.ProjectID == "" {
 			item.ProjectID = in.ProjectID
 		}
 		if item.TaskID == 0 {
 			item.TaskID = in.TaskID
 		}
+
 		if item.ProjectID != in.ProjectID {
 			return AttachMultimodalTaskInputsOutput{}, fmt.Errorf("attach multimodal task inputs: input project mismatch")
 		}
@@ -68,9 +85,15 @@ func (uc *AttachMultimodalTaskInputsUseCase) Handle(ctx context.Context, in Atta
 		if item.InputRole == "" {
 			return AttachMultimodalTaskInputsOutput{}, fmt.Errorf("attach multimodal task inputs: input_role is required")
 		}
-		if item.Seq < 0 {
-			return AttachMultimodalTaskInputsOutput{}, fmt.Errorf("attach multimodal task inputs: seq must be >= 0")
+		if item.Seq <= 0 {
+			return AttachMultimodalTaskInputsOutput{}, fmt.Errorf("attach multimodal task inputs: seq must be >= 1")
 		}
+
+		key := fmt.Sprintf("%d|%s|%d", item.EvidenceID, item.InputRole, item.Seq)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 
 		v, err := uc.TaskInputs.Create(ctx, item)
 		if err != nil {
