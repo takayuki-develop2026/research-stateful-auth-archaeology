@@ -398,3 +398,52 @@ func nullTimePtrV22(v sql.NullTime) *time.Time {
 	t := v.Time
 	return &t
 }
+
+func (r *MultimodalTaskRepo) ClaimNextQueuedOCRTask(ctx context.Context, projectID string) (run.MultimodalTask, bool, error) {
+	const q = `
+WITH picked AS (
+	SELECT id
+	FROM multimodal_tasks
+	WHERE project_id = $1
+	  AND task_type = 'ocr'
+	  AND status = 'queued'
+	ORDER BY id ASC
+	FOR UPDATE SKIP LOCKED
+	LIMIT 1
+)
+UPDATE multimodal_tasks t
+SET
+	updated_at_utc = now()
+FROM picked
+WHERE t.id = picked.id
+RETURNING
+	t.id,
+	t.project_id,
+	t.trace_id,
+	t.run_id,
+	t.task_key,
+	t.task_type,
+	t.pipeline_version,
+	t.policy_version_str,
+	t.input_hash,
+	t.status,
+	t.router_plan_evidence_asset_id,
+	t.options_evidence_asset_id,
+	t.model_run_id,
+	t.started_at_utc,
+	t.finished_at_utc,
+	t.soft_error_evidence_asset_id,
+	t.created_at_utc,
+	t.updated_at_utc
+`
+	row := r.db.QueryRow(ctx, q, projectID)
+
+	task, err := scanMultimodalTask(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return run.MultimodalTask{}, false, nil
+		}
+		return run.MultimodalTask{}, false, fmt.Errorf("claim next queued ocr task: %w", err)
+	}
+	return task, true, nil
+}

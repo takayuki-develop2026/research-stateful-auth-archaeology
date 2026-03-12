@@ -17,9 +17,20 @@ import (
 	run "example.com/pisag_go/run"
 )
 
+type OCRTaskInputLookup interface {
+	ListByTaskID(ctx context.Context, projectID string, taskID int64) ([]run.MultimodalTaskInput, error)
+}
+
+type OCREvidenceSourceLookup interface {
+	GetEvidenceSourceURI(ctx context.Context, projectID string, evidenceID int64) (string, error)
+}
+
 type PaddleOCRAdapter struct {
 	BaseURL    string
 	HTTPClient *http.Client
+
+	TaskInputs       OCRTaskInputLookup
+	EvidenceSources  OCREvidenceSourceLookup
 
 	// 開発段階では true にすると、OCR サービス未接続でも
 	// 疎通確認用の擬似結果を返せる
@@ -27,15 +38,15 @@ type PaddleOCRAdapter struct {
 }
 
 type paddleOCRRequest struct {
-	ContentB64     string                 `json:"content_b64"`
-	ContentSHA256  string                 `json:"content_sha256"`
-	SourceURL      *string                `json:"source_url"`
-	Options        map[string]any         `json:"options"`
+	ContentB64    string         `json:"content_b64"`
+	ContentSHA256 string         `json:"content_sha256"`
+	SourceURL     *string        `json:"source_url"`
+	Options       map[string]any `json:"options"`
 }
 
 type paddleOCRResponse struct {
-	Text string                 `json:"text"`
-	Meta map[string]any         `json:"meta"`
+	Text string         `json:"text"`
+	Meta map[string]any `json:"meta"`
 }
 
 func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionInput) (run.OCRExecutionOutput, error) {
@@ -59,7 +70,7 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 		client = &http.Client{Timeout: 60 * time.Second}
 	}
 
-	sourcePath, err := resolveOCRSourcePath(in)
+	sourcePath, err := a.resolveOCRSourcePath(ctx, in)
 	if err != nil {
 		if a.AllowStubFallback {
 			return a.stubOutput(in), nil
@@ -83,6 +94,7 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 		return run.OCRExecutionOutput{}, fmt.Errorf("paddleocr adapter parse response: %w", err)
 	}
 
+	fullText := strings.ToValidUTF8(strings.TrimSpace(parsed.Text), "")
 	confidence := extractConfidenceFromMeta(parsed.Meta)
 	reviewRequired := extractDecisionFromMeta(parsed.Meta) != "accept"
 	if strings.Contains(in.Task.PolicyVersionStr, "ocr-review") {
@@ -93,13 +105,18 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 	payloadEvidenceID := in.Task.OptionsEvidenceAssetID
 	confidenceEvidenceID := paddleInt64Ptr(in.Task.OptionsEvidenceAssetID)
 
+	serviceMeta := paddleDefaultAnyMap(parsed.Meta)
+	serviceMeta["ocr_text"] = fullText
+	serviceMeta["ocr_text_preview"] = buildOCRPreview(fullText, 1000)
+	serviceMeta["ocr_text_length"] = len(fullText)
+
 	meta := map[string]any{
 		"adapter":      "paddleocr",
 		"project_id":   in.Task.ProjectID,
 		"task_id":      in.Task.ID,
 		"task_type":    string(in.Task.TaskType),
 		"source_path":  sourcePath,
-		"service_meta": paddleDefaultAnyMap(parsed.Meta),
+		"service_meta": serviceMeta,
 	}
 
 	generated := []run.MultimodalGeneratedOutput{
@@ -110,12 +127,9 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 		},
 	}
 
-	summary := strings.TrimSpace(parsed.Text)
+	summary := buildOCRSummary(fullText, 120)
 	if summary == "" {
 		summary = "paddleocr extracted text"
-	}
-	if len(summary) > 120 {
-		summary = summary[:120]
 	}
 
 	return run.OCRExecutionOutput{
@@ -198,12 +212,52 @@ func (a *PaddleOCRAdapter) callPaddleOCR(
 	return respBody, nil
 }
 
-func resolveOCRSourcePath(in run.OCRExecutionInput) (string, error) {
+func (a *PaddleOCRAdapter) resolveOCRSourcePath(ctx context.Context, in run.OCRExecutionInput) (string, error) {
 	raw := strings.TrimSpace(os.Getenv("AK_OCR_SOURCE_PATH"))
 	if raw != "" {
 		return raw, nil
 	}
-	return "", fmt.Errorf("AK_OCR_SOURCE_PATH is required until evidence-store lookup is connected")
+
+	if a.TaskInputs == nil {
+		return "", fmt.Errorf("task input lookup is nil")
+	}
+	if a.EvidenceSources == nil {
+		return "", fmt.Errorf("evidence source lookup is nil")
+	}
+
+	inputs, err := a.TaskInputs.ListByTaskID(ctx, in.Task.ProjectID, in.Task.ID)
+	if err != nil {
+		return "", fmt.Errorf("list task inputs: %w", err)
+	}
+	if len(inputs) == 0 {
+		return "", fmt.Errorf("no task inputs found")
+	}
+
+	var selected *run.MultimodalTaskInput
+	for i := range inputs {
+		if inputs[i].InputRole == run.MultimodalInputRolePrimary {
+			selected = &inputs[i]
+			break
+		}
+	}
+	if selected == nil {
+		selected = &inputs[0]
+	}
+
+	sourcePath, err := a.EvidenceSources.GetEvidenceSourceURI(ctx, in.Task.ProjectID, selected.EvidenceID)
+	if err != nil {
+		return "", fmt.Errorf("get evidence source uri: %w", err)
+	}
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return "", fmt.Errorf("empty source path")
+	}
+
+	if _, err := os.Stat(sourcePath); err != nil {
+		return "", fmt.Errorf("source path not readable: %w", err)
+	}
+
+	return sourcePath, nil
 }
 
 func (a *PaddleOCRAdapter) stubOutput(in run.OCRExecutionInput) run.OCRExecutionOutput {
@@ -211,6 +265,19 @@ func (a *PaddleOCRAdapter) stubOutput(in run.OCRExecutionInput) run.OCRExecution
 	reviewRequired := strings.Contains(in.Task.PolicyVersionStr, "ocr-review")
 	if reviewRequired {
 		conf = 0.42
+	}
+
+	fullText := "stub ocr extracted text"
+	meta := map[string]any{
+		"adapter":    "paddleocr_stub_fallback",
+		"project_id": in.Task.ProjectID,
+		"task_id":    in.Task.ID,
+		"task_type":  string(in.Task.TaskType),
+		"service_meta": map[string]any{
+			"ocr_text":         fullText,
+			"ocr_text_preview": fullText,
+			"ocr_text_length":  len(fullText),
+		},
 	}
 
 	return run.OCRExecutionOutput{
@@ -224,18 +291,13 @@ func (a *PaddleOCRAdapter) stubOutput(in run.OCRExecutionInput) run.OCRExecution
 			},
 		},
 		OutputHash:      fmt.Sprintf("stub_ocr_output_%d", in.Task.ID),
-		SummaryText:     "stub ocr extracted text",
+		SummaryText:     buildOCRSummary(fullText, 120),
 		ConfidenceScore: &conf,
 		ReasonCode:      reasonCode(reviewRequired, "ocr_low_confidence", "ocr_ok"),
 		ReviewRequired:  reviewRequired,
 		EngineKind:      run.EngineKindPaddleOCR,
 		EngineVersion:   "v1",
-		Metadata: map[string]any{
-			"adapter":    "paddleocr_stub_fallback",
-			"project_id": in.Task.ProjectID,
-			"task_id":    in.Task.ID,
-			"task_type":  string(in.Task.TaskType),
-		},
+		Metadata:        meta,
 	}
 }
 
@@ -244,7 +306,6 @@ func extractConfidenceFromMeta(meta map[string]any) *float64 {
 		return nil
 	}
 
-	// Python 側で normalized があれば優先
 	if v, ok := meta["avg_confidence_normalized"]; ok {
 		if f, ok := toFloat(v); ok {
 			x := f / 100.0
@@ -254,7 +315,6 @@ func extractConfidenceFromMeta(meta map[string]any) *float64 {
 
 	if v, ok := meta["avg_confidence"]; ok {
 		if f, ok := toFloat(v); ok {
-			// 0〜100 を 0〜1 に正規化
 			if f > 1.0 {
 				f = f / 100.0
 			}
@@ -310,6 +370,39 @@ func paddleDefaultAnyMap(in map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	return in
+}
+
+func buildOCRSummary(fullText string, max int) string {
+	s := strings.TrimSpace(fullText)
+	if s == "" {
+		return ""
+	}
+
+	s = strings.ToValidUTF8(s, "")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Join(strings.Fields(s), " ")
+
+	rs := []rune(s)
+	if len(rs) <= max {
+		return string(rs)
+	}
+	return string(rs[:max])
+}
+
+func buildOCRPreview(fullText string, max int) string {
+	s := strings.TrimSpace(fullText)
+	if s == "" {
+		return ""
+	}
+
+	s = strings.ToValidUTF8(s, "")
+	rs := []rune(s)
+	if len(rs) <= max {
+		return string(rs)
+	}
+	return string(rs[:max])
 }
 
 func getenvOr(k, fallback string) string {

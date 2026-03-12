@@ -33,42 +33,53 @@ func main() {
 	// Repositories
 	// ---------------------------------
 	taskRepo := postgres.NewMultimodalTaskRepo(db)
-
-	// NOTE:
-	// ここは既存実装の constructor 名に合わせる必要があります。
-	// もし実ファイル側が別名なら、その constructor 名に差し替えてください。
 	taskInputRepo := postgres.NewMultimodalTaskInputRepo(db)
-
 	runtimeDetailRepo := postgres.NewRuntimeRunDetailRepo(db)
 	runtimeRequestEvidenceRepo := &postgres.RuntimeRequestEvidenceRepo{DB: db}
+
+	runtimeUploadEvidenceRepo := postgres.NewRuntimeUploadEvidenceRepo(db)
 
 	// ---------------------------------
 	// UseCases
 	// ---------------------------------
 	routeUC := &usecase.RouteV22ModelTaskUseCase{}
+
 	registerEvidenceUC := &usecase.RegisterRuntimeRequestEvidenceUseCase{
 		Evidence: runtimeRequestEvidenceRepo,
 	}
+
 	createTaskUC := &usecase.CreateMultimodalTaskUseCase{
 		Tasks: taskRepo,
 	}
+
 	attachInputsUC := &usecase.AttachMultimodalTaskInputsUseCase{
 		Tasks:      taskRepo,
 		TaskInputs: taskInputRepo,
 	}
+
 	getDetailUC := &usecase.GetRuntimeRunDetailUseCase{
 		Details: runtimeDetailRepo,
+	}
+
+	registerUploadedEvidenceUC := &usecase.RegisterRuntimeUploadedEvidenceUseCase{
+		Evidence: runtimeUploadEvidenceRepo,
+	}
+
+	getUploadedEvidenceSummaryUC := &usecase.GetRuntimeUploadedEvidenceSummaryUseCase{
+		Evidence: runtimeUploadEvidenceRepo,
 	}
 
 	// ---------------------------------
 	// HTTP Handler
 	// ---------------------------------
 	handler := &adminapi.V22RuntimeHandler{
-		RouteTask:               routeUC,
-		RegisterRequestEvidence: registerEvidenceUC,
-		CreateTask:              createTaskUC,
-		AttachTaskInputs:        attachInputsUC,
-		GetRunDetail:            getDetailUC,
+		RouteTask:                  routeUC,
+		RegisterRequestEvidence:    registerEvidenceUC,
+		CreateTask:                 createTaskUC,
+		AttachTaskInputs:           attachInputsUC,
+		GetRunDetail:               getDetailUC,
+		RegisterUploadedEvidence:   registerUploadedEvidenceUC,
+		GetUploadedEvidenceSummary: getUploadedEvidenceSummaryUC,
 	}
 
 	mux := http.NewServeMux()

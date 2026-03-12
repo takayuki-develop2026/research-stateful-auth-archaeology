@@ -21,6 +21,53 @@
 <% evidence_refs = @evidence_refs || [] %>
 <% selected_engines = task["engine_selection"] || run["engine_selection"] || {} %>
 
+<% primary_result = results.first || {} %>
+<% payload_evidence_id = primary_result["payload_evidence_asset_id"] %>
+<% confidence_evidence_id = primary_result["confidence_evidence_asset_id"] %>
+
+<% primary_metadata = primary_result["metadata"] || primary_result["metadata_json"] || {} %>
+<% primary_service_meta = primary_metadata["service_meta"] || {} %>
+
+<%
+  ocr_text_preview =
+    primary_service_meta["ocr_text"].presence ||
+    primary_service_meta["ocr_text_preview"].presence ||
+    primary_metadata["ocr_text"].presence ||
+    primary_metadata["text"].presence ||
+    primary_result["payload_text"].presence ||
+    primary_result["output_text"].presence ||
+    primary_result["text"].presence ||
+    normalized["full_text"].presence ||
+    normalized["ocr_text"].presence
+%>
+
+<%
+  confidence_preview =
+    primary_service_meta["avg_confidence_normalized"].presence ||
+    primary_service_meta["avg_confidence"].presence ||
+    primary_result["confidence_score"].presence ||
+    primary_metadata["confidence_from_model_run"].presence ||
+    normalized["confidence_score"].presence
+%>
+
+<%
+  ocr_text_evidence =
+    if evidence_refs.is_a?(Array)
+      evidence_refs.find { |ev| ev["kind"].to_s == "ocr_text_payload" } || {}
+    else
+      {}
+    end
+%>
+
+<%
+  confidence_evidence =
+    if evidence_refs.is_a?(Array)
+      evidence_refs.find { |ev| ev["kind"].to_s == "ocr_confidence_payload" } || {}
+    else
+      {}
+    end
+%>
+
 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px;">
   <div style="padding:12px; border:1px solid #ddd; background:#fff;">
     <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Run Summary</div>
@@ -45,9 +92,7 @@
         </tr>
         <tr>
           <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">status</td>
-          <td style="padding:6px; border-bottom:1px solid #f3f3f3;">
-            <strong><%= run["status"] || task["status"] || "-" %></strong>
-          </td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><strong><%= run["status"] || task["status"] || "-" %></strong></td>
         </tr>
         <tr>
           <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">task_type</td>
@@ -97,9 +142,11 @@
       </tbody>
     </table>
 
-    <div style="margin-top:12px; font-size:12px; color:#666;">
-      task_key: <%= task["task_key"] || "-" %><br>
-      input_hash: <%= task["input_hash"] || "-" %>
+    <div style="margin-top:12px; font-size:12px; color:#666; line-height:1.7;">
+      <div>task_key: <%= task["task_key"] || "-" %></div>
+      <div>input_hash: <%= task["input_hash"] || "-" %></div>
+      <div>payload_evidence_asset_id: <%= payload_evidence_id || "-" %></div>
+      <div>confidence_evidence_asset_id: <%= confidence_evidence_id || "-" %></div>
     </div>
   </div>
 </div>
@@ -232,6 +279,66 @@
         </table>
       <% end %>
     </div>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns: 1.2fr 0.8fr; gap:16px; margin-top:16px;">
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">OCR Text Preview</div>
+
+    <% if ocr_text_preview.present? %>
+      <div style="font-size:12px; color:#666; margin-bottom:8px;">
+        OCR本文プレビュー（APIが返した内容を表示）
+      </div>
+      <pre style="white-space:pre-wrap; word-break:break-word; background:#fafafa; border:1px solid #eee; padding:12px; max-height:420px; overflow:auto;"><%= ocr_text_preview %></pre>
+    <% else %>
+      <div style="font-size:13px; color:#666; line-height:1.8;">
+        現在の API response には OCR本文そのものが含まれていません。<br>
+        OCR本文の実体は通常 <strong>ocr_text_payload</strong> evidence に保存されています。<br>
+        この run では:
+        <div style="margin-top:8px; padding:10px; border:1px solid #eee; background:#fafafa;">
+          payload_evidence_asset_id: <strong><%= payload_evidence_id || "-" %></strong><br>
+          payload kind: <strong><%= ocr_text_evidence["kind"] || "-" %></strong>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">OCR Payload / Confidence</div>
+
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <tbody>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666; width:180px;">payload_evidence_asset_id</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= payload_evidence_id || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">payload kind</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= ocr_text_evidence["kind"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">payload bytes</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= ocr_text_evidence["bytes"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">confidence_evidence_asset_id</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= confidence_evidence_id || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">confidence kind</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= confidence_evidence["kind"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">confidence bytes</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= confidence_evidence["bytes"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; color:#666;">confidence score</td>
+          <td style="padding:6px;"><%= confidence_preview || "-" %></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>
 

@@ -11,6 +11,20 @@
   </div>
 <% end %>
 
+<% if flash[:notice].present? %>
+  <div style="padding:12px; border:1px solid #bde5b8; background:#f1fff0; margin:12px 0;">
+    <strong>Notice</strong><br>
+    <div><%= flash[:notice] %></div>
+  </div>
+<% end %>
+
+<% if flash[:alert].present? %>
+  <div style="padding:12px; border:1px solid #f3c2c2; background:#fff5f5; margin:12px 0;">
+    <strong>Alert</strong><br>
+    <div><%= flash[:alert] %></div>
+  </div>
+<% end %>
+
 <% selected = @selected || {} %>
 <% selected_preprocess = Array(selected["preprocess"]) %>
 <% selected_ocr        = Array(selected["ocr"]) %>
@@ -28,8 +42,132 @@
 <% vision_catalog     = Array(catalog["vision"]) %>
 <% llm_catalog        = Array(catalog["llm"]) %>
 
-<form method="post" action="/admin/dashboard/atlaskernel/ai-runtime/run" style="margin-top:16px;">
+<% current_input_mode = params[:input_mode].presence || "manual_json" %>
+<% current_input_role = params[:input_role].presence || "primary" %>
+<% generated_input_preview = @generated_input_preview || params[:generated_input_preview].to_s %>
+<% uploaded_evidence = @uploaded_evidence || {} %>
+
+<form method="post" action="/admin/dashboard/atlaskernel/ai-runtime/run" enctype="multipart/form-data" style="margin-top:16px;">
   <%= hidden_field_tag :authenticity_token, form_authenticity_token %>
+
+  <div style="display:grid; grid-template-columns: 1fr; gap:16px; margin-bottom:16px;">
+    <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+      <div style="font-size:18px; font-weight:600; margin-bottom:12px;">Input Builder</div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-bottom:14px;">
+        <div>
+          <div style="font-size:12px; color:#666;">input_mode</div>
+          <select name="input_mode" style="width:100%; padding:8px; border:1px solid #ccc;">
+            <option value="manual_json" <%= "selected" if current_input_mode == "manual_json" %>>Manual JSON</option>
+            <option value="upload" <%= "selected" if current_input_mode == "upload" %>>Upload File</option>
+            <option value="existing_evidence" <%= "selected" if current_input_mode == "existing_evidence" %>>Existing Evidence</option>
+          </select>
+        </div>
+
+        <div>
+          <div style="font-size:12px; color:#666;">input_role</div>
+          <select name="input_role" style="width:100%; padding:8px; border:1px solid #ccc;">
+            <option value="primary" <%= "selected" if current_input_role == "primary" %>>primary</option>
+            <option value="secondary" <%= "selected" if current_input_role == "secondary" %>>secondary</option>
+            <option value="reference" <%= "selected" if current_input_role == "reference" %>>reference</option>
+          </select>
+        </div>
+
+        <div>
+          <div style="font-size:12px; color:#666;">existing evidence_id</div>
+          <input
+            type="text"
+            name="existing_evidence_id"
+            value="<%= params[:existing_evidence_id].to_s %>"
+            placeholder="123"
+            style="width:100%; padding:8px; border:1px solid #ccc;"
+          >
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+        <div style="border:1px solid #eee; padding:12px; background:#fafafa;">
+          <div style="font-size:14px; font-weight:600; margin-bottom:8px;">Upload New File</div>
+
+          <div style="margin-bottom:10px;">
+            <div style="font-size:12px; color:#666; margin-bottom:6px;">input_file</div>
+            <input
+              type="file"
+              name="input_file"
+              accept=".pdf,application/pdf,image/png,image/jpeg,image/webp,text/plain"
+              style="display:block; width:100%;"
+            >
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <div style="font-size:12px; color:#666; margin-bottom:6px;">original_filename (optional override)</div>
+            <input
+              type="text"
+              name="original_filename"
+              value="<%= params[:original_filename].to_s %>"
+              placeholder="leave blank to use selected file name"
+              style="width:100%; padding:8px; border:1px solid #ccc;"
+            >
+          </div>
+
+          <div style="font-size:12px; color:#999; line-height:1.6;">
+            PDF / PNG / JPEG / WEBP / TXT を選択できます。<br>
+            upload モード時は server 側で evidence 化し、そこから inputs_json を自動構築する前提です。
+          </div>
+        </div>
+
+        <div style="border:1px solid #eee; padding:12px; background:#fafafa;">
+          <div style="font-size:14px; font-weight:600; margin-bottom:8px;">Input Rules</div>
+
+          <ul style="margin:0; padding-left:18px; color:#666; font-size:12px; line-height:1.7;">
+            <li>manual_json: 下の inputs_json をそのまま使います。</li>
+            <li>upload: input_file を evidence 化し、server 側で inputs_json を自動構築します。</li>
+            <li>existing_evidence: existing evidence_id から server 側で inputs_json を自動構築します。</li>
+            <li>将来の複数入力対応を見据え、input_role を保持しています。</li>
+            <li>まずは primary 1件運用でも問題ありません。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;">
+        <div style="font-size:12px; color:#666; margin-bottom:6px;">inputs_json</div>
+        <textarea
+          name="inputs_json"
+          rows="8"
+          placeholder='[{"input_role":"primary","evidence_id":123,"seq":1,"sha256":"...","kind":"application/pdf","bytes":102400}]'
+          style="width:100%; padding:8px; border:1px solid #ccc; font-family:monospace;"
+        ><%= params[:inputs_json].to_s %></textarea>
+        <div style="font-size:12px; color:#999; margin-top:4px;">
+          manual_json モードではこの値を直接使います。upload / existing_evidence モードでは server 側でこの内容を上書き生成する前提です。
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:14px;">
+        <div style="padding:10px; border:1px solid #eee; background:#fafafa;">
+          <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Generated Input Preview</div>
+          <pre style="white-space:pre-wrap; margin:0; font-size:12px; color:#444; min-height:84px;"><%= generated_input_preview.presence || "server-generated preview will appear here when available" %></pre>
+        </div>
+
+        <div style="padding:10px; border:1px solid #eee; background:#fafafa;">
+          <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Uploaded Evidence Summary</div>
+
+          <% if uploaded_evidence.present? %>
+            <div style="font-size:12px; color:#444; line-height:1.8;">
+              <div><strong>evidence_id:</strong> <%= uploaded_evidence["evidence_id"] || uploaded_evidence[:evidence_id] || "-" %></div>
+              <div><strong>kind:</strong> <%= uploaded_evidence["kind"] || uploaded_evidence[:kind] || "-" %></div>
+              <div><strong>bytes:</strong> <%= uploaded_evidence["bytes"] || uploaded_evidence[:bytes] || "-" %></div>
+              <div><strong>sha256:</strong> <%= uploaded_evidence["sha256"] || uploaded_evidence[:sha256] || "-" %></div>
+              <div><strong>filename:</strong> <%= uploaded_evidence["filename"] || uploaded_evidence[:filename] || "-" %></div>
+            </div>
+          <% else %>
+            <div style="font-size:12px; color:#999;">
+              upload / existing_evidence 処理後の要約を表示する領域です。
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
     <div style="padding:12px; border:1px solid #ddd; background:#fff;">
@@ -114,17 +252,13 @@
         </div>
       </div>
 
-      <div style="margin-top:14px;">
-        <div style="font-size:12px; color:#666; margin-bottom:6px;">inputs_json</div>
-        <textarea
-          name="inputs_json"
-          rows="8"
-          placeholder='[{"input_role":"primary","evidence_id":123,"seq":1,"sha256":"...","kind":"image/jpeg","bytes":102400}]'
-          style="width:100%; padding:8px; border:1px solid #ccc; font-family:monospace;"
-        ><%= params[:inputs_json].to_s %></textarea>
-        <div style="font-size:12px; color:#999; margin-top:4px;">
-          JSON array を直接指定します。Week1 では自由入力でよく、後で uploader / picker を追加します。
-        </div>
+      <div style="margin-top:14px; padding:10px; border:1px solid #eee; background:#fafafa;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Execution Notes</div>
+        <ul style="margin:0; padding-left:18px; color:#666; font-size:12px; line-height:1.7;">
+          <li>OCR runtime 接続済みの基準点を前提に、この画面は入力作成＋実行設定を兼ねます。</li>
+          <li>最初は PDF 1件 + OCR から始めても問題ありません。</li>
+          <li>task_type と input kind の整合チェックは server 側でも行う前提です。</li>
+        </ul>
       </div>
     </div>
 
@@ -189,10 +323,11 @@
 
       <div style="margin-top:14px; padding:10px; border:1px solid #eee; background:#fafafa;">
         <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Notes</div>
-        <ul style="margin:0; padding-left:18px; color:#666; font-size:12px;">
+        <ul style="margin:0; padding-left:18px; color:#666; font-size:12px; line-height:1.7;">
           <li>Week1 は複数選択と task 作成を優先します。</li>
           <li>比較実行・再実行・差分表示は後続フェーズです。</li>
-          <li>catalog が空でも直接選択して送れる構成にしていません。catalog API が空なら一覧も空です。</li>
+          <li>catalog が空でも直接選択して送れる構成にはしていません。catalog API が空なら一覧も空です。</li>
+          <li>input builder を足しても、既存の runtime console としての役割は維持します。</li>
         </ul>
       </div>
     </div>
@@ -318,7 +453,7 @@
     </div>
   </div>
 
-  <div style="display:flex; gap:10px; align-items:center;">
+  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
     <button type="submit" style="padding:10px 16px;">
       Run AI Runtime
     </button>

@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	run "example.com/pisag_go/run"
 )
@@ -138,7 +139,8 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 		evOut, err := uc.RegisterOCREvidence.Handle(ctx, RegisterOCRResultEvidenceInput{
 			ProjectID:       in.ProjectID,
 			TraceID:         task.TraceID,
-			Text:            execOut.SummaryText,
+			FullText:        extractOCRFullText(execOut.Metadata, execOut.SummaryText),
+			SummaryText:     strings.TrimSpace(execOut.SummaryText),
 			ConfidenceScore: execOut.ConfidenceScore,
 			Blocks:          blocks,
 			Metadata:        execOut.Metadata,
@@ -310,4 +312,30 @@ func extractOCRBlocks(meta map[string]any) []map[string]any {
 		}
 	}
 	return out
+}
+
+func extractOCRFullText(meta map[string]any, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if meta == nil {
+		return fallback
+	}
+
+	serviceMeta, ok := meta["service_meta"].(map[string]any)
+	if ok && serviceMeta != nil {
+		if v, ok := serviceMeta["ocr_text"].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+		if v, ok := serviceMeta["text"].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+
+	if v, ok := meta["ocr_text"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	if v, ok := meta["text"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+
+	return fallback
 }

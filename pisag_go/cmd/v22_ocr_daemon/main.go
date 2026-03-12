@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
-	"strconv"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -14,12 +17,13 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	dsn := getenv("AK_PG_DSN", "postgres://ak:ak@127.0.0.1:5433/ak?sslmode=disable")
 	projectID := getenv("AK_PROJECT_ID", "")
-	taskID := mustInt64Env("AK_TASK_ID")
 	destinationKind := getenv("AK_DESTINATION_KIND", "provider_intelligence")
+	pollInterval := mustDurationMS("AK_POLL_MS", 1000)
 
 	if projectID == "" {
 		log.Fatal("AK_PROJECT_ID is required")
@@ -95,16 +99,53 @@ func main() {
 		},
 	}
 
-	out, err := execUC.Handle(ctx, usecase.ExecuteV22OCRTaskInput{
-		ProjectID:       projectID,
-		TaskID:          taskID,
-		DestinationKind: destinationKind,
-	})
-	if err != nil {
-		log.Fatalf("execute ocr task: %v", err)
-	}
+	log.Printf("[v22_ocr_daemon] start project_id=%s poll=%s", projectID, pollInterval)
 
-	log.Printf("v22 ocr worker completed: task_id=%d status=%s", out.Task.ID, out.Task.Status)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[v22_ocr_daemon] stop: %v", ctx.Err())
+			return
+		default:
+		}
+
+		task, ok, err := taskRepo.ClaimNextQueuedOCRTask(ctx, projectID)
+		if err != nil {
+			log.Printf("[v22_ocr_daemon] claim error: %v", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(pollInterval):
+				continue
+			}
+		}
+
+		if !ok {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				continue
+			}
+		}
+
+		log.Printf("[v22_ocr_daemon] claimed task_id=%d run_id=%s", task.ID, task.RunID)
+
+		out, err := execUC.Handle(ctx, usecase.ExecuteV22OCRTaskInput{
+			ProjectID:       projectID,
+			TaskID:          task.ID,
+			DestinationKind: destinationKind,
+		})
+		if err != nil {
+			log.Printf("[v22_ocr_daemon] execute error task_id=%d: %v", task.ID, err)
+			continue
+		}
+
+		log.Printf("[v22_ocr_daemon] completed task_id=%d status=%s", out.Task.ID, out.Task.Status)
+	}
 }
 
 func getenv(k, fallback string) string {
@@ -115,14 +156,19 @@ func getenv(k, fallback string) string {
 	return v
 }
 
-func mustInt64Env(k string) int64 {
+func mustDurationMS(k string, fallback int) time.Duration {
 	v := os.Getenv(k)
 	if v == "" {
-		log.Fatalf("%s is required", k)
+		return time.Duration(fallback) * time.Millisecond
 	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		log.Fatalf("invalid %s=%q: %v", k, v, err)
+	ms, err := time.ParseDuration(v + "ms")
+	if err == nil {
+		return ms
 	}
-	return n
+	log.Printf("[v22_ocr_daemon] invalid %s=%q, fallback=%dms", k, v, fallback)
+	return time.Duration(fallback) * time.Millisecond
+}
+
+func isNoRowsLike(err error) bool {
+	return err != nil && errors.Is(err, context.Canceled)
 }

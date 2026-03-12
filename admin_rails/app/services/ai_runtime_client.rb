@@ -1,6 +1,7 @@
 require "net/http"
 require "json"
 require "uri"
+require "securerandom"
 
 class AiRuntimeClient
   class Error < StandardError
@@ -33,6 +34,21 @@ class AiRuntimeClient
     def get_run(id, project_id:)
       instance.get_run(id, project_id: project_id)
     end
+
+    def upload_input_evidence(project_id:, task_type:, input_role:, file:, original_filename:, content_type:)
+      instance.upload_input_evidence(
+        project_id: project_id,
+        task_type: task_type,
+        input_role: input_role,
+        file: file,
+        original_filename: original_filename,
+        content_type: content_type
+      )
+    end
+
+    def get_evidence_summary(project_id:, evidence_id:)
+      instance.get_evidence_summary(project_id: project_id, evidence_id: evidence_id)
+    end
   end
 
   def initialize(
@@ -64,44 +80,68 @@ class AiRuntimeClient
   end
 
   # POST /api/admin/atlaskernel/ai-runtime/runs
-  #
-  # 想定 payload 例:
-  # {
-  #   project_id: "akproj_xxx",
-  #   trace_id: "trace_xxx",
-  #   task_type: "ocr",
-  #   pipeline_version: "v22.1",
-  #   policy_version_str: "v1",
-  #   preset: "balanced",
-  #   engine_selection: {
-  #     preprocess: ["opencv_basic", "deskew_basic"],
-  #     ocr: ["paddleocr"],
-  #     docparse: ["pp_structure_v3"],
-  #     embedding: ["openclip"],
-  #     vision: ["qwen_vl"],
-  #     llm: ["gemini_flash", "gpt5"]
-  #   },
-  #   inputs: [...]
-  # }
   def create_run(payload = {})
     post_json(runs_path, payload)
   end
 
   # GET /api/admin/atlaskernel/ai-runtime/runs/:id
-  #
-  # show 画面で以下のような bundle を返す想定:
-  # {
-  #   "run": {...},
-  #   "task": {...},
-  #   "model_runs": [...],
-  #   "results": [...],
-  #   "normalized_result": {...},
-  #   "review_queue_item": {...},
-  #   "downstream_handoffs": [...],
-  #   "evidence_refs": [...]
-  # }
   def get_run(id, project_id:)
     get_json(with_query("#{runs_path}/#{id}", { project_id: project_id }))
+  end
+
+  # POST /api/admin/atlaskernel/ai-runtime/evidence/upload
+  #
+  # 想定 response:
+  # {
+  #   "evidence_id": 123,
+  #   "kind": "application/pdf",
+  #   "bytes": 102400,
+  #   "sha256": "...",
+  #   "filename": "sample.pdf"
+  # }
+  def upload_input_evidence(project_id:, task_type:, input_role:, file:, original_filename:, content_type:)
+    raise ArgumentError, "file is required" if file.blank?
+    raise ArgumentError, "project_id is required" if project_id.to_s.strip.empty?
+
+    upload_io = extract_upload_io(file)
+    filename = safe_filename(original_filename.presence || upload_io[:original_filename].presence || "upload.bin")
+    mime = content_type.to_s.strip.presence || upload_io[:content_type].presence || "application/octet-stream"
+
+    form = {
+      "project_id" => project_id.to_s,
+      "task_type" => task_type.to_s,
+      "input_role" => input_role.to_s,
+      "original_filename" => filename,
+      "file" => {
+        filename: filename,
+        content_type: mime,
+        data: upload_io[:data]
+      }
+    }
+
+    post_multipart(upload_evidence_path, form)
+  end
+
+  # GET /api/admin/atlaskernel/ai-runtime/evidence/:id
+  #
+  # 想定 response:
+  # {
+  #   "evidence_id": 123,
+  #   "kind": "application/pdf",
+  #   "bytes": 102400,
+  #   "sha256": "...",
+  #   "filename": "sample.pdf"
+  # }
+  def get_evidence_summary(project_id:, evidence_id:)
+    raise ArgumentError, "project_id is required" if project_id.to_s.strip.empty?
+    raise ArgumentError, "evidence_id is required" if evidence_id.to_s.strip.empty?
+
+    get_json(
+      with_query(
+        evidence_summary_path(evidence_id),
+        { project_id: project_id }
+      )
+    )
   end
 
   # ---------------------------------
@@ -118,6 +158,18 @@ class AiRuntimeClient
 
   def runs_path
     ENV.fetch("AI_RUNTIME_ADMIN_RUNS_PATH", "#{base_path}/runs")
+  end
+
+  def evidence_base_path
+    ENV.fetch("AI_RUNTIME_ADMIN_EVIDENCE_BASE_PATH", "#{base_path}/evidence")
+  end
+
+  def upload_evidence_path
+    ENV.fetch("AI_RUNTIME_ADMIN_EVIDENCE_UPLOAD_PATH", "#{evidence_base_path}/upload")
+  end
+
+  def evidence_summary_path(evidence_id)
+    "#{ENV.fetch('AI_RUNTIME_ADMIN_EVIDENCE_SHOW_BASE_PATH', evidence_base_path)}/#{evidence_id}"
   end
 
   private
@@ -141,25 +193,52 @@ class AiRuntimeClient
 
   def request_json(klass, path, payload: nil)
     uri = URI.parse(@base_url + path)
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.open_timeout = 5
-    http.read_timeout = 20
-    http.use_ssl = (uri.scheme == "https")
-
-    http.set_debug_output($stderr) if ENV["AI_RUNTIME_API_DEBUG"] == "1"
+    http = build_http(uri)
 
     req = klass.new(uri.request_uri)
+    apply_default_headers(req)
+    req["Content-Type"] = "application/json" if payload
+    req.body = JSON.dump(payload) if payload
+
+    execute_and_parse_json(http, req)
+  rescue Error
+    raise
+  rescue => e
+    raise Error.new("Request failed: #{e.class}: #{e.message}")
+  end
+
+  def post_multipart(path, form_data)
+    uri = URI.parse(@base_url + path)
+    http = build_http(uri)
+
+    boundary = "----ai-runtime-#{SecureRandom.hex(16)}"
+    req = Net::HTTP::Post.new(uri.request_uri)
+    apply_default_headers(req)
+    req["Content-Type"] = "multipart/form-data; boundary=#{boundary}"
+    req.body = build_multipart_body(boundary, form_data)
+
+    execute_and_parse_json(http, req)
+  rescue Error
+    raise
+  rescue => e
+    raise Error.new("Multipart request failed: #{e.class}: #{e.message}")
+  end
+
+  def build_http(uri)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.open_timeout = 5
+    http.read_timeout = 60
+    http.use_ssl = (uri.scheme == "https")
+    http.set_debug_output($stderr) if ENV["AI_RUNTIME_API_DEBUG"] == "1"
+    http
+  end
+
+  def apply_default_headers(req)
     req["Accept"] = "application/json"
     req["X-Admin-Key"] = @admin_key unless @admin_key.empty?
+  end
 
-    if payload
-      req["Content-Type"] = "application/json"
-      req.body = JSON.dump(payload)
-    end
-
-    res = nil
-    body = ""
-
+  def execute_and_parse_json(http, req)
     res = http.request(req)
     body = res.body.to_s
 
@@ -168,12 +247,75 @@ class AiRuntimeClient
     end
 
     return {} if body.strip.empty?
+
     JSON.parse(body)
-  rescue Error
-    raise
   rescue JSON::ParserError
     raise Error.new("Invalid JSON response", status: res&.code&.to_i, body: body)
-  rescue => e
-    raise Error.new("Request failed: #{e.class}: #{e.message}")
+  end
+
+  def extract_upload_io(file)
+    if file.respond_to?(:tempfile) && file.tempfile
+      io = file.tempfile
+      io.binmode if io.respond_to?(:binmode)
+      io.rewind if io.respond_to?(:rewind)
+      data = io.read
+      io.rewind if io.respond_to?(:rewind)
+
+      {
+        data: data,
+        original_filename: file.respond_to?(:original_filename) ? file.original_filename.to_s : nil,
+        content_type: file.respond_to?(:content_type) ? file.content_type.to_s : nil
+      }
+    elsif file.respond_to?(:read)
+      file.binmode if file.respond_to?(:binmode)
+      file.rewind if file.respond_to?(:rewind)
+      data = file.read
+      file.rewind if file.respond_to?(:rewind)
+
+      {
+        data: data,
+        original_filename: nil,
+        content_type: nil
+      }
+    else
+      raise ArgumentError, "unsupported upload object"
+    end
+  end
+
+  def safe_filename(name)
+    n = name.to_s.strip
+    n = "upload.bin" if n.empty?
+    n.gsub(/[^\w.\-+]/, "_")
+  end
+
+  def build_multipart_body(boundary, form_data)
+    body = +""
+    form_data.each do |name, value|
+      if value.is_a?(Hash) && value.key?(:data)
+        filename = safe_filename(value[:filename] || "upload.bin")
+        content_type = value[:content_type].to_s.strip.presence || "application/octet-stream"
+        data = value[:data]
+        data = data.to_s.b
+
+        body << "--#{boundary}\r\n"
+        body << %(Content-Disposition: form-data; name="#{escape_quotes(name)}"; filename="#{escape_quotes(filename)}"\r\n)
+        body << "Content-Type: #{content_type}\r\n"
+        body << "\r\n"
+        body << data
+        body << "\r\n"
+      else
+        body << "--#{boundary}\r\n"
+        body << %(Content-Disposition: form-data; name="#{escape_quotes(name)}"\r\n)
+        body << "\r\n"
+        body << value.to_s
+        body << "\r\n"
+      end
+    end
+    body << "--#{boundary}--\r\n"
+    body
+  end
+
+  def escape_quotes(value)
+    value.to_s.gsub('"', '\"')
   end
 end

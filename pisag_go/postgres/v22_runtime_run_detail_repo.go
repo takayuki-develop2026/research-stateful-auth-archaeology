@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,6 +66,8 @@ func (r *RuntimeRunDetailRepo) GetRuntimeRunDetail(ctx context.Context, projectI
 	if err != nil {
 		return run.RuntimeRunDetail{}, fmt.Errorf("get runtime run detail downstream handoffs: %w", err)
 	}
+
+	results = enrichResultsWithOCRText(modelRuns, results)
 
 	evidenceRefs, err := r.getEvidenceRefs(ctx, projectID, task, results, normalized)
 	if err != nil {
@@ -581,6 +584,64 @@ func (r *RuntimeRunDetailRepo) getResultOutputEvidenceIDs(ctx context.Context, p
 	}
 
 	return out, nil
+}
+
+func enrichResultsWithOCRText(modelRuns []run.RuntimeModelRunSummary, results []run.RuntimeResultSummary) []run.RuntimeResultSummary {
+	if len(results) == 0 || len(modelRuns) == 0 {
+		return results
+	}
+
+	ocrText := ""
+	ocrPreview := ""
+	var conf any = nil
+
+	for _, mr := range modelRuns {
+		meta := mr.Metadata
+		if len(meta) == 0 {
+			continue
+		}
+
+		serviceMeta, _ := meta["service_meta"].(map[string]any)
+		if serviceMeta == nil {
+			continue
+		}
+
+		if ocrText == "" {
+			if v, ok := serviceMeta["ocr_text"].(string); ok && strings.TrimSpace(v) != "" {
+				ocrText = strings.TrimSpace(v)
+			}
+		}
+		if ocrPreview == "" {
+			if v, ok := serviceMeta["ocr_text_preview"].(string); ok && strings.TrimSpace(v) != "" {
+				ocrPreview = strings.TrimSpace(v)
+			}
+		}
+		if conf == nil {
+			if v, ok := serviceMeta["avg_confidence"]; ok {
+				conf = v
+			}
+			if v, ok := serviceMeta["avg_confidence_normalized"]; ok {
+				conf = v
+			}
+		}
+	}
+
+	if ocrText == "" && ocrPreview == "" {
+		return results
+	}
+
+	for i := range results {
+		if results[i].Metadata == nil {
+			results[i].Metadata = map[string]any{}
+		}
+		results[i].Metadata["ocr_text"] = ocrText
+		results[i].Metadata["ocr_text_preview"] = ocrPreview
+		if conf != nil {
+			results[i].Metadata["confidence_from_model_run"] = conf
+		}
+	}
+
+	return results
 }
 
 func buildRuntimeRunSummaryFromTask(task run.RuntimeTaskSummary) run.RuntimeRunSummary {

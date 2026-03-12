@@ -298,6 +298,34 @@ services:
       - simulation1_network
     restart: unless-stopped
 
+
+
+  v22_ocr_daemon:
+    image: golang:1.25
+    working_dir: /app
+    volumes:
+      - ./pisag_go:/app
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+      - ./pisag_go/var/runtime_uploads:/app/var/runtime_uploads
+      - /Users/kawadatakayuki/coachtech/laravel/research-stateful-auth-archaeology:/Users/kawadatakayuki/coachtech/laravel/research-stateful-auth-archaeology
+    environment:
+      AK_PG_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
+      AK_PROJECT_ID: akproj_0000000000000000000
+      AK_PADDLEOCR_BASE_URL: http://python_atlaskernel:8000
+      AK_DESTINATION_KIND: provider_intelligence
+      AK_POLL_MS: "1000"
+      TZ: Asia/Tokyo
+    command: ["go", "run", "./cmd/v22_ocr_daemon"]
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+      python_atlaskernel:
+        condition: service_started
+    networks:
+      - simulation1_network
+    restart: unless-stopped
+
   # ============================================================
   # 13) CloudBeaver（DB GUI: Postgres/MySQL）
   # ============================================================
@@ -700,3 +728,5 @@ volumes:
   ak_pgdata:
   ak_redisdata:
   cloudbeaver_workspace:
+  go_mod_cache:
+  go_build_cache:

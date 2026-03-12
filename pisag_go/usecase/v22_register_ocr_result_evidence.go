@@ -23,7 +23,12 @@ type RegisterOCRResultEvidenceInput struct {
 	ProjectID string
 	TraceID   string
 
-	Text            string
+	// 実OCR本文全文
+	FullText string
+
+	// UI/監査向けの短い要約
+	SummaryText string
+
 	ConfidenceScore *float64
 	Blocks          []map[string]any
 	Metadata        map[string]any
@@ -46,8 +51,18 @@ func (uc *RegisterOCRResultEvidenceUseCase) Handle(ctx context.Context, in Regis
 		return RegisterOCRResultEvidenceOutput{}, fmt.Errorf("register ocr result evidence: trace_id is required")
 	}
 
+	fullText := strings.TrimSpace(in.FullText)
+	summaryText := strings.TrimSpace(in.SummaryText)
+
+	// FullText が空なら SummaryText をフォールバックに使う
+	if fullText == "" {
+		fullText = summaryText
+	}
+
 	textPayload := map[string]any{
-		"text": strings.TrimSpace(in.Text),
+		"text":         fullText,
+		"summary_text": summaryText,
+		"text_length":  len(fullText),
 	}
 	textJSON, err := json.Marshal(textPayload)
 	if err != nil {
@@ -61,7 +76,7 @@ func (uc *RegisterOCRResultEvidenceUseCase) Handle(ctx context.Context, in Regis
 		Kind:        "ocr_text_payload",
 		BodyJSON:    string(textJSON),
 		SHA256:      textSHA,
-		Description: "OCR extracted text payload",
+		Description: "OCR extracted full text payload",
 	})
 	if err != nil {
 		return RegisterOCRResultEvidenceOutput{}, fmt.Errorf("register ocr result evidence text: %w", err)
@@ -69,6 +84,7 @@ func (uc *RegisterOCRResultEvidenceUseCase) Handle(ctx context.Context, in Regis
 
 	confPayload := map[string]any{
 		"confidence_score": in.ConfidenceScore,
+		"summary_text":     summaryText,
 		"metadata":         defaultAnyMap(in.Metadata),
 	}
 	confJSON, err := json.Marshal(confPayload)
@@ -92,7 +108,9 @@ func (uc *RegisterOCRResultEvidenceUseCase) Handle(ctx context.Context, in Regis
 	var blocksID *int64
 	if len(in.Blocks) > 0 {
 		blocksPayload := map[string]any{
-			"blocks": in.Blocks,
+			"blocks":       in.Blocks,
+			"summary_text": summaryText,
+			"text_length":  len(fullText),
 		}
 		blocksJSON, err := json.Marshal(blocksPayload)
 		if err != nil {
