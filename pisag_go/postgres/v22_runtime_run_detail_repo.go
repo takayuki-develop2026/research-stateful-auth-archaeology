@@ -250,7 +250,7 @@ func (r *RuntimeRunDetailRepo) getResults(ctx context.Context, projectID string,
 		FROM public.multimodal_results
 		WHERE project_id = $1
 		  AND task_id = $2
-		ORDER BY created_at_utc ASC, id ASC
+		ORDER BY created_at_utc DESC, id DESC
 	`, projectID, taskID)
 	if err != nil {
 		return nil, err
@@ -461,7 +461,7 @@ func (r *RuntimeRunDetailRepo) getEvidenceRefs(
 	results []run.RuntimeResultSummary,
 	normalized *run.RuntimeNormalizedSummary,
 ) ([]run.RuntimeEvidenceRef, error) {
-	ids := make([]int64, 0, 8)
+	ids := make([]int64, 0, 16)
 
 	if task.RouterPlanEvidenceAssetID > 0 {
 		ids = append(ids, task.RouterPlanEvidenceAssetID)
@@ -473,13 +473,24 @@ func (r *RuntimeRunDetailRepo) getEvidenceRefs(
 		ids = append(ids, *task.SoftErrorEvidenceAssetID)
 	}
 
+	resultIDs := make([]int64, 0, len(results))
 	for _, res := range results {
+		resultIDs = append(resultIDs, res.ID)
+
 		if res.PayloadEvidenceAssetID > 0 {
 			ids = append(ids, res.PayloadEvidenceAssetID)
 		}
 		if res.ConfidenceEvidenceAssetID != nil && *res.ConfidenceEvidenceAssetID > 0 {
 			ids = append(ids, *res.ConfidenceEvidenceAssetID)
 		}
+	}
+
+	if len(resultIDs) > 0 {
+		outputEvidenceIDs, err := r.getResultOutputEvidenceIDs(ctx, projectID, resultIDs)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, outputEvidenceIDs...)
 	}
 
 	if normalized != nil {
@@ -532,6 +543,38 @@ func (r *RuntimeRunDetailRepo) getEvidenceRefs(
 		item.Metadata = map[string]any{}
 
 		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func (r *RuntimeRunDetailRepo) getResultOutputEvidenceIDs(ctx context.Context, projectID string, resultIDs []int64) ([]int64, error) {
+	if len(resultIDs) == 0 {
+		return []int64{}, nil
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT evidence_id
+		FROM public.multimodal_result_outputs
+		WHERE project_id = $1
+		  AND result_id = ANY($2)
+		ORDER BY id ASC
+	`, projectID, resultIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]int64, 0)
+	for rows.Next() {
+		var evidenceID int64
+		if err := rows.Scan(&evidenceID); err != nil {
+			return nil, err
+		}
+		out = append(out, evidenceID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

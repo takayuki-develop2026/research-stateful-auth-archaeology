@@ -16,6 +16,8 @@ type ExecuteV22OCRTaskUseCase struct {
 	MarkReviewRequired *MarkMultimodalTaskReviewRequiredUseCase
 	MarkFailedSoft     *MarkMultimodalTaskFailedSoftUseCase
 
+	RegisterModelRun    *RegisterV22ModelRunUseCase
+	RegisterOCREvidence *RegisterOCRResultEvidenceUseCase
 	RegisterResult      *RegisterMultimodalResultUseCase
 	AttachResultOutputs *AttachMultimodalResultOutputsUseCase
 	NormalizeResult     *NormalizeV22MultimodalResultUseCase
@@ -126,6 +128,52 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 		}, nil
 	}
 
+	payloadEvidenceAssetID := execOut.PayloadEvidenceAssetID
+	confidenceEvidenceAssetID := execOut.ConfidenceEvidenceAssetID
+	generatedOutputs := execOut.GeneratedOutputs
+
+	if uc.RegisterOCREvidence != nil {
+		blocks := extractOCRBlocks(execOut.Metadata)
+
+		evOut, err := uc.RegisterOCREvidence.Handle(ctx, RegisterOCRResultEvidenceInput{
+			ProjectID:       in.ProjectID,
+			TraceID:         task.TraceID,
+			Text:            execOut.SummaryText,
+			ConfidenceScore: execOut.ConfidenceScore,
+			Blocks:          blocks,
+			Metadata:        execOut.Metadata,
+		})
+		if err != nil {
+			return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task register ocr evidence: %w", err)
+		}
+
+		payloadEvidenceAssetID = evOut.TextEvidenceAssetID
+		confidenceEvidenceAssetID = &evOut.ConfidenceEvidenceAssetID
+
+		if evOut.BlocksEvidenceAssetID != nil {
+			generatedOutputs = append(generatedOutputs, run.MultimodalGeneratedOutput{
+				EvidenceID: *evOut.BlocksEvidenceAssetID,
+				OutputRole: run.MultimodalOutputRoleModelOutput,
+				Seq:        len(generatedOutputs) + 1,
+			})
+		}
+	}
+
+	if uc.RegisterModelRun != nil {
+		_, err := uc.RegisterModelRun.Handle(ctx, RegisterV22ModelRunInput{
+			ProjectID:     in.ProjectID,
+			TaskID:        task.ID,
+			Capability:    "ocr",
+			EngineKind:    execOut.EngineKind,
+			EngineVersion: execOut.EngineVersion,
+			Status:        "succeeded",
+			Metadata:      execOut.Metadata,
+		})
+		if err != nil {
+			return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task register model run: %w", err)
+		}
+	}
+
 	if uc.RegisterResult == nil {
 		return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task: register result usecase is nil")
 	}
@@ -136,16 +184,16 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 		TaskID:                    task.ID,
 		ResultType:                run.MultimodalResultTypeOCRText,
 		OutputHash:                execOut.OutputHash,
-		PayloadEvidenceAssetID:    execOut.PayloadEvidenceAssetID,
-		ConfidenceEvidenceAssetID: execOut.ConfidenceEvidenceAssetID,
+		PayloadEvidenceAssetID:    payloadEvidenceAssetID,
+		ConfidenceEvidenceAssetID: confidenceEvidenceAssetID,
 	})
 	if err != nil {
 		return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task register result: %w", err)
 	}
 
-	if uc.AttachResultOutputs != nil && len(execOut.GeneratedOutputs) > 0 {
+	if uc.AttachResultOutputs != nil && len(generatedOutputs) > 0 {
 		var outs []run.AttachMultimodalResultOutputInput
-		for _, g := range execOut.GeneratedOutputs {
+		for _, g := range generatedOutputs {
 			outs = append(outs, run.AttachMultimodalResultOutputInput{
 				ProjectID:  in.ProjectID,
 				ResultID:   resultOut.Result.ID,
@@ -233,4 +281,33 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 		Result:           &resultOut.Result,
 		NormalizedResult: &normOut.NormalizedResult,
 	}, nil
+}
+
+func extractOCRBlocks(meta map[string]any) []map[string]any {
+	if meta == nil {
+		return nil
+	}
+
+	serviceMeta, ok := meta["service_meta"].(map[string]any)
+	if !ok || serviceMeta == nil {
+		return nil
+	}
+
+	raw, ok := serviceMeta["ocr_blocks"]
+	if !ok {
+		return nil
+	}
+
+	list, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make([]map[string]any, 0, len(list))
+	for _, item := range list {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
 }

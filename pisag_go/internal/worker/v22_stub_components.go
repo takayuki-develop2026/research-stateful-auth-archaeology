@@ -78,7 +78,7 @@ func (a *StubOCRAdapter) ExecuteOCR(_ context.Context, in run.OCRExecutionInput)
 			{
 				EvidenceID: in.Task.RouterPlanEvidenceAssetID,
 				OutputRole: run.MultimodalOutputRoleAnnotatedImage,
-				Seq:        0,
+				Seq:        1,
 			},
 		},
 		OutputHash:      fmt.Sprintf("stub_ocr_output_%d", in.Task.ID),
@@ -86,6 +86,14 @@ func (a *StubOCRAdapter) ExecuteOCR(_ context.Context, in run.OCRExecutionInput)
 		ConfidenceScore: &conf,
 		ReasonCode:      reasonCode(reviewRequired, "ocr_low_confidence", "ocr_ok"),
 		ReviewRequired:  reviewRequired,
+		EngineKind:      run.EngineKindPaddleOCR,
+		EngineVersion:   "v1",
+		Metadata: map[string]any{
+			"adapter":    "stub_ocr",
+			"project_id": in.Task.ProjectID,
+			"task_id":    in.Task.ID,
+			"task_type":  string(in.Task.TaskType),
+		},
 	}, nil
 }
 
@@ -109,7 +117,7 @@ func (a *StubVisionAdapter) ExecuteVision(_ context.Context, in run.VisionExecut
 			{
 				EvidenceID: in.Task.RouterPlanEvidenceAssetID,
 				OutputRole: run.MultimodalOutputRoleAnnotatedImage,
-				Seq:        0,
+				Seq:        1,
 			},
 		},
 		OutputHash:      fmt.Sprintf("stub_vision_output_%d", in.Task.ID),
@@ -117,6 +125,14 @@ func (a *StubVisionAdapter) ExecuteVision(_ context.Context, in run.VisionExecut
 		ConfidenceScore: &conf,
 		ReasonCode:      reasonCode(reviewRequired, "vision_low_confidence", "vision_ok"),
 		ReviewRequired:  reviewRequired,
+		EngineKind:      run.EngineKindQwenVL,
+		EngineVersion:   "v1",
+		Metadata: map[string]any{
+			"adapter":    "stub_vision",
+			"project_id": in.Task.ProjectID,
+			"task_id":    in.Task.ID,
+			"task_type":  string(in.Task.TaskType),
+		},
 	}, nil
 }
 

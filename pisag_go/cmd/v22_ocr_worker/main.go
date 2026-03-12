@@ -36,11 +36,13 @@ func main() {
 	}
 
 	taskRepo := postgres.NewMultimodalTaskRepo(db)
+	modelRunRepo := postgres.NewModelRunRepo(db)
 	resultRepo := postgres.NewMultimodalResultRepo(db)
 	resultOutputRepo := postgres.NewMultimodalResultOutputRepo(db)
 	normalizedRepo := postgres.NewNormalizedMultimodalResultRepo(db)
 	reviewQueueRepo := postgres.NewMultimodalReviewQueueRepo(db)
 	downstreamRepo := postgres.NewMultimodalDownstreamHandoffRepo(db)
+	runtimeEvidenceRepo := &postgres.RuntimeRequestEvidenceRepo{DB: db}
 
 	markRunningUC := &usecase.MarkMultimodalTaskRunningUseCase{Tasks: taskRepo}
 	markSucceededUC := &usecase.MarkMultimodalTaskSucceededUseCase{Tasks: taskRepo}
@@ -63,19 +65,29 @@ func main() {
 	}
 
 	execUC := &usecase.ExecuteV22OCRTaskUseCase{
-		Tasks:               taskRepo,
-		BudgetGate:          budgetGateUC,
-		PolicyGate:          policyGateUC,
-		MarkRunning:         markRunningUC,
-		MarkSucceeded:       markSucceededUC,
-		MarkReviewRequired:  markReviewRequiredUC,
-		MarkFailedSoft:      markFailedSoftUC,
+		Tasks:              taskRepo,
+		BudgetGate:         budgetGateUC,
+		PolicyGate:         policyGateUC,
+		MarkRunning:        markRunningUC,
+		MarkSucceeded:      markSucceededUC,
+		MarkReviewRequired: markReviewRequiredUC,
+		MarkFailedSoft:     markFailedSoftUC,
+		RegisterModelRun: &usecase.RegisterV22ModelRunUseCase{
+			Tasks:     taskRepo,
+			ModelRuns: modelRunRepo,
+		},
+		RegisterOCREvidence: &usecase.RegisterOCRResultEvidenceUseCase{
+			Evidence: runtimeEvidenceRepo,
+		},
 		RegisterResult:      &usecase.RegisterMultimodalResultUseCase{Tasks: taskRepo, Results: resultRepo},
 		AttachResultOutputs: &usecase.AttachMultimodalResultOutputsUseCase{Results: resultRepo, ResultOutputs: resultOutputRepo},
 		NormalizeResult:     &usecase.NormalizeV22MultimodalResultUseCase{Results: resultRepo, Tasks: taskRepo, Normalized: normalizedRepo},
 		EnqueueReview:       &usecase.EnqueueV22MultimodalReviewUseCase{ReviewQueue: reviewQueueRepo, Normalized: normalizedRepo},
 		DownstreamHandoff:   &usecase.CreateV22DownstreamHandoffUseCase{Downstream: downstreamRepo, Normalized: normalizedRepo},
-		OCRPort:             &worker.StubOCRAdapter{},
+		OCRPort: &worker.PaddleOCRAdapter{
+			BaseURL:           getenv("AK_PADDLEOCR_BASE_URL", ""),
+			AllowStubFallback: true,
+		},
 	}
 
 	out, err := execUC.Handle(ctx, usecase.ExecuteV22OCRTaskInput{
