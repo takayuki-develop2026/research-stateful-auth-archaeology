@@ -157,6 +157,15 @@ func (h *V22RuntimeHandler) handleCreateRun(w http.ResponseWriter, r *http.Reque
 		InputHash:                 inputHash,
 		RouterPlanEvidenceAssetID: evOut.RouterPlanEvidenceAssetID,
 		OptionsEvidenceAssetID:    evOut.OptionsEvidenceAssetID,
+		EngineSelectionJSON: map[string]any{
+			"preset":     selection.Preset,
+			"preprocess": stringifyChoices(selection.Preprocess),
+			"ocr":        stringifyChoices(selection.OCR),
+			"docparse":   stringifyChoices(selection.DocParse),
+			"embedding":  stringifyChoices(selection.Embedding),
+			"vision":     stringifyChoices(selection.Vision),
+			"llm":        stringifyChoices(selection.LLM),
+		},
 	})
 	if err != nil {
 		writeJSONBody(w, http.StatusUnprocessableEntity, map[string]any{

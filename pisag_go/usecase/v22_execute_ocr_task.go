@@ -25,7 +25,8 @@ type ExecuteV22OCRTaskUseCase struct {
 	EnqueueReview       *EnqueueV22MultimodalReviewUseCase
 	DownstreamHandoff   *CreateV22DownstreamHandoffUseCase
 
-	OCRPort run.OCRExecutionPort
+	PreprocessPort run.PreprocessExecutionPort
+	OCRPort        run.OCRExecutionPort
 }
 
 type ExecuteV22OCRTaskInput struct {
@@ -65,6 +66,8 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 		return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task: unsupported task_type=%s", task.TaskType)
 	}
 
+	selection := engineSelectionFromTask(task)
+
 	if uc.BudgetGate != nil {
 		bg, err := uc.BudgetGate.Handle(ctx, EvaluateV22BudgetGateInput{
 			ProjectID: in.ProjectID,
@@ -74,9 +77,7 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 			return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task budget gate: %w", err)
 		}
 		if !bg.Allowed {
-			return ExecuteV22OCRTaskOutput{
-				Task: bg.Task,
-			}, nil
+			return ExecuteV22OCRTaskOutput{Task: bg.Task}, nil
 		}
 		task = bg.Task
 	}
@@ -91,9 +92,7 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 			return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task policy gate: %w", err)
 		}
 		if !pg.Allowed {
-			return ExecuteV22OCRTaskOutput{
-				Task: pg.Task,
-			}, nil
+			return ExecuteV22OCRTaskOutput{Task: pg.Task}, nil
 		}
 		task = pg.Task
 	}
@@ -110,8 +109,60 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 	}
 	task = runningOut.Task
 
+	var preprocessSourceEvidenceID *int64
+
+	if uc.PreprocessPort != nil && len(selection.Preprocess) > 0 {
+		preOut, err := uc.PreprocessPort.ExecutePreprocess(ctx, run.PreprocessExecutionInput{
+			Task:             task,
+			Selection:        selection,
+			SourceEvidenceID: nil,
+		})
+		if err != nil {
+			if uc.MarkFailedSoft == nil {
+				return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task preprocess failed and failed_soft usecase is nil: %w", err)
+			}
+			failedOut, markErr := uc.MarkFailedSoft.Handle(ctx, MarkMultimodalTaskFailedSoftInput{
+				ProjectID: in.ProjectID,
+				TaskID:    in.TaskID,
+			})
+			if markErr != nil {
+				return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task preprocess error=%v, mark failed soft error=%w", err, markErr)
+			}
+			return ExecuteV22OCRTaskOutput{Task: failedOut.Task}, nil
+		}
+
+		if uc.RegisterModelRun != nil {
+			_, err := uc.RegisterModelRun.Handle(ctx, RegisterV22ModelRunInput{
+				ProjectID:     in.ProjectID,
+				TaskID:        task.ID,
+				Capability:    "preprocess",
+				EngineKind:    preOut.EngineKind,
+				EngineVersion: preOut.EngineVersion,
+				Status:        "succeeded",
+				Metadata:      preOut.Metadata,
+			})
+			if err != nil {
+				return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task register preprocess model run: %w", err)
+			}
+		}
+
+		// preprocess payload evidence を OCR の優先入力にする
+		if preOut.PayloadEvidenceAssetID > 0 {
+			preprocessSourceEvidenceID = &preOut.PayloadEvidenceAssetID
+		} else if len(preOut.GeneratedOutputs) > 0 {
+			for _, g := range preOut.GeneratedOutputs {
+				if g.EvidenceID > 0 && (g.OutputRole == run.MultimodalOutputRolePreprocessImage || g.OutputRole == run.MultimodalOutputRoleAnnotatedImage || g.OutputRole == run.MultimodalOutputRoleModelOutput) {
+					preprocessSourceEvidenceID = &g.EvidenceID
+					break
+				}
+			}
+		}
+	}
+
 	execOut, err := uc.OCRPort.ExecuteOCR(ctx, run.OCRExecutionInput{
-		Task: task,
+		Task:             task,
+		Selection:        selection,
+		SourceEvidenceID: preprocessSourceEvidenceID,
 	})
 	if err != nil {
 		if uc.MarkFailedSoft == nil {
@@ -124,9 +175,7 @@ func (uc *ExecuteV22OCRTaskUseCase) Handle(ctx context.Context, in ExecuteV22OCR
 		if markErr != nil {
 			return ExecuteV22OCRTaskOutput{}, fmt.Errorf("execute v22 ocr task port error=%v, mark failed soft error=%w", err, markErr)
 		}
-		return ExecuteV22OCRTaskOutput{
-			Task: failedOut.Task,
-		}, nil
+		return ExecuteV22OCRTaskOutput{Task: failedOut.Task}, nil
 	}
 
 	payloadEvidenceAssetID := execOut.PayloadEvidenceAssetID
@@ -338,4 +387,51 @@ func extractOCRFullText(meta map[string]any, fallback string) string {
 	}
 
 	return fallback
+}
+
+func engineSelectionFromTask(task run.MultimodalTask) run.EngineSelection {
+	raw := toStringListMap(task.EngineSelectionJSON)
+
+	preset := run.RuntimePresetBalanced
+	if v, ok := task.EngineSelectionJSON["preset"].(string); ok && strings.TrimSpace(v) != "" {
+		preset = run.RuntimePreset(strings.TrimSpace(v))
+	}
+
+	return run.BuildSelectionFromRaw(raw, preset)
+}
+
+func toStringListMap(in map[string]any) map[string][]string {
+	out := map[string][]string{
+		"preprocess": {},
+		"ocr":        {},
+		"docparse":   {},
+		"embedding":  {},
+		"vision":     {},
+		"llm":        {},
+	}
+	if in == nil {
+		return out
+	}
+
+	for _, key := range []string{"preprocess", "ocr", "docparse", "embedding", "vision", "llm"} {
+		raw, ok := in[key]
+		if !ok || raw == nil {
+			continue
+		}
+
+		switch vv := raw.(type) {
+		case []string:
+			out[key] = append([]string{}, vv...)
+		case []any:
+			list := make([]string, 0, len(vv))
+			for _, item := range vv {
+				if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+					list = append(list, strings.TrimSpace(s))
+				}
+			}
+			out[key] = list
+		}
+	}
+
+	return out
 }

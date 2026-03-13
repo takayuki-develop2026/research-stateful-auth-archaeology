@@ -301,13 +301,16 @@ services:
 
 
   v22_ocr_daemon:
-    image: golang:1.25
+    build:
+      context: .
+      dockerfile: ./pisag_go/docker/v22_ocr_daemon.Dockerfile
     working_dir: /app
     volumes:
       - ./pisag_go:/app
       - go_mod_cache:/go/pkg/mod
       - go_build_cache:/root/.cache/go-build
       - ./pisag_go/var/runtime_uploads:/app/var/runtime_uploads
+      - ./pisag_go/var/evidence:/app/var/evidence
       - /Users/kawadatakayuki/coachtech/laravel/research-stateful-auth-archaeology:/Users/kawadatakayuki/coachtech/laravel/research-stateful-auth-archaeology
     environment:
       AK_PG_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
@@ -315,6 +318,7 @@ services:
       AK_PADDLEOCR_BASE_URL: http://python_atlaskernel:8000
       AK_DESTINATION_KIND: provider_intelligence
       AK_POLL_MS: "1000"
+      AK_EVIDENCE_DIR: /app/var/evidence
       TZ: Asia/Tokyo
     command: ["go", "run", "./cmd/v22_ocr_daemon"]
     depends_on:

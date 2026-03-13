@@ -36,6 +36,9 @@ func main() {
 	}
 
 	taskRepo := postgres.NewMultimodalTaskRepo(db)
+	taskInputRepo := postgres.NewMultimodalTaskInputRepo(db)
+	runtimeUploadEvidenceRepo := postgres.NewRuntimeUploadEvidenceRepo(db)
+
 	resultRepo := postgres.NewMultimodalResultRepo(db)
 	resultOutputRepo := postgres.NewMultimodalResultOutputRepo(db)
 	normalizedRepo := postgres.NewNormalizedMultimodalResultRepo(db)
@@ -75,7 +78,14 @@ func main() {
 		NormalizeResult:     &usecase.NormalizeV22MultimodalResultUseCase{Results: resultRepo, Tasks: taskRepo, Normalized: normalizedRepo},
 		EnqueueReview:       &usecase.EnqueueV22MultimodalReviewUseCase{ReviewQueue: reviewQueueRepo, Normalized: normalizedRepo},
 		DownstreamHandoff:   &usecase.CreateV22DownstreamHandoffUseCase{Downstream: downstreamRepo, Normalized: normalizedRepo},
-		PreprocessPort:      &worker.StubPreprocessAdapter{},
+		PreprocessPort: &worker.PythonPreprocessAdapter{
+			BaseURL:           getenv("AK_PADDLEOCR_BASE_URL", ""),
+			TaskInputs:        taskInputRepo,
+			EvidenceSources:   runtimeUploadEvidenceRepo,
+			EvidenceRegistrar: runtimeUploadEvidenceRepo,
+			EvidenceStore:     worker.NewFSEvidenceStore(getenv("AK_EVIDENCE_DIR", "./var/evidence")),
+			BaseDir:           getenv("AK_EVIDENCE_DIR", "./var/evidence"),
+		},
 	}
 
 	out, err := execUC.Handle(ctx, usecase.ExecuteV22PreprocessTaskInput{

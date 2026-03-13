@@ -74,21 +74,8 @@ func (r *RuntimeUploadEvidenceRepo) RegisterUploadedEvidence(
 			updated_at
 		)
 		VALUES (
-			$1,
-			$2,
-			NULL,
-			$3,
-			$4,
-			$5,
-			$6,
-			$7,
-			$8,
-			$9,
-			'active',
-			'system',
-			'v22_runtime_api',
-			NOW(),
-			NOW()
+			$1,$2,NULL,$3,$4,$5,$6,$7,$8,$9,
+			'active','system','v22_runtime_api',NOW(),NOW()
 		)
 		RETURNING id
 	`,
@@ -113,6 +100,89 @@ func (r *RuntimeUploadEvidenceRepo) RegisterUploadedEvidence(
 		SHA256:          strings.TrimSpace(in.SHA256),
 		Filename:        filepath.Base(strings.TrimSpace(in.OriginalFilename)),
 	}, nil
+}
+
+func (r *RuntimeUploadEvidenceRepo) RegisterGeneratedEvidence(
+	ctx context.Context,
+	projectID string,
+	traceID string,
+	runID string,
+	kind string,
+	contentType string,
+	sourceURI string,
+	sha256hex string,
+	sizeBytes int64,
+) (int64, error) {
+	if r == nil || r.DB == nil {
+		return 0, fmt.Errorf("register generated evidence: repo is nil")
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return 0, fmt.Errorf("register generated evidence: project_id is required")
+	}
+	if strings.TrimSpace(traceID) == "" {
+		return 0, fmt.Errorf("register generated evidence: trace_id is required")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return 0, fmt.Errorf("register generated evidence: run_id is required")
+	}
+	if strings.TrimSpace(kind) == "" {
+		return 0, fmt.Errorf("register generated evidence: kind is required")
+	}
+	if strings.TrimSpace(contentType) == "" {
+		return 0, fmt.Errorf("register generated evidence: content_type is required")
+	}
+	if strings.TrimSpace(sourceURI) == "" {
+		return 0, fmt.Errorf("register generated evidence: source_uri is required")
+	}
+	if strings.TrimSpace(sha256hex) == "" {
+		return 0, fmt.Errorf("register generated evidence: sha256 is required")
+	}
+	if sizeBytes <= 0 {
+		return 0, fmt.Errorf("register generated evidence: size_bytes must be > 0")
+	}
+
+	mediaType := runtimeMediaTypeFromContentType(contentType)
+
+	var id int64
+	err := r.DB.QueryRow(ctx, `
+		INSERT INTO public.evidence_assets (
+			project_id,
+			trace_id,
+			run_id,
+			kind,
+			media_type,
+			source_kind,
+			source_uri,
+			content_sha256,
+			content_length,
+			mime_type,
+			status,
+			created_by_type,
+			created_by_id,
+			created_at,
+			updated_at
+		)
+		VALUES (
+			$1,$2,$3,$4,$5,'generated',$6,$7,$8,$9,
+			'active','system','v22_preprocess',NOW(),NOW()
+		)
+		RETURNING id
+	`,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(traceID),
+		strings.TrimSpace(runID),
+		strings.TrimSpace(kind),
+		mediaType,
+		strings.TrimSpace(sourceURI),
+		strings.TrimSpace(sha256hex),
+		sizeBytes,
+		strings.TrimSpace(contentType),
+	).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("register generated evidence insert: %w", err)
+	}
+
+	return id, nil
 }
 
 func (r *RuntimeUploadEvidenceRepo) GetUploadedEvidenceSummary(

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -36,9 +37,10 @@ INSERT INTO multimodal_tasks (
 	router_plan_evidence_asset_id,
 	options_evidence_asset_id,
 	model_run_id,
-	soft_error_evidence_asset_id
+	soft_error_evidence_asset_id,
+	engine_selection_json
 ) VALUES (
-	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb
 )
 RETURNING
 	id,
@@ -57,6 +59,7 @@ RETURNING
 	started_at_utc,
 	finished_at_utc,
 	soft_error_evidence_asset_id,
+	engine_selection_json::text,
 	created_at_utc,
 	updated_at_utc
 `
@@ -74,6 +77,7 @@ RETURNING
 		in.OptionsEvidenceAssetID,
 		nullableInt64V22(in.ModelRunID),
 		nullableInt64V22(in.SoftErrorEvidenceAssetID),
+		mustJSONText(in.EngineSelectionJSON),
 	)
 
 	task, err := scanMultimodalTask(row)
@@ -102,6 +106,7 @@ SELECT
 	started_at_utc,
 	finished_at_utc,
 	soft_error_evidence_asset_id,
+	engine_selection_json::text,
 	created_at_utc,
 	updated_at_utc
 FROM multimodal_tasks
@@ -140,6 +145,7 @@ SELECT
 	started_at_utc,
 	finished_at_utc,
 	soft_error_evidence_asset_id,
+	engine_selection_json::text,
 	created_at_utc,
 	updated_at_utc
 FROM multimodal_tasks
@@ -177,6 +183,7 @@ SELECT
 	started_at_utc,
 	finished_at_utc,
 	soft_error_evidence_asset_id,
+	engine_selection_json::text,
 	created_at_utc,
 	updated_at_utc
 FROM multimodal_tasks
@@ -299,6 +306,7 @@ RETURNING
 	started_at_utc,
 	finished_at_utc,
 	soft_error_evidence_asset_id,
+	engine_selection_json::text,
 	created_at_utc,
 	updated_at_utc
 `
@@ -334,6 +342,7 @@ func scanMultimodalTask(s multimodalTaskScanner) (run.MultimodalTask, error) {
 	var startedAt sql.NullTime
 	var finishedAt sql.NullTime
 	var softErrorEvidenceAssetID sql.NullInt64
+	var engineSelectionRaw string
 
 	err := s.Scan(
 		&out.ID,
@@ -352,6 +361,7 @@ func scanMultimodalTask(s multimodalTaskScanner) (run.MultimodalTask, error) {
 		&startedAt,
 		&finishedAt,
 		&softErrorEvidenceAssetID,
+		&engineSelectionRaw,
 		&out.CreatedAtUTC,
 		&out.UpdatedAtUTC,
 	)
@@ -365,6 +375,7 @@ func scanMultimodalTask(s multimodalTaskScanner) (run.MultimodalTask, error) {
 	out.StartedAtUTC = nullTimePtrV22(startedAt)
 	out.FinishedAtUTC = nullTimePtrV22(finishedAt)
 	out.SoftErrorEvidenceAssetID = nullInt64PtrV22(softErrorEvidenceAssetID)
+	out.EngineSelectionJSON = parseJSONMap(engineSelectionRaw)
 
 	return out, nil
 }
@@ -433,6 +444,7 @@ RETURNING
 	t.started_at_utc,
 	t.finished_at_utc,
 	t.soft_error_evidence_asset_id,
+	t.engine_selection_json::text,
 	t.created_at_utc,
 	t.updated_at_utc
 `
@@ -446,4 +458,15 @@ RETURNING
 		return run.MultimodalTask{}, false, fmt.Errorf("claim next queued ocr task: %w", err)
 	}
 	return task, true, nil
+}
+
+func mustJSONText(v map[string]any) string {
+	if v == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }

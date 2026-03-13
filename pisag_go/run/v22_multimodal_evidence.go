@@ -16,6 +16,8 @@ type RegisterMultimodalTaskInput struct {
 	OptionsEvidenceAssetID    int64
 	ModelRunID                *int64
 	SoftErrorEvidenceAssetID  *int64
+
+	EngineSelectionJSON map[string]any
 }
 
 type AttachMultimodalTaskInputInput struct {

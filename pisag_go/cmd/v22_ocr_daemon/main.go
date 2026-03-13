@@ -91,10 +91,18 @@ func main() {
 		NormalizeResult:     &usecase.NormalizeV22MultimodalResultUseCase{Results: resultRepo, Tasks: taskRepo, Normalized: normalizedRepo},
 		EnqueueReview:       &usecase.EnqueueV22MultimodalReviewUseCase{ReviewQueue: reviewQueueRepo, Normalized: normalizedRepo},
 		DownstreamHandoff:   &usecase.CreateV22DownstreamHandoffUseCase{Downstream: downstreamRepo, Normalized: normalizedRepo},
+		PreprocessPort: &worker.PythonPreprocessAdapter{
+			BaseURL:           getenv("AK_PADDLEOCR_BASE_URL", ""),
+			TaskInputs:        taskInputRepo,
+			EvidenceSources:   runtimeUploadEvidenceRepo,
+			EvidenceRegistrar: runtimeUploadEvidenceRepo,
+			EvidenceStore:     worker.NewFSEvidenceStore(getenv("AK_EVIDENCE_DIR", "./var/evidence")),
+			BaseDir:           getenv("AK_EVIDENCE_DIR", "./var/evidence"),
+		},
 		OCRPort: &worker.PaddleOCRAdapter{
-			BaseURL:          getenv("AK_PADDLEOCR_BASE_URL", ""),
-			TaskInputs:       taskInputRepo,
-			EvidenceSources:  runtimeUploadEvidenceRepo,
+			BaseURL:           getenv("AK_PADDLEOCR_BASE_URL", ""),
+			TaskInputs:        taskInputRepo,
+			EvidenceSources:   runtimeUploadEvidenceRepo,
 			AllowStubFallback: true,
 		},
 	}

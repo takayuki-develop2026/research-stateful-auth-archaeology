@@ -75,14 +75,14 @@ func (r *RuntimeRunDetailRepo) GetRuntimeRunDetail(ctx context.Context, projectI
 	}
 
 	detail := run.RuntimeRunDetail{
-		Run:                buildRuntimeRunSummaryFromTask(task),
-		Task:               task,
-		ModelRuns:          modelRuns,
-		Results:            results,
-		NormalizedResult:   normalized,
-		ReviewQueueItem:    reviewItem,
-		DownstreamHandoffs: downstreams,
-		EvidenceRefs:       evidenceRefs,
+		Run:                 buildRuntimeRunSummaryFromTask(task),
+		Task:                task,
+		ModelRuns:           modelRuns,
+		Results:             results,
+		NormalizedResult:    normalized,
+		ReviewQueueItem:     reviewItem,
+		DownstreamHandoffs:  downstreams,
+		EvidenceRefs:        evidenceRefs,
 	}
 
 	return detail, nil
@@ -97,6 +97,7 @@ func (r *RuntimeRunDetailRepo) getTask(ctx context.Context, projectID string, ta
 	var finishedAt *time.Time
 	var createdAt time.Time
 	var updatedAt time.Time
+	var engineSelectionRaw string
 
 	err := r.db.QueryRow(ctx, `
 		SELECT
@@ -116,6 +117,7 @@ func (r *RuntimeRunDetailRepo) getTask(ctx context.Context, projectID string, ta
 			soft_error_evidence_asset_id,
 			started_at_utc,
 			finished_at_utc,
+			engine_selection_json::text,
 			created_at_utc,
 			updated_at_utc
 		FROM public.multimodal_tasks
@@ -138,6 +140,7 @@ func (r *RuntimeRunDetailRepo) getTask(ctx context.Context, projectID string, ta
 		&softErrorEvidenceAssetID,
 		&startedAt,
 		&finishedAt,
+		&engineSelectionRaw,
 		&createdAt,
 		&updatedAt,
 	)
@@ -151,7 +154,7 @@ func (r *RuntimeRunDetailRepo) getTask(ctx context.Context, projectID string, ta
 	t.FinishedAtUTC = formatTimePtr(finishedAt)
 	t.CreatedAtUTC = createdAt.UTC().Format(time.RFC3339)
 	t.UpdatedAtUTC = updatedAt.UTC().Format(time.RFC3339)
-	t.EngineSelection = map[string][]string{}
+	t.EngineSelection = parseEngineSelectionMap(engineSelectionRaw)
 	t.Metadata = map[string]any{}
 
 	return t, nil
@@ -669,6 +672,42 @@ func parseJSONMap(raw string) map[string]any {
 		return map[string]any{}
 	}
 	return v
+}
+
+func parseEngineSelectionMap(raw string) map[string][]string {
+	if strings.TrimSpace(raw) == "" {
+		return map[string][]string{}
+	}
+
+	tmp := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &tmp); err != nil {
+		return map[string][]string{}
+	}
+
+	out := map[string][]string{}
+	for _, key := range []string{"preprocess", "ocr", "docparse", "embedding", "vision", "llm"} {
+		rawList, ok := tmp[key]
+		if !ok || rawList == nil {
+			out[key] = []string{}
+			continue
+		}
+
+		arr, ok := rawList.([]any)
+		if !ok {
+			out[key] = []string{}
+			continue
+		}
+
+		list := make([]string, 0, len(arr))
+		for _, item := range arr {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				list = append(list, strings.TrimSpace(s))
+			}
+		}
+		out[key] = list
+	}
+
+	return out
 }
 
 func formatTimePtr(t *time.Time) *string {

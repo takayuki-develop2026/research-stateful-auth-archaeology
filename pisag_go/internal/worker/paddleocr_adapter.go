@@ -218,11 +218,28 @@ func (a *PaddleOCRAdapter) resolveOCRSourcePath(ctx context.Context, in run.OCRE
 		return raw, nil
 	}
 
-	if a.TaskInputs == nil {
-		return "", fmt.Errorf("task input lookup is nil")
-	}
 	if a.EvidenceSources == nil {
 		return "", fmt.Errorf("evidence source lookup is nil")
+	}
+
+	// preprocess output などを明示指定していれば最優先
+	if in.SourceEvidenceID != nil && *in.SourceEvidenceID > 0 {
+		sourcePath, err := a.EvidenceSources.GetEvidenceSourceURI(ctx, in.Task.ProjectID, *in.SourceEvidenceID)
+		if err != nil {
+			return "", fmt.Errorf("get source evidence source uri: %w", err)
+		}
+		sourcePath = strings.TrimSpace(sourcePath)
+		if sourcePath == "" {
+			return "", fmt.Errorf("source evidence path is empty")
+		}
+		if _, err := os.Stat(sourcePath); err != nil {
+			return "", fmt.Errorf("source evidence path not readable: %w", err)
+		}
+		return sourcePath, nil
+	}
+
+	if a.TaskInputs == nil {
+		return "", fmt.Errorf("task input lookup is nil")
 	}
 
 	inputs, err := a.TaskInputs.ListByTaskID(ctx, in.Task.ProjectID, in.Task.ID)
@@ -252,7 +269,6 @@ func (a *PaddleOCRAdapter) resolveOCRSourcePath(ctx context.Context, in run.OCRE
 	if sourcePath == "" {
 		return "", fmt.Errorf("empty source path")
 	}
-
 	if _, err := os.Stat(sourcePath); err != nil {
 		return "", fmt.Errorf("source path not readable: %w", err)
 	}

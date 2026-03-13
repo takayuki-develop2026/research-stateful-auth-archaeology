@@ -5,16 +5,18 @@ from atlaskernel.db.session import engine
 from atlaskernel.api.routes.reviews import router as review_router
 from atlaskernel.api.routes.analyze import router as analyze_router
 from atlaskernel.api.routes.extract import router as extract_router
+from atlaskernel.api.routes.preprocess import router as preprocess_router
 
 app = FastAPI(
     title="AtlasKernel API",
-    version="0.3.1",
+    version="0.3.2",
     description="AtlasKernel Entity Analysis / OCR Extraction API",
 )
 
 app.include_router(review_router)
 app.include_router(analyze_router)
 app.include_router(extract_router)
+app.include_router(preprocess_router)
 
 
 @app.get("/health")

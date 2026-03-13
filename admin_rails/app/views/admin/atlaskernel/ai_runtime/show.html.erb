@@ -42,12 +42,23 @@
 %>
 
 <%
-  confidence_preview =
+  raw_confidence =
     primary_service_meta["avg_confidence_normalized"].presence ||
     primary_service_meta["avg_confidence"].presence ||
     primary_result["confidence_score"].presence ||
     primary_metadata["confidence_from_model_run"].presence ||
     normalized["confidence_score"].presence
+
+  confidence_preview =
+    begin
+      if raw_confidence.present?
+        v = raw_confidence.to_f
+        v = v / 100.0 if v > 1.0
+        v.round(4)
+      end
+    rescue
+      raw_confidence
+    end
 %>
 
 <%
@@ -170,6 +181,7 @@
       </thead>
       <tbody>
         <% model_runs.each do |mr| %>
+          <% model_meta = mr["metadata"] || mr["metadata_json"] || {} %>
           <tr>
             <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["capability"] || "-" %></td>
             <td style="padding:6px; border-bottom:1px solid #f5f5f5;">
@@ -182,6 +194,18 @@
             <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["status"] || "-" %></td>
             <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["latency_ms"] || "-" %></td>
             <td style="padding:6px; border-bottom:1px solid #f5f5f5;"><%= mr["cost_estimate"] || "-" %></td>
+          </tr>
+          <tr>
+            <td colspan="6" style="padding:8px 6px 12px 6px; border-bottom:1px solid #f5f5f5; background:#fcfcfc;">
+              <% if model_meta.present? %>
+                <details>
+                  <summary style="cursor:pointer; color:#555;">metadata</summary>
+                  <pre style="white-space:pre-wrap; background:#fff; border:1px solid #eee; padding:10px; margin-top:8px;"><%= JSON.pretty_generate(model_meta) rescue model_meta.inspect %></pre>
+                </details>
+              <% else %>
+                <span style="font-size:12px; color:#999;">no metadata</span>
+              <% end %>
+            </td>
           </tr>
         <% end %>
       </tbody>
@@ -216,7 +240,21 @@
           </tr>
           <tr>
             <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">confidence</td>
-            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= normalized["confidence_score"] || "-" %></td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;">
+              <%
+                normalized_conf =
+                  begin
+                    if normalized["confidence_score"].present?
+                      v = normalized["confidence_score"].to_f
+                      v = v / 100.0 if v > 1.0
+                      v.round(4)
+                    end
+                  rescue
+                    normalized["confidence_score"]
+                  end
+              %>
+              <%= normalized_conf || "-" %>
+            </td>
           </tr>
           <tr>
             <td style="padding:6px; color:#666;">reason_code</td>
@@ -349,6 +387,7 @@
     <div style="font-size:13px; color:#999;">No results.</div>
   <% else %>
     <% results.each_with_index do |res, idx| %>
+      <% res_meta = res["metadata"] || res["metadata_json"] || {} %>
       <div style="border:1px solid #eee; padding:12px; margin-bottom:12px; background:#fafafa;">
         <div style="font-weight:600; margin-bottom:6px;">
           Result #<%= idx + 1 %> / <%= res["result_type"] || "-" %>
@@ -379,19 +418,32 @@
           </tbody>
         </table>
 
-        <% if res["summary_text"].present? || res["reason_code"].present? || res["confidence_score"].present? %>
+        <% result_confidence =
+             begin
+               raw = res["confidence_score"]
+               if raw.present?
+                 v = raw.to_f
+                 v = v / 100.0 if v > 1.0
+                 v.round(4)
+               end
+             rescue
+               res["confidence_score"]
+             end
+        %>
+
+        <% if res["summary_text"].present? || res["reason_code"].present? || result_confidence.present? %>
           <div style="margin-top:10px; padding:10px; background:#fff; border:1px solid #eee;">
             <div style="font-size:12px; color:#666;">Result Summary</div>
             <div style="margin-top:4px;"><strong>summary:</strong> <%= res["summary_text"].presence || "-" %></div>
-            <div><strong>confidence:</strong> <%= res["confidence_score"].presence || "-" %></div>
+            <div><strong>confidence:</strong> <%= result_confidence.presence || "-" %></div>
             <div><strong>reason_code:</strong> <%= res["reason_code"].presence || "-" %></div>
           </div>
         <% end %>
 
-        <% if res["metadata_json"].present? %>
+        <% if res_meta.present? %>
           <details style="margin-top:10px;">
-            <summary style="cursor:pointer;">metadata_json</summary>
-            <pre style="white-space:pre-wrap; background:#fff; border:1px solid #eee; padding:10px; margin-top:8px;"><%= JSON.pretty_generate(res["metadata_json"]) rescue res["metadata_json"].inspect %></pre>
+            <summary style="cursor:pointer;">metadata</summary>
+            <pre style="white-space:pre-wrap; background:#fff; border:1px solid #eee; padding:10px; margin-top:8px;"><%= JSON.pretty_generate(res_meta) rescue res_meta.inspect %></pre>
           </details>
         <% end %>
       </div>

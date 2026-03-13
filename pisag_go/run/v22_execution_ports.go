@@ -9,8 +9,8 @@ type MultimodalGeneratedOutput struct {
 }
 
 type PreprocessExecutionInput struct {
-	Task            MultimodalTask
-	Selection       EngineSelection
+	Task             MultimodalTask
+	Selection        EngineSelection
 	SourceEvidenceID *int64
 }
 
@@ -29,8 +29,9 @@ type PreprocessExecutionOutput struct {
 }
 
 type OCRExecutionInput struct {
-	Task      MultimodalTask
-	Selection EngineSelection
+	Task             MultimodalTask
+	Selection        EngineSelection
+	SourceEvidenceID *int64
 }
 
 type OCRExecutionOutput struct {

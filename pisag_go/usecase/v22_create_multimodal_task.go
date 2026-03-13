@@ -25,19 +25,14 @@ type CreateMultimodalTaskInput struct {
 	PolicyVersionStr string
 	InputHash        string
 
-	// Week1方針:
-	// - UI / preset / engine selection から作られた options canonical JSON は
-	//   evidence asset 化して OptionsEvidenceAssetID に入れる
-	// - v22_route_model_task.go で生成された route plan canonical JSON は
-	//   evidence asset 化して RouterPlanEvidenceAssetID に入れる
 	RouterPlanEvidenceAssetID int64
 	OptionsEvidenceAssetID    int64
 
-	// 任意: run 単位や親モデル実行との接続
 	ModelRunID *int64
 
-	// 任意: task 作成時点でソフトエラーをぶら下げたい場合に使う
 	SoftErrorEvidenceAssetID *int64
+
+	EngineSelectionJSON map[string]any
 }
 
 type CreateMultimodalTaskOutput struct {
@@ -108,6 +103,7 @@ func (uc *CreateMultimodalTaskUseCase) Handle(ctx context.Context, in CreateMult
 		OptionsEvidenceAssetID:    in.OptionsEvidenceAssetID,
 		ModelRunID:                in.ModelRunID,
 		SoftErrorEvidenceAssetID:  in.SoftErrorEvidenceAssetID,
+		EngineSelectionJSON:       defaultEngineSelectionMap(in.EngineSelectionJSON),
 	})
 	if err != nil {
 		return CreateMultimodalTaskOutput{}, fmt.Errorf("create multimodal task create: %w", err)
@@ -189,4 +185,11 @@ func buildMultimodalTaskKey(in run.BuildMultimodalTaskKeyInput) string {
 	}, "|")
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+func defaultEngineSelectionMap(in map[string]any) map[string]any {
+	if in == nil {
+		return map[string]any{}
+	}
+	return in
 }

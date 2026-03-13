@@ -5,15 +5,15 @@ import "time"
 type MultimodalTaskType string
 
 const (
-	MultimodalTaskTypePreprocess      MultimodalTaskType = "preprocess"
-	MultimodalTaskTypeFulltextExtract MultimodalTaskType = "fulltext_extract"
-	MultimodalTaskTypeOCR             MultimodalTaskType = "ocr"
-	MultimodalTaskTypeDocParse        MultimodalTaskType = "docparse"
-	MultimodalTaskTypeEmbedding       MultimodalTaskType = "embedding"
-	MultimodalTaskTypeVision          MultimodalTaskType = "vision"
-	MultimodalTaskTypeLLM             MultimodalTaskType = "llm"
-	MultimodalTaskTypeAudioTranscribe MultimodalTaskType = "audio_transcribe"
-	MultimodalTaskTypeAudioClassify   MultimodalTaskType = "audio_classify"
+	MultimodalTaskTypePreprocess       MultimodalTaskType = "preprocess"
+	MultimodalTaskTypeFulltextExtract  MultimodalTaskType = "fulltext_extract"
+	MultimodalTaskTypeOCR              MultimodalTaskType = "ocr"
+	MultimodalTaskTypeDocParse         MultimodalTaskType = "docparse"
+	MultimodalTaskTypeEmbedding        MultimodalTaskType = "embedding"
+	MultimodalTaskTypeVision           MultimodalTaskType = "vision"
+	MultimodalTaskTypeLLM              MultimodalTaskType = "llm"
+	MultimodalTaskTypeAudioTranscribe  MultimodalTaskType = "audio_transcribe"
+	MultimodalTaskTypeAudioClassify    MultimodalTaskType = "audio_classify"
 )
 
 type MultimodalTaskStatus string
@@ -41,39 +41,39 @@ const (
 type MultimodalResultType string
 
 const (
-	MultimodalResultTypePreprocessImage  MultimodalResultType = "preprocess_image"
-	MultimodalResultTypeExtractedText    MultimodalResultType = "extracted_text"
-	MultimodalResultTypeOCRText          MultimodalResultType = "ocr_text"
-	MultimodalResultTypeDocParseStructure MultimodalResultType = "docparse_structure"
-	MultimodalResultTypeVisionLabels     MultimodalResultType = "vision_labels"
-	MultimodalResultTypeVisionEntities   MultimodalResultType = "vision_entities"
-	MultimodalResultTypeTranscript       MultimodalResultType = "transcript"
-	MultimodalResultTypeAudioLabels      MultimodalResultType = "audio_labels"
-	MultimodalResultTypeEmbedding        MultimodalResultType = "embedding"
-	MultimodalResultTypeEmbeddingCandidates MultimodalResultType = "embedding_candidates"
-	MultimodalResultTypeLLMText          MultimodalResultType = "llm_text"
-	MultimodalResultTypeLLMJSON          MultimodalResultType = "llm_json"
-	MultimodalResultTypeFusedMultimodal  MultimodalResultType = "fused_multimodal"
+	MultimodalResultTypePreprocessImage      MultimodalResultType = "preprocess_image"
+	MultimodalResultTypeExtractedText        MultimodalResultType = "extracted_text"
+	MultimodalResultTypeOCRText              MultimodalResultType = "ocr_text"
+	MultimodalResultTypeDocParseStructure    MultimodalResultType = "docparse_structure"
+	MultimodalResultTypeVisionLabels         MultimodalResultType = "vision_labels"
+	MultimodalResultTypeVisionEntities       MultimodalResultType = "vision_entities"
+	MultimodalResultTypeTranscript           MultimodalResultType = "transcript"
+	MultimodalResultTypeAudioLabels          MultimodalResultType = "audio_labels"
+	MultimodalResultTypeEmbedding            MultimodalResultType = "embedding"
+	MultimodalResultTypeEmbeddingCandidates  MultimodalResultType = "embedding_candidates"
+	MultimodalResultTypeLLMText              MultimodalResultType = "llm_text"
+	MultimodalResultTypeLLMJSON              MultimodalResultType = "llm_json"
+	MultimodalResultTypeFusedMultimodal      MultimodalResultType = "fused_multimodal"
 )
 
 type MultimodalOutputRole string
 
 const (
-	MultimodalOutputRoleThumbnail        MultimodalOutputRole = "thumbnail"
-	MultimodalOutputRolePageImage        MultimodalOutputRole = "page_image"
-	MultimodalOutputRoleOCRInputImage    MultimodalOutputRole = "ocr_input_image"
-	MultimodalOutputRolePreprocessImage  MultimodalOutputRole = "preprocess_image"
-	MultimodalOutputRoleDocParseMarkdown MultimodalOutputRole = "docparse_markdown"
-	MultimodalOutputRoleDocParseJSON     MultimodalOutputRole = "docparse_json"
-	MultimodalOutputRoleEmbeddingVector  MultimodalOutputRole = "embedding_vector"
+	MultimodalOutputRoleThumbnail           MultimodalOutputRole = "thumbnail"
+	MultimodalOutputRolePageImage           MultimodalOutputRole = "page_image"
+	MultimodalOutputRoleOCRInputImage       MultimodalOutputRole = "ocr_input_image"
+	MultimodalOutputRolePreprocessImage     MultimodalOutputRole = "preprocess_image"
+	MultimodalOutputRoleDocParseMarkdown    MultimodalOutputRole = "docparse_markdown"
+	MultimodalOutputRoleDocParseJSON        MultimodalOutputRole = "docparse_json"
+	MultimodalOutputRoleEmbeddingVector     MultimodalOutputRole = "embedding_vector"
 	MultimodalOutputRoleEmbeddingCandidates MultimodalOutputRole = "embedding_candidates"
-	MultimodalOutputRoleSpectrogram      MultimodalOutputRole = "spectrogram"
-	MultimodalOutputRoleAnnotatedImage   MultimodalOutputRole = "annotated_image"
-	MultimodalOutputRoleModelOutput      MultimodalOutputRole = "model_output"
-	MultimodalOutputRoleLLMText          MultimodalOutputRole = "llm_text"
-	MultimodalOutputRoleLLMJSON          MultimodalOutputRole = "llm_json"
-	MultimodalOutputRoleFusedJSON        MultimodalOutputRole = "fused_json"
-	MultimodalOutputRoleTranscript       MultimodalOutputRole = "transcript"
+	MultimodalOutputRoleSpectrogram         MultimodalOutputRole = "spectrogram"
+	MultimodalOutputRoleAnnotatedImage      MultimodalOutputRole = "annotated_image"
+	MultimodalOutputRoleModelOutput         MultimodalOutputRole = "model_output"
+	MultimodalOutputRoleLLMText             MultimodalOutputRole = "llm_text"
+	MultimodalOutputRoleLLMJSON             MultimodalOutputRole = "llm_json"
+	MultimodalOutputRoleFusedJSON           MultimodalOutputRole = "fused_json"
+	MultimodalOutputRoleTranscript          MultimodalOutputRole = "transcript"
 )
 
 type PIIRedactionAction string
@@ -107,6 +107,8 @@ type MultimodalTask struct {
 	RouterPlanEvidenceAssetID int64
 	OptionsEvidenceAssetID    int64
 	ModelRunID                *int64
+
+	EngineSelectionJSON map[string]any
 
 	StartedAtUTC             *time.Time
 	FinishedAtUTC            *time.Time
@@ -157,9 +159,9 @@ type MultimodalResultOutput struct {
 }
 
 type PIIRedaction struct {
-	ID        int64
-	ProjectID string
-	TraceID   string
+	ID         int64
+	ProjectID  string
+	TraceID    string
 	EvidenceID int64
 
 	PolicyDecisionID int64
