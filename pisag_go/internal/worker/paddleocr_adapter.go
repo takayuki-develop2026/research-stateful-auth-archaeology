@@ -27,9 +27,9 @@ type OCREvidenceSourceLookup interface {
 }
 
 type PaddleOCRAdapter struct {
-	BaseURL     string
-	HTTPClient  *http.Client
-	TaskInputs  OCRTaskInputLookup
+	BaseURL         string
+	HTTPClient      *http.Client
+	TaskInputs      OCRTaskInputLookup
 	EvidenceSources OCREvidenceSourceLookup
 
 	AllowStubFallback bool
@@ -65,7 +65,7 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 
 	client := a.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		client = &http.Client{Timeout: 120 * time.Second}
 	}
 
 	sourcePath, err := a.resolveOCRSourcePath(ctx, in)
@@ -94,12 +94,16 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 
 	fullText := strings.ToValidUTF8(strings.TrimSpace(parsed.Text), "")
 	confidence := extractConfidenceFromMeta(parsed.Meta)
+
 	reviewRequired := extractDecisionFromMeta(parsed.Meta) != "accept"
 	if strings.Contains(in.Task.PolicyVersionStr, "ocr-review") {
 		reviewRequired = true
 	}
 
 	outputHash := paddleSHA256Hex(string(respBody))
+
+	// 現段階では RegisterOCRResultEvidenceUseCase 側で evidence を正式作成するため、
+	// ここでは task の options evidence を仮に載せる。
 	payloadEvidenceID := in.Task.OptionsEvidenceAssetID
 	confidenceEvidenceID := paddleInt64Ptr(in.Task.OptionsEvidenceAssetID)
 
@@ -109,22 +113,17 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 	serviceMeta["ocr_text_length"] = len(fullText)
 
 	meta := map[string]any{
-		"adapter":       "paddleocr",
-		"project_id":    in.Task.ProjectID,
-		"task_id":       in.Task.ID,
-		"task_type":     string(in.Task.TaskType),
-		"source_path":   sourcePath,
-		"ocr_endpoint":  endpointUsed,
-		"service_meta":  serviceMeta,
+		"adapter":      "paddleocr",
+		"project_id":   in.Task.ProjectID,
+		"task_id":      in.Task.ID,
+		"task_type":    string(in.Task.TaskType),
+		"source_path":  sourcePath,
+		"ocr_endpoint": endpointUsed,
+		"service_meta": serviceMeta,
 	}
 
-	generated := []run.MultimodalGeneratedOutput{
-		{
-			EvidenceID: in.Task.RouterPlanEvidenceAssetID,
-			OutputRole: run.MultimodalOutputRoleAnnotatedImage,
-			Seq:        1,
-		},
-	}
+	// 将来 annotated image を pageごとに evidence 化する場合はここを増やす。
+	generated := []run.MultimodalGeneratedOutput{}
 
 	summary := buildOCRSummary(fullText, 120)
 	if summary == "" {
@@ -169,10 +168,10 @@ func (a *PaddleOCRAdapter) callPaddleOCR(
 		ContentSHA256: contentSHAHex,
 		SourceURL:     nil,
 		Options: map[string]any{
-			"engine": "paddleocr",
-			"mode":   "force_ocr",
-			"lang":   getenvOr("AK_PADDLEOCR_LANG", "jpn"),
-			"dpi":    getenvIntOr("AK_PADDLEOCR_DPI", 200),
+			"engine":     "paddleocr",
+			"mode":       "force_ocr",
+			"lang":       getenvOr("AK_PADDLEOCR_LANG", "jpn"),
+			"dpi":        getenvIntOr("AK_PADDLEOCR_DPI", 200),
 			"input_kind": inputKind,
 			"budget": map[string]any{
 				"max_ms":       getenvIntOr("AK_PADDLEOCR_BUDGET_MAX_MS", 15000),
@@ -223,8 +222,6 @@ func detectOCRInputKindAndEndpoint(sourcePath string) (string, string) {
 	case ".pdf":
 		return "pdf", "/v1/extract/pdf_ocr"
 	default:
-		// unknown は安全に image 側へ寄せる
-		// preprocess 出力は現状 png が中心のため
 		return "image", "/v1/extract/image_ocr"
 	}
 }
@@ -239,6 +236,7 @@ func (a *PaddleOCRAdapter) resolveOCRSourcePath(ctx context.Context, in run.OCRE
 		return "", fmt.Errorf("evidence source lookup is nil")
 	}
 
+	// preprocess output などを明示指定していれば最優先
 	if in.SourceEvidenceID != nil && *in.SourceEvidenceID > 0 {
 		sourcePath, err := a.EvidenceSources.GetEvidenceSourceURI(ctx, in.Task.ProjectID, *in.SourceEvidenceID)
 		if err != nil {
@@ -315,21 +313,15 @@ func (a *PaddleOCRAdapter) stubOutput(in run.OCRExecutionInput) run.OCRExecution
 	return run.OCRExecutionOutput{
 		PayloadEvidenceAssetID:    in.Task.OptionsEvidenceAssetID,
 		ConfidenceEvidenceAssetID: paddleInt64Ptr(in.Task.OptionsEvidenceAssetID),
-		GeneratedOutputs: []run.MultimodalGeneratedOutput{
-			{
-				EvidenceID: in.Task.RouterPlanEvidenceAssetID,
-				OutputRole: run.MultimodalOutputRoleAnnotatedImage,
-				Seq:        1,
-			},
-		},
-		OutputHash:      fmt.Sprintf("stub_ocr_output_%d", in.Task.ID),
-		SummaryText:     buildOCRSummary(fullText, 120),
-		ConfidenceScore: &conf,
-		ReasonCode:      reasonCode(reviewRequired, "ocr_low_confidence", "ocr_ok"),
-		ReviewRequired:  reviewRequired,
-		EngineKind:      run.EngineKindPaddleOCR,
-		EngineVersion:   "v1",
-		Metadata:        meta,
+		GeneratedOutputs:          []run.MultimodalGeneratedOutput{},
+		OutputHash:                fmt.Sprintf("stub_ocr_output_%d", in.Task.ID),
+		SummaryText:               buildOCRSummary(fullText, 120),
+		ConfidenceScore:           &conf,
+		ReasonCode:                reasonCode(reviewRequired, "ocr_low_confidence", "ocr_ok"),
+		ReviewRequired:            reviewRequired,
+		EngineKind:                run.EngineKindPaddleOCR,
+		EngineVersion:             "v1",
+		Metadata:                  meta,
 	}
 }
 
