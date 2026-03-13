@@ -29,6 +29,22 @@
 <% primary_service_meta = primary_metadata["service_meta"] || {} %>
 
 <%
+  preprocess_model_run =
+    model_runs.find { |mr| mr["capability"].to_s == "preprocess" } || {}
+  preprocess_meta =
+    preprocess_model_run["metadata"] || preprocess_model_run["metadata_json"] || {}
+  preprocess_python_meta =
+    preprocess_meta["python_metadata"] || {}
+%>
+
+<%
+  ocr_model_run =
+    model_runs.find { |mr| mr["capability"].to_s == "ocr" } || {}
+  ocr_model_meta =
+    ocr_model_run["metadata"] || ocr_model_run["metadata_json"] || {}
+%>
+
+<%
   ocr_text_preview =
     primary_service_meta["ocr_text"].presence ||
     primary_service_meta["ocr_text_preview"].presence ||
@@ -320,35 +336,70 @@
   </div>
 </div>
 
-<div style="display:grid; grid-template-columns: 1.2fr 0.8fr; gap:16px; margin-top:16px;">
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px;">
   <div style="padding:12px; border:1px solid #ddd; background:#fff;">
-    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">OCR Text Preview</div>
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Preprocess Summary</div>
 
-    <% if ocr_text_preview.present? %>
-      <div style="font-size:12px; color:#666; margin-bottom:8px;">
-        OCR本文プレビュー（APIが返した内容を表示）
-      </div>
-      <pre style="white-space:pre-wrap; word-break:break-word; background:#fafafa; border:1px solid #eee; padding:12px; max-height:420px; overflow:auto;"><%= ocr_text_preview %></pre>
+    <% if preprocess_model_run.present? %>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <tbody>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666; width:180px;">adapter</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= preprocess_meta["adapter"] || preprocess_python_meta["adapter"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">source_path</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; word-break:break-all;"><%= preprocess_meta["source_path"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">output_path</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; word-break:break-all;"><%= preprocess_meta["output_path"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">operations</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= Array(preprocess_meta["operations"]).join(", ").presence || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">selection</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= Array(preprocess_meta["selection"]).join(", ").presence || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">page_count</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= preprocess_python_meta["page_count"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">stitched_width</td>
+            <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= preprocess_python_meta["stitched_width"] || "-" %></td>
+          </tr>
+          <tr>
+            <td style="padding:6px; color:#666;">stitched_height</td>
+            <td style="padding:6px;"><%= preprocess_python_meta["stitched_height"] || "-" %></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <% if preprocess_python_meta["page_operations"].present? %>
+        <details style="margin-top:10px;">
+          <summary style="cursor:pointer;">page_operations</summary>
+          <pre style="white-space:pre-wrap; background:#fff; border:1px solid #eee; padding:10px; margin-top:8px;"><%= JSON.pretty_generate(preprocess_python_meta["page_operations"]) rescue preprocess_python_meta["page_operations"].inspect %></pre>
+        </details>
+      <% end %>
     <% else %>
-      <div style="font-size:13px; color:#666; line-height:1.8;">
-        現在の API response には OCR本文そのものが含まれていません。<br>
-        OCR本文の実体は通常 <strong>ocr_text_payload</strong> evidence に保存されています。<br>
-        この run では:
-        <div style="margin-top:8px; padding:10px; border:1px solid #eee; background:#fafafa;">
-          payload_evidence_asset_id: <strong><%= payload_evidence_id || "-" %></strong><br>
-          payload kind: <strong><%= ocr_text_evidence["kind"] || "-" %></strong>
-        </div>
-      </div>
+      <div style="font-size:13px; color:#999;">No preprocess model run.</div>
     <% end %>
   </div>
 
   <div style="padding:12px; border:1px solid #ddd; background:#fff;">
-    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">OCR Payload / Confidence</div>
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">OCR Input / Confidence</div>
 
     <table style="width:100%; border-collapse:collapse; font-size:13px;">
       <tbody>
         <tr>
-          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666; width:180px;">payload_evidence_asset_id</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666; width:180px;">ocr source_path</td>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; word-break:break-all;"><%= ocr_model_meta["source_path"] || "-" %></td>
+        </tr>
+        <tr>
+          <td style="padding:6px; border-bottom:1px solid #f3f3f3; color:#666;">payload_evidence_asset_id</td>
           <td style="padding:6px; border-bottom:1px solid #f3f3f3;"><%= payload_evidence_id || "-" %></td>
         </tr>
         <tr>
@@ -377,6 +428,50 @@
         </tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns: 1.2fr 0.8fr; gap:16px; margin-top:16px;">
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">OCR Text Preview</div>
+
+    <% if ocr_text_preview.present? %>
+      <div style="font-size:12px; color:#666; margin-bottom:8px;">
+        OCR本文プレビュー（APIが返した内容を表示）
+      </div>
+      <pre style="white-space:pre-wrap; word-break:break-word; background:#fafafa; border:1px solid #eee; padding:12px; max-height:420px; overflow:auto;"><%= ocr_text_preview %></pre>
+    <% else %>
+      <div style="font-size:13px; color:#666; line-height:1.8;">
+        現在の API response には OCR本文そのものが含まれていません。<br>
+        OCR本文の実体は通常 <strong>ocr_text_payload</strong> evidence に保存されています。<br>
+        この run では:
+        <div style="margin-top:8px; padding:10px; border:1px solid #eee; background:#fafafa;">
+          payload_evidence_asset_id: <strong><%= payload_evidence_id || "-" %></strong><br>
+          payload kind: <strong><%= ocr_text_evidence["kind"] || "-" %></strong>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <div style="padding:12px; border:1px solid #ddd; background:#fff;">
+    <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Preprocess / OCR Path Check</div>
+
+    <div style="font-size:13px; line-height:1.8;">
+      <div><strong>preprocess adapter:</strong> <%= preprocess_meta["adapter"] || preprocess_python_meta["adapter"] || "-" %></div>
+      <div><strong>ocr source_path:</strong></div>
+      <div style="word-break:break-all; color:#555;"><%= ocr_model_meta["source_path"] || "-" %></div>
+
+      <% if preprocess_meta["output_path"].present? && ocr_model_meta["source_path"].present? %>
+        <div style="margin-top:10px; padding:10px; border:1px solid #eee; background:#fafafa;">
+          <strong>path match check:</strong>
+          <% if preprocess_meta["output_path"].to_s == ocr_model_meta["source_path"].to_s %>
+            <span style="color:#0a7a2f;">matched</span>
+          <% else %>
+            <span style="color:#b26a00;">different</span>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
   </div>
 </div>
 

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,14 +27,11 @@ type OCREvidenceSourceLookup interface {
 }
 
 type PaddleOCRAdapter struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL     string
+	HTTPClient  *http.Client
+	TaskInputs  OCRTaskInputLookup
+	EvidenceSources OCREvidenceSourceLookup
 
-	TaskInputs       OCRTaskInputLookup
-	EvidenceSources  OCREvidenceSourceLookup
-
-	// 開発段階では true にすると、OCR サービス未接続でも
-	// 疎通確認用の擬似結果を返せる
 	AllowStubFallback bool
 }
 
@@ -78,7 +76,7 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 		return run.OCRExecutionOutput{}, fmt.Errorf("paddleocr adapter resolve source: %w", err)
 	}
 
-	respBody, err := a.callPaddleOCR(ctx, client, baseURL, sourcePath, in)
+	respBody, endpointUsed, err := a.callPaddleOCR(ctx, client, baseURL, sourcePath, in)
 	if err != nil {
 		if a.AllowStubFallback {
 			return a.stubOutput(in), nil
@@ -111,12 +109,13 @@ func (a *PaddleOCRAdapter) ExecuteOCR(ctx context.Context, in run.OCRExecutionIn
 	serviceMeta["ocr_text_length"] = len(fullText)
 
 	meta := map[string]any{
-		"adapter":      "paddleocr",
-		"project_id":   in.Task.ProjectID,
-		"task_id":      in.Task.ID,
-		"task_type":    string(in.Task.TaskType),
-		"source_path":  sourcePath,
-		"service_meta": serviceMeta,
+		"adapter":       "paddleocr",
+		"project_id":    in.Task.ProjectID,
+		"task_id":       in.Task.ID,
+		"task_type":     string(in.Task.TaskType),
+		"source_path":   sourcePath,
+		"ocr_endpoint":  endpointUsed,
+		"service_meta":  serviceMeta,
 	}
 
 	generated := []run.MultimodalGeneratedOutput{
@@ -153,15 +152,17 @@ func (a *PaddleOCRAdapter) callPaddleOCR(
 	baseURL string,
 	sourcePath string,
 	in run.OCRExecutionInput,
-) ([]byte, error) {
+) ([]byte, string, error) {
 	fileBytes, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return nil, fmt.Errorf("read source file: %w", err)
+		return nil, "", fmt.Errorf("read source file: %w", err)
 	}
 
 	contentSHA := sha256.Sum256(fileBytes)
 	contentSHAHex := hex.EncodeToString(contentSHA[:])
 	contentB64 := base64.StdEncoding.EncodeToString(fileBytes)
+
+	inputKind, endpoint := detectOCRInputKindAndEndpoint(sourcePath)
 
 	reqBody := paddleOCRRequest{
 		ContentB64:    contentB64,
@@ -172,6 +173,7 @@ func (a *PaddleOCRAdapter) callPaddleOCR(
 			"mode":   "force_ocr",
 			"lang":   getenvOr("AK_PADDLEOCR_LANG", "jpn"),
 			"dpi":    getenvIntOr("AK_PADDLEOCR_DPI", 200),
+			"input_kind": inputKind,
 			"budget": map[string]any{
 				"max_ms":       getenvIntOr("AK_PADDLEOCR_BUDGET_MAX_MS", 15000),
 				"max_cost_usd": 0.0,
@@ -181,13 +183,13 @@ func (a *PaddleOCRAdapter) callPaddleOCR(
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(baseURL, "/") + "/v1/extract/pdf_ocr"
+	url := strings.TrimRight(baseURL, "/") + endpoint
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(payload)))
 	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
+		return nil, "", fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -196,20 +198,35 @@ func (a *PaddleOCRAdapter) callPaddleOCR(
 
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
+		return nil, "", fmt.Errorf("do request: %w", err)
 	}
 	defer res.Body.Close()
 
 	respBody, err := ioReadAll(res)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, "", fmt.Errorf("read response: %w", err)
 	}
 
 	if res.StatusCode >= 400 {
-		return nil, fmt.Errorf("ocr service status=%d body=%s", res.StatusCode, string(respBody))
+		return nil, "", fmt.Errorf("ocr service status=%d body=%s", res.StatusCode, string(respBody))
 	}
 
-	return respBody, nil
+	return respBody, endpoint, nil
+}
+
+func detectOCRInputKindAndEndpoint(sourcePath string) (string, string) {
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(sourcePath)))
+
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff":
+		return "image", "/v1/extract/image_ocr"
+	case ".pdf":
+		return "pdf", "/v1/extract/pdf_ocr"
+	default:
+		// unknown は安全に image 側へ寄せる
+		// preprocess 出力は現状 png が中心のため
+		return "image", "/v1/extract/image_ocr"
+	}
 }
 
 func (a *PaddleOCRAdapter) resolveOCRSourcePath(ctx context.Context, in run.OCRExecutionInput) (string, error) {
@@ -222,7 +239,6 @@ func (a *PaddleOCRAdapter) resolveOCRSourcePath(ctx context.Context, in run.OCRE
 		return "", fmt.Errorf("evidence source lookup is nil")
 	}
 
-	// preprocess output などを明示指定していれば最優先
 	if in.SourceEvidenceID != nil && *in.SourceEvidenceID > 0 {
 		sourcePath, err := a.EvidenceSources.GetEvidenceSourceURI(ctx, in.Task.ProjectID, *in.SourceEvidenceID)
 		if err != nil {

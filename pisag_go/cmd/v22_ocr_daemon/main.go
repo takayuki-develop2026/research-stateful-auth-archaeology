@@ -92,7 +92,7 @@ func main() {
 		EnqueueReview:       &usecase.EnqueueV22MultimodalReviewUseCase{ReviewQueue: reviewQueueRepo, Normalized: normalizedRepo},
 		DownstreamHandoff:   &usecase.CreateV22DownstreamHandoffUseCase{Downstream: downstreamRepo, Normalized: normalizedRepo},
 		PreprocessPort: &worker.PythonPreprocessAdapter{
-			BaseURL:           getenv("AK_PADDLEOCR_BASE_URL", ""),
+			BaseURL:           getenv("AK_PYTHON_PREPROCESS_BASE_URL", getenv("AK_PADDLEOCR_BASE_URL", "")),
 			TaskInputs:        taskInputRepo,
 			EvidenceSources:   runtimeUploadEvidenceRepo,
 			EvidenceRegistrar: runtimeUploadEvidenceRepo,

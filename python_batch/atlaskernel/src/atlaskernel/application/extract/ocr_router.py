@@ -16,14 +16,14 @@ Mode = Literal["auto", "force_ocr"]
 @dataclass(frozen=True)
 class Budget:
     max_ms: int = 3000
-    max_cost_usd: float = 0.0  # local engines are 0
+    max_cost_usd: float = 0.0
 
 
 @dataclass(frozen=True)
 class OcrOptions:
     engine: Engine = "auto"
     mode: Mode = "auto"
-    lang: str = "jpn"           # allow "jpn+eng"
+    lang: str = "jpn"
     dpi: int = 200
     max_pages: int = 3
     min_length_for_no_ocr: int = 200
@@ -38,24 +38,6 @@ class ExtractResult:
 
 
 class OcrRouter:
-    """
-    v22 / v4.2 compatible OCR Router
-    - pdf_text: pdfminer
-    - pdf_ocr: engine switch (paddleocr / tesseract)
-    - route: auto router + budget/confidence gate (audit first)
-
-    Current supported OCR engines:
-      - paddleocr
-      - tesseract
-
-    Fallback policy:
-      - auto => paddleocr first, then tesseract
-      - explicit paddleocr => no engine swap unless caller chose auto
-      - explicit tesseract => tesseract only
-    """
-
-    # -------- Core primitives --------
-
     def extract_pdf_text(self, pdf_bytes: bytes, source_url: Optional[str], opt: OcrOptions) -> ExtractResult:
         t0 = time.perf_counter()
         text = ""
@@ -84,17 +66,15 @@ class OcrRouter:
         return ExtractResult(text=text, meta=meta)
 
     def extract_pdf_ocr(self, pdf_bytes: bytes, source_url: Optional[str], opt: OcrOptions, engine_selected: str) -> ExtractResult:
-        """
-        OCR endpoint with engine switch.
-        Supported:
-          - paddleocr
-          - tesseract
-        """
         if engine_selected == "paddleocr":
             return self._extract_pdf_ocr_paddleocr(pdf_bytes, source_url, opt, engine_selected)
-
-        # default / fallback
         return self._extract_pdf_ocr_tesseract(pdf_bytes, source_url, opt, engine_selected)
+
+    def extract_image_ocr(self, image_bytes: bytes, source_url: Optional[str], opt: OcrOptions) -> ExtractResult:
+        engine_selected = self._resolve_engine(opt.engine)
+        if engine_selected == "paddleocr":
+            return self._extract_image_ocr_paddleocr(image_bytes, source_url, opt, engine_selected)
+        return self._extract_image_ocr_tesseract(image_bytes, source_url, opt, engine_selected)
 
     def _extract_pdf_ocr_tesseract(self, pdf_bytes: bytes, source_url: Optional[str], opt: OcrOptions, engine_selected: str) -> ExtractResult:
         t0 = time.perf_counter()
@@ -168,86 +148,28 @@ class OcrRouter:
         seq = 1
 
         for page_index, img in enumerate(images, start=1):
-            try:
-                page_text = pytesseract.image_to_string(img, lang=opt.lang) or ""
-                texts.append(page_text)
-            except Exception as e:
-                return ExtractResult(
-                    text="",
-                    meta={
-                        "method": "tesseract",
-                        "engine_selected": engine_selected,
-                        "lang": opt.lang,
-                        "dpi": opt.dpi,
-                        "pages": len(images),
-                        "length": 0,
-                        "source_url": source_url,
-                        "elapsed_ms": int((time.perf_counter() - t0) * 1000),
-                        "cost_usd": 0.0,
-                        "ocr_error": f"ocr text failed: {e}",
-                        "avg_confidence": None,
-                        "ocr_blocks": blocks,
-                    },
-                )
+            page_text, page_confs, page_blocks, seq = self._run_tesseract_on_image(
+                img=img,
+                lang=opt.lang,
+                page_index=page_index,
+                seq_start=seq,
+            )
+            texts.append(page_text)
+            confs.extend(page_confs)
+            blocks.extend(page_blocks)
 
-            try:
-                data = pytesseract.image_to_data(img, lang=opt.lang, output_type=pytesseract.Output.DICT)
-                n = len(data.get("text", []) or [])
-                for i in range(n):
-                    txt = (data.get("text", [])[i] or "").strip()
-                    raw_conf = (data.get("conf", [])[i] if i < len(data.get("conf", [])) else None)
-
-                    score: Optional[float] = None
-                    try:
-                        if raw_conf is not None:
-                            c = float(raw_conf)
-                            if c >= 0:
-                                confs.append(c)
-                                score = c
-                    except Exception:
-                        score = None
-
-                    if txt:
-                        left = self._safe_int(data.get("left", []), i)
-                        top = self._safe_int(data.get("top", []), i)
-                        width = self._safe_int(data.get("width", []), i)
-                        height = self._safe_int(data.get("height", []), i)
-                        box = [left, top, left + width, top + height]
-
-                        blocks.append(
-                            {
-                                "text": txt,
-                                "score": score,
-                                "box": box,
-                                "seq": seq,
-                                "role": "ocr_line",
-                                "page": page_index,
-                            }
-                        )
-                        seq += 1
-            except Exception:
-                pass
-
-        text = self._normalize("\n\n".join(texts))
-        avg_conf = (sum(confs) / len(confs)) if confs else None
-        elapsed_ms = int((time.perf_counter() - t0) * 1000)
-
-        meta: dict[str, Any] = {
-            "method": "tesseract",
-            "engine_selected": engine_selected,
-            "lang": opt.lang,
-            "dpi": opt.dpi,
-            "pages": len(images),
-            "length": len(text),
-            "avg_confidence": avg_conf,
-            "source_url": source_url,
-            "elapsed_ms": elapsed_ms,
-            "cost_usd": 0.0,
-            "ocr_recommended": False,
-            "ocr_blocks": blocks,
-        }
-
-        return ExtractResult(text=text, meta=meta)
+        return self._build_ocr_result(
+            method="tesseract",
+            engine_selected=engine_selected,
+            lang=opt.lang,
+            dpi=opt.dpi,
+            pages=len(images),
+            text=self._normalize("\n\n".join(texts)),
+            confs=confs,
+            blocks=blocks,
+            source_url=source_url,
+            started_at=t0,
+        )
 
     def _extract_pdf_ocr_paddleocr(self, pdf_bytes: bytes, source_url: Optional[str], opt: OcrOptions, engine_selected: str) -> ExtractResult:
         t0 = time.perf_counter()
@@ -294,120 +216,167 @@ class OcrRouter:
 
         images = images[: max(1, opt.max_pages)]
 
-        try:
-            from paddleocr import PaddleOCR
-        except Exception as e:
-            return ExtractResult(
-                text="",
-                meta={
-                    "method": "paddleocr",
-                    "engine_selected": engine_selected,
-                    "lang": opt.lang,
-                    "dpi": opt.dpi,
-                    "pages": len(images),
-                    "length": 0,
-                    "source_url": source_url,
-                    "elapsed_ms": int((time.perf_counter() - t0) * 1000),
-                    "cost_usd": 0.0,
-                    "ocr_error": f"paddleocr import failed: {e}",
-                    "avg_confidence": None,
-                    "ocr_blocks": [],
-                },
-            )
-
-        try:
-            import numpy as np
-        except Exception as e:
-            return ExtractResult(
-                text="",
-                meta={
-                    "method": "paddleocr",
-                    "engine_selected": engine_selected,
-                    "lang": opt.lang,
-                    "dpi": opt.dpi,
-                    "pages": len(images),
-                    "length": 0,
-                    "source_url": source_url,
-                    "elapsed_ms": int((time.perf_counter() - t0) * 1000),
-                    "cost_usd": 0.0,
-                    "ocr_error": f"numpy import failed: {e}",
-                    "avg_confidence": None,
-                    "ocr_blocks": [],
-                },
-            )
-
-        paddle_lang = self._to_paddle_lang(opt.lang)
-
-        try:
-            ocr = PaddleOCR(
-                use_angle_cls=True,
-                lang=paddle_lang,
-                show_log=False,
-            )
-        except Exception as e:
-            return ExtractResult(
-                text="",
-                meta={
-                    "method": "paddleocr",
-                    "engine_selected": engine_selected,
-                    "lang": paddle_lang,
-                    "dpi": opt.dpi,
-                    "pages": len(images),
-                    "length": 0,
-                    "source_url": source_url,
-                    "elapsed_ms": int((time.perf_counter() - t0) * 1000),
-                    "cost_usd": 0.0,
-                    "ocr_error": f"paddleocr init failed: {e}",
-                    "avg_confidence": None,
-                    "ocr_blocks": [],
-                },
-            )
-
         texts: list[str] = []
         confs: list[float] = []
         blocks: list[dict[str, Any]] = []
         seq = 1
 
         for page_index, img in enumerate(images, start=1):
-            try:
-                np_img = np.array(img)
-                result = ocr.ocr(np_img, cls=True)
-            except Exception as e:
-                return ExtractResult(
-                    text="",
-                    meta={
-                        "method": "paddleocr",
-                        "engine_selected": engine_selected,
-                        "lang": paddle_lang,
-                        "dpi": opt.dpi,
-                        "pages": len(images),
-                        "length": 0,
-                        "source_url": source_url,
-                        "elapsed_ms": int((time.perf_counter() - t0) * 1000),
-                        "cost_usd": 0.0,
-                        "ocr_error": f"paddleocr run failed: {e}",
-                        "avg_confidence": None,
-                        "ocr_blocks": blocks,
-                    },
-                )
+            page_text, page_confs, page_blocks, seq = self._run_paddleocr_on_image(
+                img=img,
+                lang=opt.lang,
+                page_index=page_index,
+                seq_start=seq,
+            )
+            texts.append(page_text)
+            confs.extend(page_confs)
+            blocks.extend(page_blocks)
 
-            page_lines: list[str] = []
-            for line in self._normalize_paddle_result(result):
-                txt = (line.get("text") or "").strip()
-                score = line.get("score")
-                box = line.get("box") or []
+        return self._build_ocr_result(
+            method="paddleocr",
+            engine_selected=engine_selected,
+            lang=self._to_paddle_lang(opt.lang),
+            dpi=opt.dpi,
+            pages=len(images),
+            text=self._normalize("\n\n".join(texts)),
+            confs=confs,
+            blocks=blocks,
+            source_url=source_url,
+            started_at=t0,
+        )
+
+    def _extract_image_ocr_tesseract(self, image_bytes: bytes, source_url: Optional[str], opt: OcrOptions, engine_selected: str) -> ExtractResult:
+        t0 = time.perf_counter()
+
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(image_bytes))
+        except Exception as e:
+            return ExtractResult(
+                text="",
+                meta={
+                    "method": "tesseract",
+                    "engine_selected": engine_selected,
+                    "lang": opt.lang,
+                    "dpi": opt.dpi,
+                    "pages": 1,
+                    "length": 0,
+                    "source_url": source_url,
+                    "elapsed_ms": int((time.perf_counter() - t0) * 1000),
+                    "cost_usd": 0.0,
+                    "ocr_error": f"image decode failed: {e}",
+                    "avg_confidence": None,
+                    "ocr_blocks": [],
+                },
+            )
+
+        text, confs, blocks, _ = self._run_tesseract_on_image(
+            img=img,
+            lang=opt.lang,
+            page_index=1,
+            seq_start=1,
+        )
+
+        return self._build_ocr_result(
+            method="tesseract",
+            engine_selected=engine_selected,
+            lang=opt.lang,
+            dpi=opt.dpi,
+            pages=1,
+            text=self._normalize(text),
+            confs=confs,
+            blocks=blocks,
+            source_url=source_url,
+            started_at=t0,
+        )
+
+    def _extract_image_ocr_paddleocr(self, image_bytes: bytes, source_url: Optional[str], opt: OcrOptions, engine_selected: str) -> ExtractResult:
+        t0 = time.perf_counter()
+
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(image_bytes))
+        except Exception as e:
+            return ExtractResult(
+                text="",
+                meta={
+                    "method": "paddleocr",
+                    "engine_selected": engine_selected,
+                    "lang": opt.lang,
+                    "dpi": opt.dpi,
+                    "pages": 1,
+                    "length": 0,
+                    "source_url": source_url,
+                    "elapsed_ms": int((time.perf_counter() - t0) * 1000),
+                    "cost_usd": 0.0,
+                    "ocr_error": f"image decode failed: {e}",
+                    "avg_confidence": None,
+                    "ocr_blocks": [],
+                },
+            )
+
+        text, confs, blocks, _ = self._run_paddleocr_on_image(
+            img=img,
+            lang=opt.lang,
+            page_index=1,
+            seq_start=1,
+        )
+
+        return self._build_ocr_result(
+            method="paddleocr",
+            engine_selected=engine_selected,
+            lang=self._to_paddle_lang(opt.lang),
+            dpi=opt.dpi,
+            pages=1,
+            text=self._normalize(text),
+            confs=confs,
+            blocks=blocks,
+            source_url=source_url,
+            started_at=t0,
+        )
+
+    def _run_tesseract_on_image(self, img: Any, lang: str, page_index: int, seq_start: int):
+        try:
+            import pytesseract
+        except Exception as e:
+            raise RuntimeError(f"pytesseract import failed: {e}")
+
+        texts: list[str] = []
+        confs: list[float] = []
+        blocks: list[dict[str, Any]] = []
+        seq = seq_start
+
+        page_text = pytesseract.image_to_string(img, lang=lang) or ""
+        texts.append(page_text)
+
+        try:
+            data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
+            n = len(data.get("text", []) or [])
+            for i in range(n):
+                txt = (data.get("text", [])[i] or "").strip()
+                raw_conf = (data.get("conf", [])[i] if i < len(data.get("conf", [])) else None)
+
+                score: Optional[float] = None
+                try:
+                    if raw_conf is not None:
+                        c = float(raw_conf)
+                        if c >= 0:
+                            confs.append(c)
+                            score = c
+                except Exception:
+                    score = None
 
                 if txt:
-                    page_lines.append(txt)
+                    left = self._safe_int(data.get("left", []), i)
+                    top = self._safe_int(data.get("top", []), i)
+                    width = self._safe_int(data.get("width", []), i)
+                    height = self._safe_int(data.get("height", []), i)
+                    box = [left, top, left + width, top + height]
 
-                if isinstance(score, (int, float)):
-                    confs.append(float(score))
-
-                if txt:
                     blocks.append(
                         {
                             "text": txt,
-                            "score": float(score) if isinstance(score, (int, float)) else None,
+                            "score": score,
                             "box": box,
                             "seq": seq,
                             "role": "ocr_line",
@@ -415,19 +384,89 @@ class OcrRouter:
                         }
                     )
                     seq += 1
+        except Exception:
+            pass
 
-            texts.append("\n".join(page_lines))
+        return "\n".join(texts), confs, blocks, seq
 
-        text = self._normalize("\n\n".join(texts))
+    def _run_paddleocr_on_image(self, img: Any, lang: str, page_index: int, seq_start: int):
+        try:
+            from paddleocr import PaddleOCR
+        except Exception as e:
+            raise RuntimeError(f"paddleocr import failed: {e}")
+
+        try:
+            import numpy as np
+        except Exception as e:
+            raise RuntimeError(f"numpy import failed: {e}")
+
+        paddle_lang = self._to_paddle_lang(lang)
+        try:
+            ocr = PaddleOCR(
+                use_angle_cls=True,
+                lang=paddle_lang,
+                show_log=False,
+            )
+        except Exception as e:
+            raise RuntimeError(f"paddleocr init failed: {e}")
+
+        np_img = np.array(img)
+        result = ocr.ocr(np_img, cls=True)
+
+        page_lines: list[str] = []
+        confs: list[float] = []
+        blocks: list[dict[str, Any]] = []
+        seq = seq_start
+
+        for line in self._normalize_paddle_result(result):
+            txt = (line.get("text") or "").strip()
+            score = line.get("score")
+            box = line.get("box") or []
+
+            if txt:
+                page_lines.append(txt)
+
+            if isinstance(score, (int, float)):
+                confs.append(float(score))
+
+            if txt:
+                blocks.append(
+                    {
+                        "text": txt,
+                        "score": float(score) if isinstance(score, (int, float)) else None,
+                        "box": box,
+                        "seq": seq,
+                        "role": "ocr_line",
+                        "page": page_index,
+                    }
+                )
+                seq += 1
+
+        return "\n".join(page_lines), confs, blocks, seq
+
+    def _build_ocr_result(
+        self,
+        *,
+        method: str,
+        engine_selected: str,
+        lang: str,
+        dpi: int,
+        pages: int,
+        text: str,
+        confs: list[float],
+        blocks: list[dict[str, Any]],
+        source_url: Optional[str],
+        started_at: float,
+    ) -> ExtractResult:
         avg_conf = (sum(confs) / len(confs)) if confs else None
-        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
 
         meta: dict[str, Any] = {
-            "method": "paddleocr",
+            "method": method,
             "engine_selected": engine_selected,
-            "lang": paddle_lang,
-            "dpi": opt.dpi,
-            "pages": len(images),
+            "lang": lang,
+            "dpi": dpi,
+            "pages": pages,
             "length": len(text),
             "avg_confidence": avg_conf,
             "source_url": source_url,
@@ -439,20 +478,7 @@ class OcrRouter:
 
         return ExtractResult(text=text, meta=meta)
 
-    # -------- Router --------
-
     def route(self, pdf_bytes: bytes, source_url: Optional[str], opt: OcrOptions) -> ExtractResult:
-        """
-        v4.2 / v22 compatible contract:
-          meta.pipeline: pdf_text_only | pdf_text_then_ocr | pdf_ocr_only
-          meta.fallback_chain
-          meta.engine_requested
-          meta.engine_selected
-          meta.decision
-          meta.decision_reason
-          meta.budget_exceeded
-          meta.elapsed_ms_total
-        """
         engine_requested = opt.engine
         engine_selected = self._resolve_engine(engine_requested)
 
@@ -497,8 +523,6 @@ class OcrRouter:
         meta_t["fallback_chain"] = ["pdf_text"]
         return self._finalize(meta_t, t.text)
 
-    # -------- Helpers --------
-
     def _resolve_engine(self, engine_requested: str) -> str:
         if engine_requested == "paddleocr":
             return "paddleocr"
@@ -511,11 +535,9 @@ class OcrRouter:
             return False
         if engine_selected != "paddleocr":
             return False
-
         txt = (result.text or "").strip()
         if txt:
             return False
-
         return True
 
     def _audit_fixed(self, opt: OcrOptions, engine_requested: str, engine_selected: str) -> dict[str, Any]:
@@ -548,8 +570,6 @@ class OcrRouter:
         else:
             try:
                 v = float(avg_conf)
-
-                # PaddleOCR 系は 0〜1、Tesseract は 0〜100 になりやすいので正規化
                 if 0.0 <= v <= 1.0:
                     v = v * 100.0
 
@@ -632,15 +652,15 @@ class OcrRouter:
 
 def decode_and_verify(content_b64: str, content_sha256: str) -> bytes:
     try:
-        pdf_bytes = base64.b64decode(content_b64)
+        data = base64.b64decode(content_b64)
     except Exception:
         raise ValueError("content_b64 decode failed")
 
-    sha = hashlib.sha256(pdf_bytes).hexdigest()
+    sha = hashlib.sha256(data).hexdigest()
     if sha != content_sha256:
         raise ValueError("content_sha256 mismatch")
 
-    return pdf_bytes
+    return data
 
 
 def parse_options(options: dict[str, Any]) -> OcrOptions:

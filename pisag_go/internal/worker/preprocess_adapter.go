@@ -41,30 +41,41 @@ type GeneratedEvidenceRegistrar interface {
 }
 
 type pythonPreprocessRequest struct {
-	ContentB64     string         `json:"content_b64"`
-	Filename       string         `json:"filename,omitempty"`
-	ContentSHA256  string         `json:"content_sha256,omitempty"`
-	Operations     []string       `json:"operations"`
-	Options        map[string]any `json:"options,omitempty"`
+	ContentB64    string         `json:"content_b64"`
+	Filename      string         `json:"filename,omitempty"`
+	ContentSHA256 string         `json:"content_sha256,omitempty"`
+	Operations    []string       `json:"operations"`
+	Options       map[string]any `json:"options,omitempty"`
+}
+
+type pythonPreprocessPageResponse struct {
+	Page                int            `json:"page"`
+	MediaType           string         `json:"media_type"`
+	Ext                 string         `json:"ext"`
+	ProcessedContentB64 string         `json:"processed_content_b64"`
+	ProcessedSHA256     string         `json:"processed_sha256"`
+	Bytes               int            `json:"bytes"`
+	Metadata            map[string]any `json:"metadata"`
 }
 
 type pythonPreprocessResponse struct {
-	MediaType          string         `json:"media_type"`
-	Ext                string         `json:"ext"`
-	ProcessedContentB64 string        `json:"processed_content_b64"`
-	ProcessedSHA256    string         `json:"processed_sha256"`
-	Bytes              int            `json:"bytes"`
-	Metadata           map[string]any `json:"metadata"`
+	MediaType           string                         `json:"media_type"`
+	Ext                 string                         `json:"ext"`
+	ProcessedContentB64 string                         `json:"processed_content_b64"`
+	ProcessedSHA256     string                         `json:"processed_sha256"`
+	Bytes               int                            `json:"bytes"`
+	Metadata            map[string]any                 `json:"metadata"`
+	Pages               []pythonPreprocessPageResponse `json:"pages"`
 }
 
 type PythonPreprocessAdapter struct {
-	BaseURL            string
-	HTTPClient         *http.Client
-	TaskInputs         PreprocessTaskInputLookup
-	EvidenceSources    PreprocessEvidenceSourceLookup
-	EvidenceRegistrar  GeneratedEvidenceRegistrar
-	EvidenceStore      EvidenceStore
-	BaseDir            string
+	BaseURL           string
+	HTTPClient        *http.Client
+	TaskInputs        PreprocessTaskInputLookup
+	EvidenceSources   PreprocessEvidenceSourceLookup
+	EvidenceRegistrar GeneratedEvidenceRegistrar
+	EvidenceStore     EvidenceStore
+	BaseDir           string
 }
 
 func (a *PythonPreprocessAdapter) ExecutePreprocess(ctx context.Context, in run.PreprocessExecutionInput) (run.PreprocessExecutionOutput, error) {
@@ -124,7 +135,9 @@ func (a *PythonPreprocessAdapter) ExecutePreprocess(ctx context.Context, in run.
 		Filename:      filepath.Base(sourcePath),
 		ContentSHA256: sha256HexBytes(raw),
 		Operations:    ops,
-		Options:       map[string]any{},
+		Options: map[string]any{
+			"dpi": 200,
+		},
 	}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
@@ -160,6 +173,147 @@ func (a *PythonPreprocessAdapter) ExecutePreprocess(ctx context.Context, in run.
 		return run.PreprocessExecutionOutput{}, fmt.Errorf("python preprocess adapter parse response: %w", err)
 	}
 
+	// pages[] があれば pages 優先
+	if len(parsed.Pages) > 0 {
+		return a.handlePagedResponse(ctx, in, sourceEvidenceID, sourcePath, ops, parsed)
+	}
+
+	// 互換フォールバック: 旧 single response
+	return a.handleSingleResponse(ctx, in, sourceEvidenceID, sourcePath, ops, parsed)
+}
+
+func (a *PythonPreprocessAdapter) handlePagedResponse(
+	ctx context.Context,
+	in run.PreprocessExecutionInput,
+	sourceEvidenceID int64,
+	sourcePath string,
+	ops []string,
+	parsed pythonPreprocessResponse,
+) (run.PreprocessExecutionOutput, error) {
+	generated := make([]run.MultimodalGeneratedOutput, 0, len(parsed.Pages))
+	pageRefs := make([]map[string]any, 0, len(parsed.Pages))
+
+	var payloadEvidenceID int64
+	var payloadSet bool
+
+	for idx, page := range parsed.Pages {
+		outBytes, err := base64.StdEncoding.DecodeString(page.ProcessedContentB64)
+		if err != nil {
+			return run.PreprocessExecutionOutput{}, fmt.Errorf("python preprocess adapter decode processed page content: page=%d err=%w", page.Page, err)
+		}
+
+		ext := strings.TrimSpace(page.Ext)
+		if ext == "" {
+			ext = "bin"
+		}
+		mediaType := strings.TrimSpace(page.MediaType)
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+
+		kind := "preprocess_output_image"
+		if mediaType == "application/pdf" {
+			kind = "preprocess_output_pdf"
+		}
+
+		blobName := fmt.Sprintf("preprocess_output_page_%03d", maxPageNumber(page.Page, idx+1))
+		relPath, shaHex, size, err := a.EvidenceStore.SaveBlob(
+			ctx,
+			in.Task.RunID,
+			blobName,
+			ext,
+			bytes.NewReader(outBytes),
+			int64(len(outBytes))+1,
+		)
+		if err != nil {
+			return run.PreprocessExecutionOutput{}, fmt.Errorf("python preprocess adapter save paged blob: page=%d err=%w", page.Page, err)
+		}
+
+		absPath := relPathToAbs(a.BaseDir, relPath)
+		evidenceID, err := a.EvidenceRegistrar.RegisterGeneratedEvidence(
+			ctx,
+			in.Task.ProjectID,
+			in.Task.TraceID,
+			in.Task.RunID,
+			kind,
+			mediaType,
+			absPath,
+			shaHex,
+			int64(size),
+		)
+		if err != nil {
+			return run.PreprocessExecutionOutput{}, fmt.Errorf("python preprocess adapter register paged evidence: page=%d err=%w", page.Page, err)
+		}
+
+		if !payloadSet {
+			payloadEvidenceID = evidenceID
+			payloadSet = true
+		}
+
+		seq := idx + 1
+		generated = append(generated, run.MultimodalGeneratedOutput{
+			EvidenceID: evidenceID,
+			OutputRole: run.MultimodalOutputRolePreprocessImage,
+			Seq:        seq,
+		})
+
+		pageRefs = append(pageRefs, map[string]any{
+			"page":         maxPageNumber(page.Page, idx+1),
+			"seq":          seq,
+			"evidence_id":  evidenceID,
+			"output_path":  absPath,
+			"media_type":   mediaType,
+			"ext":          ext,
+			"bytes":        size,
+			"sha256":       shaHex,
+			"page_metadata": page.Metadata,
+		})
+	}
+
+	if !payloadSet {
+		return run.PreprocessExecutionOutput{}, fmt.Errorf("python preprocess adapter paged response had no pages")
+	}
+
+	summaryOperations := metadataStringSlice(parsed.Metadata, "operations")
+	if len(summaryOperations) == 0 {
+		summaryOperations = ops
+	}
+	summary := fmt.Sprintf("preprocess completed: ops=%v pages=%d", summaryOperations, len(parsed.Pages))
+
+	return run.PreprocessExecutionOutput{
+		PayloadEvidenceAssetID:    payloadEvidenceID,
+		ConfidenceEvidenceAssetID: nil,
+		GeneratedOutputs:          generated,
+		OutputHash:                sha256HexString(summary + "|" + fmt.Sprintf("%d", payloadEvidenceID)),
+		SummaryText:               summary,
+		ConfidenceScore:           floatPtr(0.95),
+		ReasonCode:                "preprocess_ok",
+		ReviewRequired:            false,
+		EngineKind:                run.EngineKindOpenCVBasic,
+		EngineVersion:             "python-v1",
+		Metadata: map[string]any{
+			"adapter":             metadataString(parsed.Metadata, "adapter", "python_preprocess_pdf_pages"),
+			"source_evidence_id":  sourceEvidenceID,
+			"source_path":         sourcePath,
+			"payload_evidence_id": payloadEvidenceID,
+			"operations":          summaryOperations,
+			"selection":           ops,
+			"python_metadata":     parsed.Metadata,
+			"page_count":          len(parsed.Pages),
+			"page_refs":           pageRefs,
+			"delivery_mode":       "pages",
+		},
+	}, nil
+}
+
+func (a *PythonPreprocessAdapter) handleSingleResponse(
+	ctx context.Context,
+	in run.PreprocessExecutionInput,
+	sourceEvidenceID int64,
+	sourcePath string,
+	ops []string,
+	parsed pythonPreprocessResponse,
+) (run.PreprocessExecutionOutput, error) {
 	outBytes, err := base64.StdEncoding.DecodeString(parsed.ProcessedContentB64)
 	if err != nil {
 		return run.PreprocessExecutionOutput{}, fmt.Errorf("python preprocess adapter decode processed content: %w", err)
@@ -169,12 +323,14 @@ func (a *PythonPreprocessAdapter) ExecutePreprocess(ctx context.Context, in run.
 	if ext == "" {
 		ext = "bin"
 	}
-	kind := "preprocess_output"
-	if strings.TrimSpace(parsed.MediaType) == "application/pdf" {
+	mediaType := strings.TrimSpace(parsed.MediaType)
+	if mediaType == "" {
+		mediaType = "application/octet-stream"
+	}
+
+	kind := "preprocess_output_image"
+	if mediaType == "application/pdf" {
 		kind = "preprocess_output_pdf"
-		ext = "pdf"
-	} else {
-		kind = "preprocess_output_image"
 	}
 
 	relPath, shaHex, size, err := a.EvidenceStore.SaveBlob(
@@ -196,7 +352,7 @@ func (a *PythonPreprocessAdapter) ExecutePreprocess(ctx context.Context, in run.
 		in.Task.TraceID,
 		in.Task.RunID,
 		kind,
-		strings.TrimSpace(parsed.MediaType),
+		mediaType,
 		absPath,
 		shaHex,
 		int64(size),
@@ -205,8 +361,13 @@ func (a *PythonPreprocessAdapter) ExecutePreprocess(ctx context.Context, in run.
 		return run.PreprocessExecutionOutput{}, fmt.Errorf("python preprocess adapter register generated evidence: %w", err)
 	}
 
-	summary := fmt.Sprintf("preprocess completed: ops=%v", ops)
-	engineKind := run.EngineKindOpenCVBasic
+	operations := metadataStringSlice(parsed.Metadata, "operations")
+	if len(operations) == 0 {
+		operations = ops
+	}
+
+	summary := fmt.Sprintf("preprocess completed: ops=%v", operations)
+
 	return run.PreprocessExecutionOutput{
 		PayloadEvidenceAssetID:    evidenceID,
 		ConfidenceEvidenceAssetID: nil,
@@ -222,16 +383,20 @@ func (a *PythonPreprocessAdapter) ExecutePreprocess(ctx context.Context, in run.
 		ConfidenceScore: floatPtr(0.95),
 		ReasonCode:      "preprocess_ok",
 		ReviewRequired:  false,
-		EngineKind:      engineKind,
+		EngineKind:      run.EngineKindOpenCVBasic,
 		EngineVersion:   "python-v1",
 		Metadata: map[string]any{
-			"adapter":            "python_preprocess",
+			"adapter":            metadataString(parsed.Metadata, "adapter", "python_preprocess"),
 			"source_evidence_id": sourceEvidenceID,
 			"source_path":        sourcePath,
 			"output_path":        absPath,
-			"operations":         parsed.Metadata["operations"],
+			"operations":         operations,
 			"selection":          ops,
 			"python_metadata":    parsed.Metadata,
+			"media_type":         mediaType,
+			"ext":                ext,
+			"bytes":              size,
+			"delivery_mode":      "single",
 		},
 	}, nil
 }
@@ -301,4 +466,57 @@ func sha256HexBytes(b []byte) string {
 
 func floatPtr(v float64) *float64 {
 	return &v
+}
+
+func metadataString(m map[string]any, key string, fallback string) string {
+	if m == nil {
+		return fallback
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return fallback
+	}
+	s, ok := v.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(s)
+}
+
+func metadataStringSlice(m map[string]any, key string) []string {
+	if m == nil {
+		return nil
+	}
+	raw, ok := m[key]
+	if !ok || raw == nil {
+		return nil
+	}
+
+	switch vv := raw.(type) {
+	case []string:
+		out := make([]string, 0, len(vv))
+		for _, s := range vv {
+			if strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(vv))
+		for _, item := range vv {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	}
+
+	return nil
+}
+
+func maxPageNumber(page int, fallback int) int {
+	if page > 0 {
+		return page
+	}
+	return fallback
 }
