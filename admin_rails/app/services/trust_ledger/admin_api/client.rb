@@ -50,6 +50,7 @@ module TrustLedger
 
         # Shops
         def list_shops(params = {}) = instance.list_shops(params)
+
         def get_shop(shop_id)
           shops_res = list_shops
           shops =
@@ -104,7 +105,7 @@ module TrustLedger
       # ATLASKERNEL_ADMIN_API_BASE_URL:
       #   AtlasKernel Admin API (Laravel) base
       # TRUSTLEDGER_LARAVEL_API_BASE_URL:
-      #   TrustLedger KPI API (Laravel) base
+      #   TrustLedger KPI / Shops API (Laravel) base
       #
       # 例（docker compose 内）:
       #   TRUSTLEDGER_ADMIN_API_BASE_URL=http://payment-core:8081
@@ -173,21 +174,21 @@ module TrustLedger
         post_json("/api/admin/trustledger/replay/sale", params)
       end
 
-      # Shops
+      # Shops -> 一時的に Laravel backend を真実源に戻す
       def list_shops(params = {})
-        get_json(with_query("/api/admin/trustledger/shops", params))
+        get_json_laravel(with_query("/api/admin/trustledger/shops", params))
       end
 
       def get_shop(shop_id)
-        get_json("/api/admin/trustledger/shops/#{shop_id}")
+        get_json_laravel("/api/admin/trustledger/shops/#{shop_id}")
       end
 
       def get_shop_payment_provider(shop_id)
-        get_json("/api/admin/trustledger/shops/#{shop_id}/payment-provider")
+        get_json_laravel("/api/admin/trustledger/shops/#{shop_id}/payment-provider")
       end
 
       def update_shop_payment_provider(shop_id, provider:, mode: "row")
-        post_json(
+        post_json_laravel(
           "/api/admin/trustledger/shops/payment-provider",
           { mode: mode, shop_id: shop_id, provider: provider }
         )
@@ -299,7 +300,7 @@ module TrustLedger
         request_json(Net::HTTP::Post, path, payload: payload, base_url: @base_url)
       end
 
-      # TrustLedger KPI を Laravel へ
+      # TrustLedger KPI / Shops を Laravel へ
       def get_json_laravel(path)
         request_json(Net::HTTP::Get, path, base_url: @laravel_base_url)
       end

@@ -260,9 +260,14 @@ services:
     restart: unless-stopped
 
   # ============================================================
-  # worker「常時2台」設定（buildなし：同一imageを参照）
+  # legacy worker（通常起動から外す）
+  # - 現在の /app/worker は old queued-run 前提の可能性があるため
+  #   default 起動しない
+  # - 必要時のみ:
+  #     docker compose --profile legacy-workers up -d ak_go_worker ak_go_worker_2
   # ============================================================
   ak_go_worker:
+    profiles: ["legacy-workers"]
     image: research-stateful-auth-archaeology/ak-go-core:v4
     environment:
       AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
@@ -281,6 +286,7 @@ services:
     restart: unless-stopped
 
   ak_go_worker_2:
+    profiles: ["legacy-workers"]
     image: research-stateful-auth-archaeology/ak-go-core:v4
     environment:
       AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable

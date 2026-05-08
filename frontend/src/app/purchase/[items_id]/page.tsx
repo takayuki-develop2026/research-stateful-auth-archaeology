@@ -165,7 +165,7 @@ type StripeSectionHandle = {
   confirmCardPaymentByClientSecret: (clientSecret: string) => Promise<void>;
   confirmCardSetupByClientSecret: (clientSecret: string) => Promise<void>;
   hasCardElement: () => boolean;
-  isCardComplete: () => boolean; // ✅ 追加
+  isCardComplete: () => boolean;
 };
 
 type StripeSectionProps = {
@@ -181,20 +181,7 @@ const StripeCardSection = forwardRef<StripeSectionHandle, StripeSectionProps>(
     const stripe = useStripe();
     const elements = useElements();
 
-    // ✅ CardElement の入力完了フラグ（未入力/未完了時の誤実行を防ぐ）
     const [cardComplete, setCardComplete] = useState(false);
-
-    const safeStringifyError = (e: any) => {
-      try {
-        if (!e) return "null";
-        if (typeof e === "string") return e;
-        if (e instanceof Error)
-          return `${e.name}: ${e.message}\n${e.stack ?? ""}`;
-        return JSON.stringify(e, Object.getOwnPropertyNames(e), 2);
-      } catch {
-        return String(e);
-      }
-    };
 
     useImperativeHandle(
       ref,
@@ -261,7 +248,6 @@ const StripeCardSection = forwardRef<StripeSectionHandle, StripeSectionProps>(
         <div className={styles.stripeCardWrapper}>
           <CardElement
             onChange={(e) => {
-              // ✅ Stripe Elements 側の入力状態を保持
               setCardComplete(!!(e as any)?.complete);
             }}
             options={{
@@ -297,7 +283,7 @@ const StripeCardSection = forwardRef<StripeSectionHandle, StripeSectionProps>(
                   props.processing ||
                   props.saveCardLoading ||
                   props.walletLoading ||
-                  !cardComplete // ✅ 追加：カード入力が完了するまで押せない（見た目は同じ）
+                  !cardComplete
                 }
                 style={{
                   padding: "6px 10px",
@@ -378,8 +364,8 @@ export default function PurchaseConfirmPage() {
   const initializedSessionIdRef = useRef<string | null>(null);
   const dropinRef = useRef<any | null>(null);
 
-  // ★FIX: orderId は ref が正（stateに依存しない）
   const orderIdRef = useRef<number | null>(null);
+  const adyenNavigatedRef = useRef(false);
 
   const stripeSectionRef = useRef<StripeSectionHandle | null>(null);
   const saveCardInFlightRef = useRef(false);
@@ -400,6 +386,12 @@ export default function PurchaseConfirmPage() {
     } catch {
       return String(e);
     }
+  };
+
+  const goAdyenThanks = (orderId: number) => {
+    if (adyenNavigatedRef.current) return;
+    adyenNavigatedRef.current = true;
+    window.location.assign(`/thanks/buy/adyen-card?order_id=${orderId}`);
   };
 
   const applyWalletState = (
@@ -472,8 +464,7 @@ export default function PurchaseConfirmPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payment, apiClient, isAuthenticated, cardPsp]);
+  }, [payment, apiClient, isAuthenticated, cardPsp, item]);
 
   const waitUntilPaid = async (orderId: number, timeoutMs = 15000) => {
     if (!apiClient) return false;
@@ -491,7 +482,6 @@ export default function PurchaseConfirmPage() {
     return false;
   };
 
-  // A案：カード選択＆Adyen確定時に preview session を作る
   useEffect(() => {
     let cancelled = false;
 
@@ -501,10 +491,8 @@ export default function PurchaseConfirmPage() {
       } catch {}
       dropinRef.current = null;
       initializedSessionIdRef.current = null;
-
-      // ★FIX: セッション作り直し時に orderIdRef をクリア
       orderIdRef.current = null;
-
+      adyenNavigatedRef.current = false;
       setAdyenSession(null);
 
       if (adyenContainerRef.current) {
@@ -557,6 +545,8 @@ export default function PurchaseConfirmPage() {
           throw new Error("preview response missing fields");
         }
 
+        adyenNavigatedRef.current = false;
+
         setAdyenSession({
           orderId: null,
           previewKey: res.preview_key,
@@ -565,8 +555,6 @@ export default function PurchaseConfirmPage() {
           clientKey: ADYEN_CLIENT_KEY,
           environment: res.environment ?? "test",
         });
-
-        // mount側でprocessing解除
       } catch (e) {
         console.error("[AdyenPreview] failed", e);
         if (!cancelled) {
@@ -585,15 +573,12 @@ export default function PurchaseConfirmPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payment, apiClient, isAuthenticated, item, cardPsp]);
+  }, [payment, apiClient, isAuthenticated, item, cardPsp, adyenSession, ADYEN_CLIENT_KEY]);
 
-  // ✅ Adyen Drop-in mount（A案：常時表示 / PayButtonはfalse）
   useEffect(() => {
     if (!adyenSession) return;
     if (!adyenContainerRef.current) return;
 
-    // ここでは "既に同じsessionをマウント済み" のときだけ skip
     if (
       initializedSessionIdRef.current === adyenSession.sessionId &&
       dropinRef.current
@@ -609,8 +594,6 @@ export default function PurchaseConfirmPage() {
         dropinRef.current?.unmount?.();
       } catch {}
       dropinRef.current = null;
-
-      // ★超重要：StrictMode 2回目のmountを殺さない
       initializedSessionIdRef.current = null;
 
       if (adyenContainerRef.current) {
@@ -627,11 +610,6 @@ export default function PurchaseConfirmPage() {
         const amountValue = item?.price != null ? Number(item.price) : 0;
         const { AdyenCheckout, Dropin, Card, mod } = await loadAdyenSdk();
 
-        const goThanks = (orderId: number) => {
-          const url = `/thanks/buy/adyen-card?order_id=${orderId}`;
-          window.location.assign(url);
-        };
-
         const handleCompleted = (result: any) => {
           console.log("[Adyen] completed", result);
           console.log("[Adyen] orderIdRef", orderIdRef.current);
@@ -641,7 +619,7 @@ export default function PurchaseConfirmPage() {
             alert("決済完了したが orderIdRef が null");
             return;
           }
-          goThanks(orderId);
+          goAdyenThanks(orderId);
         };
 
         const handleError = (err: any) => {
@@ -653,7 +631,6 @@ export default function PurchaseConfirmPage() {
           setProcessing(false);
         };
 
-        // ✅ コールバックは checkout 側にも載せる（環境差吸収）
         const checkout = await AdyenCheckout({
           environment: adyenSession.environment,
           clientKey: adyenSession.clientKey,
@@ -687,7 +664,6 @@ export default function PurchaseConfirmPage() {
             },
           },
 
-          // ✅ Drop-in 側にも載せる（どっちで来てもOK）
           onPaymentCompleted: handleCompleted,
           onError: handleError,
         };
@@ -703,8 +679,6 @@ export default function PurchaseConfirmPage() {
 
         dropin.mount(el);
         dropinRef.current = dropin;
-
-        // ★超重要：mount 成功後に “マウント済み” を記録
         initializedSessionIdRef.current = adyenSession.sessionId;
 
         setProcessing(false);
@@ -721,12 +695,9 @@ export default function PurchaseConfirmPage() {
     })();
 
     return cleanup;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adyenSession?.sessionId, item?.price]);
 
-
   const saveCardForOneClick = async () => {
-    // 0) まず簡易ガード（ここはロック前でOK）
     if (!apiClient) {
       alert("APIクライアントが準備できていません。");
       return;
@@ -744,36 +715,31 @@ export default function PurchaseConfirmPage() {
       return;
     }
 
-    // ✅ 1) 二重実行防止ロック（ここが追加点）
     if (saveCardInFlightRef.current) return;
     saveCardInFlightRef.current = true;
 
     try {
       setSaveCardLoading(true);
 
-      // 1) setup-intent 作成
       const si = await apiClient.post<CreateSetupIntentResponse>(
         "/wallet/setup-intent",
         {},
       );
       if (!si?.client_secret || !si?.setup_intent_id) {
         alert("setup_intent の情報が取得できませんでした。");
-        return; // ✅ finally でロック解除される
+        return;
       }
 
-      // 2) Stripe confirm
       await stripeSectionRef.current.confirmCardSetupByClientSecret(
         si.client_secret,
       );
 
-      // 3) SoT確定
       await apiClient.post("/wallet/setup-intent/complete", {
         setup_intent_id: si.setup_intent_id,
         provider: "stripe",
         set_default: true,
       });
 
-      // 4) 最新状態を取り直す
       setWalletLoading(true);
       const wallet = await apiClient.get<WalletPaymentMethodsResponse>(
         "/wallet/payment-methods",
@@ -787,14 +753,12 @@ export default function PurchaseConfirmPage() {
         e?.response?.data?.message ?? e?.message ?? "カード保存に失敗しました",
       );
     } finally {
-      // ✅ 2) 必ず解除（ここが重要）
       saveCardInFlightRef.current = false;
       setWalletLoading(false);
       setSaveCardLoading(false);
     }
   };
 
-  /* ================= Guard ================= */
   if (isAuthLoading || isItemLoading || isAddressLoading) {
     return <div className={styles.loadingOverlay}>購入情報を読み込み中...</div>;
   }
@@ -828,16 +792,12 @@ export default function PurchaseConfirmPage() {
     !!resolvedAddress?.id &&
     !processing;
 
-  /* ================= submit ================= */
   const submitPurchase = async () => {
     if (!canPurchase || !apiClient || !resolvedAddress) return;
 
     try {
       setProcessing(true);
 
-      // =========================
-      // カード（Adyen / A案）
-      // =========================
       if (payment === "card" && effectiveCardPsp === "adyen") {
         if (!adyenSession) {
           alert(
@@ -877,8 +837,8 @@ export default function PurchaseConfirmPage() {
           throw new Error("commit response missing fields");
         }
 
-        // ★FIX: submit前にrefへ確実にセット（stateではなくrefが正）
         orderIdRef.current = commit.order_id;
+        adyenNavigatedRef.current = false;
 
         setAdyenSession((prev) =>
           prev
@@ -898,15 +858,30 @@ export default function PurchaseConfirmPage() {
           return;
         }
 
-        // onPaymentCompleted/onError に任せる
+        void (async () => {
+          await new Promise((r) => setTimeout(r, 1500));
+
+          const currentOrderId = orderIdRef.current;
+          if (!currentOrderId || adyenNavigatedRef.current) return;
+
+          const paid = await waitUntilPaid(currentOrderId, 15000);
+          if (paid) {
+            goAdyenThanks(currentOrderId);
+            return;
+          }
+
+          if (!adyenNavigatedRef.current) {
+            console.warn(
+              "[Adyen] fallback waitUntilPaid timeout",
+              currentOrderId,
+            );
+            setProcessing(false);
+          }
+        })();
+
         return;
       }
 
-      // =========================
-      // それ以外（Stripe/konbini：既存互換）
-      // =========================
-
-      // ① Order 作成
       const orderRes = await apiClient.post<CreateOrderResponse>("/orders", {
         shop_id: resolvedItem.shop_id,
         items: [
@@ -923,16 +898,12 @@ export default function PurchaseConfirmPage() {
 
       const orderId = orderRes.order_id;
 
-      // ② 配送先確定
       await apiClient.post(`/orders/${orderId}/address`, {
         address_id: resolvedAddress.id,
       });
 
-      // ③ Order 確定
       await apiClient.post(`/orders/${orderId}/confirm`);
 
-      // ④ Payment
-      // ---- One-click (Stripe) ----
       if (
         payment === "card" &&
         effectiveCardPsp === "stripe" &&
@@ -969,7 +940,6 @@ export default function PurchaseConfirmPage() {
         return;
       }
 
-      // ---- 通常 ----
       const paymentRes = await apiClient.post<StartPaymentResponse>(
         "/payments/start",
         {
@@ -978,13 +948,11 @@ export default function PurchaseConfirmPage() {
         },
       );
 
-      // konbini
       if (payment !== "card") {
         router.replace(`/thanks/buy/konbini?order_id=${orderId}`);
         return;
       }
 
-      // Stripe
       if (paymentRes.provider === "stripe") {
         if (!paymentRes.client_secret) {
           alert("client_secret が取得できませんでした。");
@@ -1019,12 +987,10 @@ export default function PurchaseConfirmPage() {
     }
   };
 
-  /* ================= JSX ================= */
   return (
     <div className={styles.item_buy_wrapper}>
       <div className={styles.item_buy_contents}>
         <div className={styles.item_buy_lr}>
-          {/* LEFT */}
           <div className={styles.item_buy_l}>
             <div className={styles.item_buy_content_section}>
               <div className={styles.item_buy_image}>
@@ -1050,17 +1016,14 @@ export default function PurchaseConfirmPage() {
                   const v = e.target.value as PaymentMethod;
                   setPayment(v);
 
-                  // カード以外に切り替えたら Adyen セッションは破棄
                   if (v !== "card") {
                     try {
                       dropinRef.current?.unmount?.();
                     } catch {}
                     dropinRef.current = null;
                     initializedSessionIdRef.current = null;
-
-                    // ★FIX: orderIdRef をクリア
                     orderIdRef.current = null;
-
+                    adyenNavigatedRef.current = false;
                     setAdyenSession(null);
                     setProcessing(false);
                     if (adyenContainerRef.current) {
@@ -1075,7 +1038,6 @@ export default function PurchaseConfirmPage() {
                 <option value="card">カード決済</option>
               </select>
 
-              {/* DEV only debug */}
               {DEV && (
                 <div style={{ marginTop: 10 }}>
                   <button
@@ -1111,6 +1073,10 @@ export default function PurchaseConfirmPage() {
                       </div>
                       <div>debug:payment = {payment}</div>
                       <div>debug:orderIdRef = {String(orderIdRef.current)}</div>
+                      <div>
+                        debug:adyenNavigatedRef ={" "}
+                        {String(adyenNavigatedRef.current)}
+                      </div>
                       <pre style={{ whiteSpace: "pre-wrap" }}>
                         {JSON.stringify(adyenSession, null, 2)}
                       </pre>
@@ -1119,7 +1085,6 @@ export default function PurchaseConfirmPage() {
                 </div>
               )}
 
-              {/* ===== カード決済UI（Stripe / Adyen） ===== */}
               {payment === "card" && (
                 <div
                   className={styles.item_buy_content_section}
@@ -1130,7 +1095,6 @@ export default function PurchaseConfirmPage() {
                     {effectiveCardPsp === "adyen" ? "Adyen" : "Stripe"}）
                   </h4>
 
-                  {/* One-click（Stripeのみ） */}
                   <div className={styles.oneClickBox}>
                     <div className={styles.oneClickRow}>
                       <div className={styles.oneClickTitle}>
@@ -1176,7 +1140,6 @@ export default function PurchaseConfirmPage() {
                     </div>
                   </div>
 
-                  {/* Adyen Drop-in（A案：カード選択で常時表示） */}
                   {effectiveCardPsp === "adyen" && (
                     <div style={{ marginTop: 12 }}>
                       <div ref={adyenContainerRef} />
@@ -1197,7 +1160,6 @@ export default function PurchaseConfirmPage() {
                     </div>
                   )}
 
-                  {/* ✅ Stripeは「必要なときだけ」Elementsをマウント */}
                   {effectiveCardPsp === "stripe" && needsStripeCardInput && (
                     <Elements
                       stripe={stripePromise}
@@ -1238,7 +1200,6 @@ export default function PurchaseConfirmPage() {
             </div>
           </div>
 
-          {/* RIGHT */}
           <div className={styles.item_buy_r}>
             <div className={styles.item_buy_summary_box}>
               <p>商品代金: ¥{Number(resolvedItem.price).toLocaleString()}</p>
@@ -1272,7 +1233,6 @@ export default function PurchaseConfirmPage() {
               )}
             </div>
 
-            {/* PSPモード切替（DEVのみ：運用安定後に削除推奨） */}
             {DEV && (
               <div style={{ marginTop: 14, fontSize: 12, opacity: 0.85 }}>
                 <div style={{ marginBottom: 6 }}>
