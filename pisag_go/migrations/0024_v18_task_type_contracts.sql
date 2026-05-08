@@ -15,7 +15,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.task_type_contracts (
   id                           bigserial PRIMARY KEY,
 
-  project_id                   varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id                   varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   task_type                    varchar(32) NOT NULL,   -- fulltext_extract|vision_extract|audio_transcribe|behavior_ingest...
   pipeline_version             varchar(64) NOT NULL,   -- e.g. v18.0 / v4.5 etc

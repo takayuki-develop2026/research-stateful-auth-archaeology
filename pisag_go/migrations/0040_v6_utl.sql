@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.universal_events_v6 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   event_source varchar(16) NOT NULL,          -- webhook|internal
   provider varchar(32) NOT NULL,              -- stripe|adyen|internal
@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_utl_v6_project_correlation_seq
 
 CREATE TABLE IF NOT EXISTS public.universal_event_evidence_links_v6 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   utl_event_id bigint NOT NULL REFERENCES public.universal_events_v6(id) ON DELETE CASCADE,
 
   role varchar(32) NOT NULL, -- why|diff|normalized|verify|debug|...
@@ -92,7 +92,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_ue_ev_v6
 
 CREATE TABLE IF NOT EXISTS public.utl_replay_requests_v6 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   event_key varchar(128) NOT NULL,
   trace_id uuid NOT NULL,
 

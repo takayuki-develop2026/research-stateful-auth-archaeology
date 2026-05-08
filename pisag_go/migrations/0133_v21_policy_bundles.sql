@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.policy_bundles_v21 (
   id BIGSERIAL PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   policy_version_str text NOT NULL,
   policy_version_id  text NULL,

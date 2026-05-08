@@ -16,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- 1.1 id_mappings_v7 (SoT)
 CREATE TABLE IF NOT EXISTS public.id_mappings_v7 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   provider varchar(32) NOT NULL,
   provider_object_type varchar(64) NOT NULL,
@@ -71,7 +71,7 @@ END$$;
 -- 1.2 id_mapping_conflicts_v7
 CREATE TABLE IF NOT EXISTS public.id_mapping_conflicts_v7 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   provider varchar(32) NOT NULL,
   provider_object_type varchar(64) NOT NULL,
@@ -114,7 +114,7 @@ END$$;
 -- 1.3 evidence links (E clause)
 CREATE TABLE IF NOT EXISTS public.id_mapping_evidence_links_v7 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   mapping_id bigint NOT NULL REFERENCES public.id_mappings_v7(id) ON DELETE CASCADE,
   role varchar(32) NOT NULL,
   evidence_asset_id bigint NOT NULL REFERENCES public.evidence_assets(id) ON DELETE RESTRICT,
@@ -126,7 +126,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_idmel_v7
 
 CREATE TABLE IF NOT EXISTS public.id_mapping_conflict_evidence_links_v7 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   conflict_id bigint NOT NULL REFERENCES public.id_mapping_conflicts_v7(id) ON DELETE CASCADE,
   role varchar(32) NOT NULL,
   evidence_asset_id bigint NOT NULL REFERENCES public.evidence_assets(id) ON DELETE RESTRICT,

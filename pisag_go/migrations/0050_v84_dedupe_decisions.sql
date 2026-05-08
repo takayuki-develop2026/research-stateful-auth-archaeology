@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.dedupe_decisions (
   id bigserial PRIMARY KEY,
 
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   group_id bigint NOT NULL REFERENCES public.dedupe_groups(id) ON DELETE CASCADE,
 
   decided_by_type varchar(16) NOT NULL, -- system|human|service

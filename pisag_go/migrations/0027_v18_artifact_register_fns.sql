@@ -38,7 +38,7 @@ BEGIN
     ALTER TABLE public.artifact_idempotency_records
       ADD CONSTRAINT artifact_idem_project_id_fkey
       FOREIGN KEY (project_id)
-      REFERENCES public.projects(id)
+      REFERENCES public.projects(project_id)
       ON DELETE CASCADE;
   END IF;
 END $$;

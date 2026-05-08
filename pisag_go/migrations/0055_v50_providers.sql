@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.providers (
   provider_id   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id    varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id    varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   provider_key  varchar(64) NOT NULL, -- stripe|adyen|...
   status        varchar(16) NOT NULL DEFAULT 'active', -- active|degraded|blocked

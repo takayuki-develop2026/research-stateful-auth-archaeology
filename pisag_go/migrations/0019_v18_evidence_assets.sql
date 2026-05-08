@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.evidence_assets (
   id               bigserial PRIMARY KEY,
 
-  project_id        varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id        varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   evidence_ref      uuid NOT NULL DEFAULT gen_random_uuid(),
 
   media_type        varchar(16) NOT NULL,  -- text|image|audio|video|binary

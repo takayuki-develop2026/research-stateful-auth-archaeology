@@ -14,7 +14,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.run_artifact_links (
   id          bigserial PRIMARY KEY,
 
-  project_id   varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id   varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   run_id       uuid NOT NULL REFERENCES public.runs(run_id) ON DELETE CASCADE,
 
   artifact_ref uuid NOT NULL,

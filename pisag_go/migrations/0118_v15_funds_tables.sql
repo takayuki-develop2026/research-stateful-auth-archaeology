@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- =========================
 CREATE TABLE IF NOT EXISTS public.disputes_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   dispute_key text NOT NULL,          -- stripe:dp_... etc
   provider text NOT NULL,
@@ -62,7 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_disputes_v15_project_shop_opened
 -- dispute events (idempotent by event_key)
 CREATE TABLE IF NOT EXISTS public.dispute_events_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   dispute_id uuid NOT NULL REFERENCES public.disputes_v15(id) ON DELETE CASCADE,
 
   event_key varchar(128) NOT NULL,    -- UTL event_key
@@ -89,7 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_dispute_events_v15_project_time
 -- =========================
 CREATE TABLE IF NOT EXISTS public.refunds_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   refund_key text NOT NULL,           -- stripe:re_... or internal:...
   provider text NOT NULL,
@@ -144,7 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_refunds_v15_project_shop_time
 -- =========================
 CREATE TABLE IF NOT EXISTS public.holds_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   hold_key text NOT NULL,             -- internal:{...} or provider:{...}
   hold_type text NOT NULL,            -- dispute_hold|refund_hold|payout_hold|risk_hold|manual_hold
@@ -195,7 +195,7 @@ CREATE INDEX IF NOT EXISTS idx_holds_v15_project_scope_status
 -- =========================
 CREATE TABLE IF NOT EXISTS public.payouts_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   payout_key text NOT NULL,           -- stripe:po_... or internal:...
   provider text NOT NULL,
@@ -258,7 +258,7 @@ CREATE INDEX IF NOT EXISTS idx_payouts_v15_project_shop_sched
 -- =========================
 CREATE TABLE IF NOT EXISTS public.settlement_batches_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   provider text NOT NULL,
   batch_key text NOT NULL,            -- stripe:settlement_report:YYYY-MM-DD
@@ -294,7 +294,7 @@ CREATE INDEX IF NOT EXISTS idx_sb_v15_project_status_time
 
 CREATE TABLE IF NOT EXISTS public.settlement_items_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   batch_id uuid NOT NULL REFERENCES public.settlement_batches_v15(id) ON DELETE CASCADE,
 
   provider_object_id text NOT NULL,    -- balance_txn etc
@@ -330,7 +330,7 @@ CREATE INDEX IF NOT EXISTS idx_si_v15_batch_status
 -- =========================
 CREATE TABLE IF NOT EXISTS public.funds_operations_v15 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   op_key char(64) NOT NULL,            -- sha256(project|op_type|object_type|object_key|reason)
   op_type text NOT NULL,               -- dispute_review|refund_review|payout_review|settlement_review|hold_review

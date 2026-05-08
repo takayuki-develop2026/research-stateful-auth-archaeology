@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.routing_metrics_daily (
   id                  bigserial PRIMARY KEY,
-  project_id           varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id           varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   metric_date          date NOT NULL,
 

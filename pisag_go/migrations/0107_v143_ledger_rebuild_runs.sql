@@ -5,7 +5,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.ledger_rebuild_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id text NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id text NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   mode text NOT NULL, -- dry_run | apply
   from_ts timestamptz NULL,

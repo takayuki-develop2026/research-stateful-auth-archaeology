@@ -7,7 +7,7 @@ REVOKE ALL ON SCHEMA ops_v11 FROM PUBLIC;
 CREATE TABLE IF NOT EXISTS ops_v11.notify_channels_v11 (
   id bigserial PRIMARY KEY,
 
-  project_id varchar(26) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
 
   channel_key text NOT NULL, -- human-friendly stable key (e.g. "slack_ops", "email_oncall")
   channel_type varchar(16) NOT NULL, -- slack|email|webhook

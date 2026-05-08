@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.privilege_grants_v21 (
   id BIGSERIAL PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   subject_type text NOT NULL CHECK (subject_type IN ('user','service')),
   subject_id text NOT NULL,

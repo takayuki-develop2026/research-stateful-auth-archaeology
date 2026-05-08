@@ -12,7 +12,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.contract_change_records (
   id                         bigserial PRIMARY KEY,
 
-  project_id                 varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id                 varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   task_type                  varchar(32) NOT NULL,
   pipeline_version           varchar(64) NOT NULL,

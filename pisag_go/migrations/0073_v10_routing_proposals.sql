@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS agent_v10.routing_proposals_v10 (
   updated_at timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT routing_proposals_v10_project_fk
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
 
   CONSTRAINT routing_proposals_v10_created_by_type_ck
     CHECK (created_by_type IN ('system','user','service')),

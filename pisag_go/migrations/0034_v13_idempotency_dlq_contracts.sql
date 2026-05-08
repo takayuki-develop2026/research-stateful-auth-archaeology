@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- 1.1 idempotency_records_v13
 CREATE TABLE IF NOT EXISTS public.idempotency_records_v13 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   scope varchar(64) NOT NULL,
   idempotency_key varchar(128) NOT NULL, -- namespace required by policy
@@ -57,7 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_idem_v13_project_status_time
 -- 1.2 dlq_items_v13
 CREATE TABLE IF NOT EXISTS public.dlq_items_v13 (
   dlq_id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   run_id uuid NULL REFERENCES public.runs(run_id) ON DELETE SET NULL,
   trace_id uuid NOT NULL,
@@ -91,7 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_dlq_v13_project_task_time
 -- 1.3 compat_contracts_v13
 CREATE TABLE IF NOT EXISTS public.compat_contracts_v13 (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   contract_type varchar(32) NOT NULL,    -- openapi|db_schema|policy_bundle|key_spec
   contract_version varchar(16) NOT NULL, -- v1 etc

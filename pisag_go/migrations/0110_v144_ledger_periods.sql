@@ -7,7 +7,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.ledger_periods (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id text NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id text NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   period_type text NOT NULL,    -- day|month
   period_key  text NOT NULL,    -- day: YYYY-MM-DD, month: YYYY-MM

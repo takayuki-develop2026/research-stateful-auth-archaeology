@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.ledger_balance_snapshots (
   id bigserial PRIMARY KEY,
-  project_id text NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id text NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   account_id uuid NOT NULL REFERENCES public.ledger_accounts(id) ON DELETE RESTRICT,
 
   as_of_date date NOT NULL,                -- day boundary in UTC (contract)

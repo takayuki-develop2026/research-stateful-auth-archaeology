@@ -8,7 +8,7 @@ REVOKE ALL ON SCHEMA ops_v11 FROM PUBLIC;
 CREATE TABLE IF NOT EXISTS ops_v11.runbooks_v11 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  project_id varchar(26) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
 
   runbook_key varchar(64) NOT NULL,
   title varchar(128) NOT NULL,

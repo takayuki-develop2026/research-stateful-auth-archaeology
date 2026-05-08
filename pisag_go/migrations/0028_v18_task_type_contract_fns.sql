@@ -49,7 +49,7 @@ END$$;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS public.task_type_contract_idempotency_v18 (
   id               bigserial PRIMARY KEY,
-  project_id       varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id       varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   idempotency_key  text        NOT NULL,
   contract_id      bigint      NOT NULL,
   created_at       timestamptz NOT NULL DEFAULT now()

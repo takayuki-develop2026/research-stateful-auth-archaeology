@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.discovery_lifecycle_jobs (
   id bigserial PRIMARY KEY,
 
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   job_type varchar(32) NOT NULL, -- mark_stale|schedule_retry|schedule_apply_retry|archive_expired|requeue_review
   job_key varchar(64) NOT NULL,  -- sha256 deterministic

@@ -8,7 +8,7 @@ REVOKE ALL ON SCHEMA ops_v11 FROM PUBLIC;
 CREATE TABLE IF NOT EXISTS ops_v11.alert_rules_v11 (
   id bigserial PRIMARY KEY,
 
-  project_id varchar(26) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
 
   rule_key text NOT NULL,              -- e.g. "router_success_drop"
   severity varchar(16) NOT NULL,       -- info|warn|critical

@@ -27,7 +27,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.audit_idempotency_v18 (
   id              bigserial PRIMARY KEY,
-  project_id      varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id      varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   scope           varchar(64) NOT NULL, -- fixed: 'audit_event_append_v18'
   idempotency_key text        NOT NULL,
   audit_event_id  bigint      NOT NULL,

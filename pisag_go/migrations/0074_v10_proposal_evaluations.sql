@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS agent_v10.proposal_evaluations_v10 (
   created_at timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT proposal_eval_v10_project_fk
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
 
   CONSTRAINT proposal_eval_v10_status_ck
     CHECK (status IN ('queued','running','succeeded','review_required','failed')),

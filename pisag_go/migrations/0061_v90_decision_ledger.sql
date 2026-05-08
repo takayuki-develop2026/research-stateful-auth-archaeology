@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.decision_ledger_v9 (
   decision_id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  project_id         varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id         varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   engine_run_id      uuid NOT NULL REFERENCES public.engine_runs_v9(engine_run_id) ON DELETE CASCADE,
 
   decision_type      varchar(24) NOT NULL, -- route|plan|proposal|reject|review_required

@@ -18,7 +18,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- 1.1 telemetry_span_summaries
 CREATE TABLE IF NOT EXISTS public.telemetry_span_summaries (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   trace_id uuid NOT NULL,
   span_key text NOT NULL, -- sha256(trace_id + service + operation + started_at_utc)
@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_span_summaries_v20_run
 -- 1.2 telemetry_metric_rollups
 CREATE TABLE IF NOT EXISTS public.telemetry_metric_rollups (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   metric_key varchar(128) NOT NULL,
   time_bucket varchar(16) NOT NULL, -- minute|hour|day
@@ -96,7 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_metric_rollups_v20_project_time
 -- 1.3 slo_definitions
 CREATE TABLE IF NOT EXISTS public.slo_definitions (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   name varchar(128) NOT NULL,
   enabled boolean NOT NULL DEFAULT false,
@@ -125,7 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_slo_definitions_v20_project_enabled
 -- 1.4 slo_evaluations
 CREATE TABLE IF NOT EXISTS public.slo_evaluations (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   slo_id bigint NOT NULL REFERENCES public.slo_definitions(id) ON DELETE CASCADE,
 
@@ -163,7 +163,7 @@ CREATE INDEX IF NOT EXISTS idx_slo_evaluations_v20_slo_time
 -- 1.5 incidents
 CREATE TABLE IF NOT EXISTS public.incidents (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   incident_key text NOT NULL,
 
@@ -211,7 +211,7 @@ CREATE INDEX IF NOT EXISTS idx_incidents_v20_project_severity_time
 -- 1.5.1 incident_labels
 CREATE TABLE IF NOT EXISTS public.incident_labels (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   incident_id bigint NOT NULL REFERENCES public.incidents(id) ON DELETE CASCADE,
 
   label_key varchar(64) NOT NULL,
@@ -235,7 +235,7 @@ END$$;
 -- 1.6 incident_events
 CREATE TABLE IF NOT EXISTS public.incident_events (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   incident_id bigint NOT NULL REFERENCES public.incidents(id) ON DELETE CASCADE,
 
   event_type varchar(64) NOT NULL,
@@ -257,7 +257,7 @@ CREATE INDEX IF NOT EXISTS idx_incident_events_v20_project_incident_time
 -- 1.7 remediation_proposals
 CREATE TABLE IF NOT EXISTS public.remediation_proposals (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   incident_id bigint NOT NULL REFERENCES public.incidents(id) ON DELETE CASCADE,
 
   proposal_key text NOT NULL,
@@ -306,7 +306,7 @@ CREATE INDEX IF NOT EXISTS idx_proposals_v20_project_incident_status
 -- 1.8 remediation_actions
 CREATE TABLE IF NOT EXISTS public.remediation_actions (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   proposal_id bigint NOT NULL REFERENCES public.remediation_proposals(id) ON DELETE CASCADE,
 
   action_key text NOT NULL,
@@ -340,7 +340,7 @@ CREATE INDEX IF NOT EXISTS idx_actions_v20_project_proposal_time
 
 CREATE TABLE IF NOT EXISTS public.v20_idempotency (
   id bigserial PRIMARY KEY,
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   scope varchar(64) NOT NULL,
   idempotency_key text NOT NULL,
   entity_type varchar(64) NOT NULL,

@@ -81,3 +81,5 @@ docker/mysql/data/
 
 # Backups
 docker__broken_backup/
+
+pisag_go/var/evidence/

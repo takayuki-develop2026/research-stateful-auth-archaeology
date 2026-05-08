@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.discovery_sources (
   id bigserial PRIMARY KEY,
 
-  project_id varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
 
   -- input
   source_type varchar(32) NOT NULL, -- pisag_html|pisag_pdf|webhook|manual|import|other

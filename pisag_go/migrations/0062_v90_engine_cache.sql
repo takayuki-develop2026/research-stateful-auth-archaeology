@@ -6,7 +6,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.engine_cache_v9 (
   id            bigserial PRIMARY KEY,
 
-  project_id     varchar(26) NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id     varchar(26) NOT NULL REFERENCES public.projects(project_id) ON DELETE CASCADE,
   cache_key      char(64) NOT NULL,
 
   engine_run_id  uuid NOT NULL REFERENCES public.engine_runs_v9(engine_run_id) ON DELETE CASCADE,
