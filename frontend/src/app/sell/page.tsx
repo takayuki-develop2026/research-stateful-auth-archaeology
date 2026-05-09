@@ -80,7 +80,6 @@ export default function ItemSellPage() {
     return (
       r.shop_name ??
       r.shopName ??
-      r.name ??
       r.shop_code ??
       r.shopCode ??
       `ショップID #${r.shop_id}`
@@ -257,7 +256,7 @@ export default function ItemSellPage() {
                 checked={itemOrigin === "USER_PERSONAL"}
                 onChange={() => setItemOrigin("USER_PERSONAL")}
               />
-              カスタマー出品/ショップ出品（中古）
+              💫カスタマー出品/💫ショップユーザーが個人出品　　
             </label>
 
             {/* ✅ 一般ユーザーは薄い灰色の◯で選択不可 */}
@@ -278,7 +277,7 @@ export default function ItemSellPage() {
                 onChange={() => setItemOrigin("SHOP_MANAGED")}
                 disabled={!canShopManaged}
               />
-              ショップ出品（新品）(解析はどちらも機能しますが管理できるのはこちら）)
+              ⭐️ショップ出品（ショップ管理）(解析(現段階では、ブランド・状態・色)はどちらも機能しますが管理できるのはこちら）)
             </label>
           </div>
         </div>
@@ -286,7 +285,7 @@ export default function ItemSellPage() {
         {/* ショップ選択 */}
         {itemOrigin === "SHOP_MANAGED" && canShopManaged && shops.length ? (
           <div className={styles.formGroup}>
-            <label>出品するショップ</label>
+            <label>出品するショップ名</label>
             <select
               value={selectedShopId ?? ""}
               onChange={(e) => setSelectedShopId(Number(e.target.value))}

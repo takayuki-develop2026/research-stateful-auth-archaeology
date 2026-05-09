@@ -64,7 +64,7 @@
           <span class="kv__k">Status</span>
           <span class="kv__v">
             <% if enabled[:atlaskernel] %>
-              <span class="dot dot--ok"></span> ready
+              <span class="dot dot--ok"></span> OCR(簡易(開発途中)光学文字認識)
             <% else %>
               <span class="dot dot--muted"></span> coming soon
             <% end %>
@@ -89,13 +89,13 @@
       <div class="card__top">
         <div>
           <h2 class="card__title">AtlasKernel　for　OmniCommerce Core</h2>
-          <p class="card__desc">OCC 商品・Provider情報へ安全に反映する導線(admin以上のログインで画面移動できます。１つはログインをして、もう１つはログインページで待機のページを別に準備してログイン後、２つ目のログインページから入ってください。)</p>
+          <p class="card__desc">出品商品・Provider情報(PSP)へ安全に反映する導線(ログインユーザー=テスト用のユーザ5で画面移動できます。①はログインページで待機の別ウィンドウ準備して、ページを別に準備してログイン後ログインをして、②(別ウィンドウ)はテスト用のユーザ5(管理者)でログインページして、待機していた①で開いてください。)</p>
         </div>
         <span class="pill pill--blue">OCC</span>
       </div>
 
       <div class="card__actions">
-        <%= dash_action("OCC側 Review", occ_atlas_review_url, enabled: enabled[:atlaskernel_occ], style: :primary) %>
+        <%= dash_action("マルチテナント 全ショップ出品解析", occ_atlas_review_url, enabled: enabled[:atlaskernel_occ], style: :primary) %>
         <%= dash_action("Apply Logs", occ_atlas_apply_logs_url, enabled: enabled[:atlaskernel_occ], style: :ghost) %>
         <%= dash_action("要確認", occ_atlas_quarantine_url, enabled: enabled[:atlaskernel_occ], style: :dangerGhost) %>
       </div>
@@ -160,13 +160,13 @@
       <div class="card__top">
         <div>
           <h2 class="card__title">TrustLedger　for　OmniCommerce Core</h2>
-          <p class="card__desc">OCC注文→決済→台帳反映の運用導線</p>
+          <p class="card__desc">OCC注文→決済→永続記録台帳反映の運用導線</p>
         </div>
         <span class="pill pill--blue">OCC</span>
       </div>
 
       <div class="card__actions">
-        <%= dash_action("OCC TrustLedger へ", "/admin/trustledger", enabled: enabled[:trustledger_occ], style: :primary) %>
+        <%= dash_action("マルチテナント TrustLedger へ", "/admin/trustledger", enabled: enabled[:trustledger_occ], style: :primary) %>
         <%= dash_action("Webhook", "/admin/trustledger/webhook-events", enabled: enabled[:trustledger_occ], style: :ghost) %>
         <%= dash_action("KPI", "/admin/trustledger/kpis/global", enabled: enabled[:trustledger_occ], style: :ghost) %>
         <%= dash_action("Postings", "/admin/trustledger/postings", enabled: enabled[:trustledger_occ], style: :ghost) %>

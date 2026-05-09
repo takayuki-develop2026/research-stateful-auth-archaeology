@@ -6,7 +6,7 @@
   <div style="padding:12px; border:1px solid #f99; background:#fff5f5; margin:12px 0;">
     <strong>API Error</strong><br>
     <div>message: <%= @error[:message] %></div>
-    <div>status: <%= @error[:status] %></div>
+    <div>status: <%= @error[:status] %><br>(cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go && go run ./cmd/v22_runtime_api)をターミナルで実行したまま＋Docker全て起動した状態で機能します。</div>
     <pre style="white-space:pre-wrap;"><%= @error[:body] %></pre>
   </div>
 <% end %>
@@ -42,7 +42,7 @@
 <% vision_catalog     = Array(catalog["vision"]) %>
 <% llm_catalog        = Array(catalog["llm"]) %>
 
-<% current_input_mode = params[:input_mode].presence || "manual_json" %>
+<% current_input_mode = params[:input_mode].presence || "upload" %>
 <% current_input_role = params[:input_role].presence || "primary" %>
 <% generated_input_preview = @generated_input_preview || params[:generated_input_preview].to_s %>
 <% uploaded_evidence = @uploaded_evidence || {} %>

@@ -156,7 +156,7 @@
 .soldOutBadge {
   position: absolute;
   top: 10px;
-  left: 10px;
+  left: 50px;
   z-index: 30;
 
   background: rgba(0, 0, 0, 0.78);

@@ -86,6 +86,11 @@ export default function Home() {
     console.log("raw keys", Object.keys(raw?.[0] ?? {}));
     console.log("raw full", raw?.[0]);
 
+    // これを追加
+  console.log("displayType", raw?.[0]?.displayType);
+  console.log("isOwner", raw?.[0]?.isOwner);
+  console.log("canManage", raw?.[0]?.canManage);
+
     return raw.map((item: any) => {
       // price: number or {amount}
       const price =

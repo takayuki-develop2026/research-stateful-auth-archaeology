@@ -277,7 +277,6 @@ export default function AtlasReviewPage() {
 
   const apiGetJson = useCallback(
     async <T,>(url: string): Promise<T> => {
-      // apiClient は "/me" のように /api を付けない運用なので、url も同様に
       const r = await apiClient.get(url);
       return unwrap<T>(r);
     },
@@ -302,7 +301,6 @@ export default function AtlasReviewPage() {
     swrFetcher,
   );
 
-  // 既存 hook は残す（機能維持）。ただし approve で確実にBearerで動くよう resolveBeforeDecide は apiPostJson を使う
   // const { resolve } = useResolveEntities(shop_code, request_id);
 
   // UI State
@@ -345,39 +343,50 @@ export default function AtlasReviewPage() {
   );
 
   const before = useMemo(() => {
-    const rawBefore = data?.before as any;
+  const rawBefore = data?.before as any;
 
-    const isValueObject =
-      rawBefore &&
-      typeof rawBefore === "object" &&
-      ["brand", "color", "condition"].some(
-        (k) =>
-          typeof rawBefore?.[k] === "object" &&
-          rawBefore?.[k]?.value !== undefined,
-      );
+  const isValueObject =
+    rawBefore &&
+    typeof rawBefore === "object" &&
+    ["brand", "color", "condition"].some(
+      (k) =>
+        typeof rawBefore?.[k] === "object" &&
+        rawBefore?.[k]?.value !== undefined,
+    );
 
-    if (isValueObject) {
-      return rawBefore as Snapshot;
+  if (isValueObject) {
+    return rawBefore as Snapshot;
+  }
+
+  const out: Snapshot = {};
+
+  // ✅ Before は tokens の分解結果を最優先
+  //    tokens が無い属性だけ beforeParsed を補完的に使う
+  (["brand", "color", "condition"] as const).forEach((k: AttrKey) => {
+    const token = rawTokenFor(k, data?.tokens ?? null);
+    if (token) {
+      out[k] = {
+        value: token,
+        confidence: data?.confidence_map?.[k] ?? null,
+        confidence_version: "v3_before_token_preferred",
+        source: "manual",
+      };
+      return;
     }
 
-    if (data?.beforeParsed) {
-      const out: Snapshot = {};
-      for (const k of ["brand", "color", "condition"] as AttrKey[]) {
-        const v = data.beforeParsed[k];
-        if (v && String(v).trim() !== "") {
-          out[k] = {
-            value: String(v),
-            confidence: null,
-            confidence_version: "v3_raw_input",
-            source: "manual",
-          };
-        }
-      }
-      return Object.keys(out).length ? out : null;
+    const parsed = data?.beforeParsed?.[k];
+    if (parsed && String(parsed).trim() !== "") {
+      out[k] = {
+        value: String(parsed),
+        confidence: null,
+        confidence_version: "v3_before_parsed_fallback",
+        source: "manual",
+      };
     }
+  });
 
-    return null;
-  }, [data?.before, data?.beforeParsed]);
+  return Object.keys(out).length ? out : null;
+}, [data?.before, data?.beforeParsed, data?.tokens, data?.confidence_map]);
 
   const after = useMemo(
     () =>
@@ -468,7 +477,7 @@ export default function AtlasReviewPage() {
 
       const shownAfter =
         mode === "reject"
-          ? (rejectSnapshot?.[a.key] ?? null) // ✅ Rejectは「解析前入力（分別済み）」を表示
+          ? (rejectSnapshot?.[a.key] ?? null)
           : mode === "edit_confirm" || mode === "manual_override"
             ? e
             : ai;
@@ -539,10 +548,8 @@ export default function AtlasReviewPage() {
     [after],
   );
 
-  // ✅ resolveBeforeDecide は apiClient 経由で確実にBearerを付与（hookは温存）
+  // ✅ resolveBeforeDecide は apiClient 経由で確実にBearerを付与
   async function resolveBeforeDecide(): Promise<ResolvedEntitiesForBackend> {
-    // hook を通してもよいが、Bearer保証のため endpoint を直接叩く
-    // backend が { brand_entity_id, condition_entity_id, color_entity_id } を返す想定
     const out = await apiPostJson<ResolvedEntitiesForBackend>(
       ENDPOINT.resolve,
       {
@@ -552,7 +559,6 @@ export default function AtlasReviewPage() {
       },
     );
 
-    // 互換：hookの戻り型に合わせたい場合はここで吸収
     return {
       brand_entity_id: (out as any).brand_entity_id ?? null,
       condition_entity_id: (out as any).condition_entity_id ?? null,
@@ -563,7 +569,6 @@ export default function AtlasReviewPage() {
   async function submitDecision(body: DecideRequestBody) {
     setIsSubmitting(true);
     try {
-      // ✅ fetch(cookie) をやめて apiClient に統一（sanctumでもjwtでもOK）
       await apiPostJson<DecideResponse>(ENDPOINT.decide, body);
 
       await mutate(ENDPOINT.review);
@@ -762,7 +767,6 @@ export default function AtlasReviewPage() {
                       options={options}
                       selectedId={selectedId ?? null}
                       onSelect={(id, name) => {
-                        // selectedIds 更新
                         setSelectedIds((prev) => {
                           if (key === "brand")
                             return { ...prev, brand_entity_id: id };
@@ -771,7 +775,6 @@ export default function AtlasReviewPage() {
                           return { ...prev, color_entity_id: id };
                         });
 
-                        // edit 更新（表示・after_snapshot用）
                         setEdit((prev) => ({
                           ...prev,
                           [key]: {
@@ -821,13 +824,11 @@ export default function AtlasReviewPage() {
                   </div>
                 </div>
               ) : mode === "reject" ? (
-                // ✅ Reject は “解析前入力（tokensで分別済み）” を表示する
                 <ValueCard
                   value={r.shownAfter?.value ?? null}
                   meta={renderMeta(r.shownAfter)}
                 />
               ) : (
-                // approve のときだけ AI結果を表示
                 <ValueCard
                   value={r.ai?.value ?? null}
                   meta={renderMeta(r.ai)}
@@ -885,9 +886,7 @@ export default function AtlasReviewPage() {
                   await submitDecision({
                     decision_type: "reject",
                     note: note || null,
-                    // ✅ Rejectは「解析前入力（分別済み）」を採用するので、ここも分別値を送る
                     beforeParsed: beforeParsedPayloadForReject,
-                    // afterParsed は監査用に残したいならそのままでOK（AI解析値）
                     afterParsed: afterParsedPayload,
                   });
                   return;
@@ -1038,8 +1037,6 @@ function renderMeta(v?: AttrValue | null) {
 }
 
 function normalizeForSearch(s: string): string {
-  // 大小無視（要望通り）
-  // もし日本語の揺れも吸収したいなら、ここに NFKC やカナ変換を足せます
   return (s ?? "").toLowerCase().trim();
 }
 
@@ -1075,7 +1072,6 @@ function EntityPicker({
       <div className="flex items-center gap-2">
         <div className="text-xs text-gray-600">{label}</div>
 
-        {/* 現在選択 */}
         <div className="text-xs text-gray-500">
           {selectedName ? (
             <>
@@ -1086,29 +1082,25 @@ function EntityPicker({
           )}
         </div>
 
-        {/* 一覧ボタン */}
         <button
           type="button"
           className="ml-auto border rounded px-3 py-1.5 text-sm hover:bg-gray-50"
           onClick={() => {
             setOpen(true);
-            setQ(""); // 開くたびに検索をリセットしたい場合
+            setQ("");
           }}
         >
           一覧
         </button>
       </div>
 
-      {/* モーダル（簡易実装） */}
       {open && (
         <div className="fixed inset-0 z-50">
-          {/* backdrop */}
           <div
             className="absolute inset-0 bg-black/30"
             onClick={() => setOpen(false)}
           />
 
-          {/* panel */}
           <div className="absolute left-1/2 top-16 w-[min(720px,92vw)] -translate-x-1/2 rounded-xl bg-white shadow-lg border">
             <div className="p-4 border-b flex items-center gap-3">
               <div className="font-semibold text-sm">{label} を選択</div>

@@ -14,7 +14,7 @@ Dockerビルド
 　1\. git cloneリンク（ターミナルコマンド）<br>
  git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行<br>
 
-　2\. cd research-stateful-auth-archaeology  の実行<br><br>
+　2\. （ターミナルコマンド）cd research-stateful-auth-archaeology  の実行<br><br>
 
 　3\. ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
 　　（ターミナルコマンド）cd backend (実行後) mkdir storage/app/public/item_images　の実行<br>
@@ -59,7 +59,7 @@ laravel環境構築
 　　（PHPコンテナー）php artisan migrate:fresh --seed
 <br>
 　5\. シンボリックリンクの作成<br>
-　　（PHPコンテナー）php artisan storage:link
+　　（PHPコンテナー）docker compose exec php sh -lc 'cd /var/www/backend && php artisan storage:link'
 <br>
 　6\. フロントエンドのセットアップ。<br>
 　　 (frontendディレクトリー)npm i　の実行
@@ -79,13 +79,13 @@ laravel環境構築
    6：名前:'川田　隆之'、アドレス:　't.principle.k2024@gmail.com'　パスワード:　'git hub　ログイン'　出品数：'0'　ロール：Domain Lead Admin
    　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br><br>
 
-- Stripe決済実行前<br>
+- Stripe決済実行前、事前にパソコンにインストール必要（brew install stripe/stripe-cli/stripe）<br>
 （ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
 カード番号：4242 4242 4242 4242<br>
 有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br>
 コンビニ払いは現在Stripeのみで決済後3分ほどでダッシュボードに反映<br><br>
 
-- Adyen決済実行前<br>
+- Adyen決済実行前、事前にパソコンにインストール必要（brew install ngrok/ngrok/ngrok）<br>
 （ターミナルコマンド）ngrok http 80  (ターミナルで実行のまま)<br>
 カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
 有効期限（未来）・名前、は決まりなし。<br><br>
@@ -94,11 +94,169 @@ laravel環境構築
 （ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
 
 
+
+PISAG（ピサグ）システムの機能確認<br>
+
+このプロジェクトは、いきなり full 起動せず、最小構成で初期化してから段階的に起動してください。<br>
+初期化前に全サービスを起動すると、空の DB に常駐 service / worker が接続し、不整合や起動失敗の原因になります。<br>
+
+事前注意<br>
+ak_go_worker / ak_go_worker_2 は legacy worker です。通常の docker compose up -d では起動しません。<br>
+PISAG の確認は、常駐 worker ではなく ./scripts/run_pisag_worker_once.sh を使ってください。
+admin_rails/.env の Firebase API Key が不正だと、フロントエンドで auth/invalid-api-key が発生します。<br>
+このプロジェクトは、最小構成で初期化 → DB ユーザー・テーブル作成 → full 起動 の順で進めてください。
+<br>
+
+
+2. 最小構成を起動<br>
+
+まずは DB・Laravel・フロントの基盤だけを立ち上げます。<br>
+
+(ターミナル実行)docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx<br>
+3. DB 初期化<br>
+
+3.１ 必須 DB ユーザー（Role）の作成<br>
+
+decisioncoresvc などの service が ak_postgres に接続できるよう、必要な DB ユーザーを事前に作成します。<br>
+
+(ターミナル実行)docker compose exec -T ak_postgres psql -U ak -d ak <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN
+    CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN
+    CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker';
+  END IF;
+END
+$$;
+SQL
+<br>
+
+これが不足していると、Role "decisioncoresvc" does not exist で service が起動できません。<br>
+
+4. ak_postgres 側 migration 適用<br>
+
+pisag_go/migrations/*.sql を順に流して、必要なテーブル・関数・権限を作成します。<br>
+
+(ターミナル実行)for f in ./pisag_go/migrations/*.sql; do
+  echo "Applying $f..."
+  docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak < "$f" || break
+done
+<br>
+確認コマンド<br>
+(ターミナル実行)docker compose exec -T ak_postgres psql -U ak -d ak -c "\dt public.*"
+docker compose exec -T ak_postgres psql -U ak -d ak -c "\df public.run_inputs_claim_next*"
+<br>
+5. PISAG 単発動作確認<br>
+
+常駐 worker ではなく、単発 script で 1 回分の処理を確認します。<br>
+
+(ターミナル実行)./scripts/run_pisag_worker_once.sh
+./scripts/check_pisag_db_state.sh<br>
+成功の目安<br>
+run_inputs.claim_status が done
+worker ログに done: input_id=... status=200 が出る
+run_evidence_assets にデータが入る
+run_evidence_manifests に manifest 情報が入る<br>
+6. 通常の full 起動<br>
+
+ここまで通ったら、通常の full 起動を行います。<br>
+
+(ターミナル実行)docker compose up -d<br>
+補足<br>
+
+この通常起動では、次の legacy worker は起動しません。<br>
+
+ak_go_worker
+ak_go_worker_2<br>
+
+これは意図的な挙動です。
+これらは現行 DB 仕様と不整合になる可能性があるため、通常運用から外しています。<br>
+
+7. 起動確認<br>
+(ターミナル実行)docker compose ps
+docker compose logs --tail=50 decisioncoresvc decisioncore_worker runschedsvc v22_ocr_daemon
+<br>
+チェックポイント<br>
+decisioncoresvc が listening on :9023 になっている
+v22_ocr_daemon が start している
+decisioncore_worker が Restarting ではなく Up を維持している
+runschedsvc が動作している<br>
+runschedsvc について<br>
+
+force_budget_deny=true により dispatch が空振りすることがありますが、これは即異常とは限りません。
+summary created=0 skipped=0 errors=0 のようなログで安定していれば、致命停止ではありません。
+
+8. legacy worker が必要な場合のみ<br>
+
+通常は不要です。必要な場合だけ profile 指定で起動してください。<br>
+
+docker compose --profile legacy-workers up -d ak_go_worker ak_go_worker_2<br>
+注意<br>
+
+legacy worker は、現時点では run_status: "queued" 関連エラーを出す可能性があるため、通常運用では非推奨です。<br>
+
+9. トラブルシューティング<br>
+Role "decisioncoresvc" does not exist<br>
+
+手順 3.2 の 必須 DB ユーザー（Role）の作成 が未実施の可能性があります。
+再度 SQL を実行してください。<br>
+
+Firebase: Error (auth/invalid-api-key)<br>
+
+admin_rails/.env または関連 env の Firebase API Key が不正です。
+既存の正常環境の値と揃えてください。<br>
+
+ak_go_worker / ak_go_worker_2 がエラーを吐く<br>
+
+通常起動からは外しているため、docker compose up -d では起動しないのが正しい状態です。
+profile 指定で明示的に起動した場合のみ対象になります。<br>
+
+DB 接続系の起動失敗<br>
+
+まず以下を確認してください。<br>
+
+docker compose ps
+docker compose logs --tail=100 ak_postgres decisioncoresvc decisioncore_worker<br>
+10. 手元確認用の一括コマンド<br>
+
+必要に応じて、以下で最小構成の初期化から full 起動までまとめて確認できます。<br>
+
+cd /path/to/research-stateful-auth-archaeology && \
+docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx && \
+docker compose exec php sh -lc 'cd /var/www/backend && composer install && php artisan migrate:fresh --seed' && \
+docker compose exec -T ak_postgres psql -U ak -d ak <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN
+    CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN
+    CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker';
+  END IF;
+END
+$$;
+SQL
+for f in ./pisag_go/migrations/*.sql; do
+  echo "Applying $f..."
+  docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak < "$f" || break
+done && \
+./scripts/run_pisag_worker_once.sh && \
+docker compose up -d && \
+docker compose ps
+<br><br>
+
+光学文字認識システム機能の使い方<br>
+(ターミナル実行)cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go && go run ./cmd/v22_runtime_api　の実行　＋　Docker全て起動した状態で機能
+<br><br>
+
 # アプリの仕様計画<br>
 ・Adminでショップ運営の権限を与えることができて(ShopOwner付与)<br>
 ShopOwnerからManageとStaffの権限を与えることができる。(個人も申請すれば出店できる)<br>
-・出品の際マークが付いているのは中古商品としてのマーク<br>
-個人出品の場合は💫、ショップの中古商品は⭐️となる<br>
+・出品商品のマークは、<br>
+カスタマー出品、ショップユーザーが個人出品の場合は💫、ショップの管理商品は⭐️となる<br>
 
 
 # 次のステップ提案<br>
