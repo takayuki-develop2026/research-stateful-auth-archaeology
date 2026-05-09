@@ -7,7 +7,8 @@ import (
 )
 
 type Store struct {
-	RunRepo      *postgres.RunRepository
+	RunRepo       *postgres.RunRepository
+	RunEventRepo *postgres.RunEventRepository
 	ClaimRepo    *postgres.RunInputClaimRepository
 	EvidenceRepo *postgres.EvidenceRepository
 	ManifestRepo *postgres.EvidenceManifestRepository
@@ -15,7 +16,8 @@ type Store struct {
 
 func NewStore(db *sql.DB) *Store {
 	return &Store{
-		RunRepo:      postgres.NewRunRepository(db),
+		RunRepo:       postgres.NewRunRepository(db),
+		RunEventRepo: postgres.NewRunEventRepository(db),
 		ClaimRepo:    postgres.NewRunInputClaimRepository(db),
 		EvidenceRepo: postgres.NewEvidenceRepository(db),
 		ManifestRepo: postgres.NewEvidenceManifestRepository(db),

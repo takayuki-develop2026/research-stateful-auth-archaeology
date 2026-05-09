@@ -273,9 +273,42 @@ func (w *Worker) tick(ctx context.Context) error {
 
 	// 4) done / retry decision
 	if status >= 200 && status < 300 {
+		// input lifecycle completion
 		if err := w.store.ClaimRepo.MarkDone(ctx, in.ID, w.cfg.WorkerID); err != nil {
 			return err
 		}
+
+		// run lifecycle completion
+		// Without this, run_inputs.claim_status becomes done,
+		// but runs.status remains running.
+		if err := w.store.RunRepo.MarkDone(ctx, in.RunID); err != nil {
+			return err
+		}
+
+		eventData, _ := json.Marshal(map[string]any{
+			"input_id":      in.ID,
+			"target_url":    in.TargetURL,
+			"final_url":     finalURL,
+			"http_status":   status,
+			"body_bytes":    bodyBytes,
+			"body_sha256":   bodySHA,
+			"manifest_id":   manifest.ManifestID,
+			"manifest_hash": mhash,
+		})
+
+		msg := "PISAG fetch/evidence/manifest completed"
+		if err := w.store.RunEventRepo.Append(ctx, run.RunEvent{
+			RunID:     in.RunID,
+			TraceID:   traceID,
+			EventName: "run_finished",
+			Step:      "pisag_fetch",
+			Status:    "done",
+			Message:   &msg,
+			DataJSON:  eventData,
+		}); err != nil {
+			return err
+		}
+
 		w.logger.Printf("done: input_id=%d run_id=%s trace_id=%s status=%d body_bytes=%d body_sha=%s manifest_id=%s manifest_hash=%s",
 			in.ID, in.RunID, traceID, status, bodyBytes, bodySHA, manifest.ManifestID, mhash)
 		return nil

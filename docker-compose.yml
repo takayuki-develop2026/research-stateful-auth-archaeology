@@ -306,6 +306,38 @@ services:
 
 
 
+
+  pisag_fetch_worker:
+    image: golang:1.25-bookworm
+    working_dir: /app
+    command: ["go", "run", "./cmd/ak_go_worker"]
+    environment:
+      AK_DB_DSN: postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable
+      AK_REDIS_ADDR: ak_redis:6379
+      AK_WORKER_NAME: pisag-fetch-worker-1
+      AK_WORKER_ID: pisag-fetch-worker-1
+      AK_WORKER_POLL: 500ms
+      AK_CLAIM_STYLE: cte_skip_locked
+      AK_EVIDENCE_DIR: /app/var/evidence
+      AK_EVIDENCE_MAX_BYTES: "5242880"
+      ORACLE_CA_PATH: /app/certs/oracle.crt
+      TZ: Asia/Tokyo
+    depends_on:
+      ak_postgres:
+        condition: service_healthy
+      ak_redis:
+        condition: service_healthy
+    networks:
+      - simulation1_network
+    volumes:
+      - ./pisag_go:/app
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+      - ./pisag_go/var/evidence:/app/var/evidence
+      - ./docker/nginx/ssl:/app/certs:ro
+    restart: unless-stopped
+
+
   v22_ocr_daemon:
     build:
       context: .
