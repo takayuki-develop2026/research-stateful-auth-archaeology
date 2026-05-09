@@ -1,17 +1,25 @@
-# アプリケーション名： (OmniCommerceCore)<br>
-# Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI、 決済マルチゲートウェイ、（自動フルフィルメントなども計画）システム<br>
+# 開発アプリケーション： (Eコマース名:OmniCommerceCore)<br>
+# Stateful〜AWS+AuthO認証、DDD、マルチテナント、AI管理、 決済マルチゲートウェイ、（自動フルフィルメントなども計画）システム<br><br>
+
+# COACHTECHで学んだこと、よりプラス独学での思考しての実装実績<br>
+DDD、マルチテナント、購入されてから出品完了までの手動反映機能、<br>
+Stateful認証〜AWS+AuthO認証、ゼロトラスト認証まで可能な継続システム設計<br>
+決済マルチゲートウェイ(strip/adyen),クレジットカードを保管記録してのワンクリック決済、<br>
+AIシステム(出品自動補完管理、現時点でブランド、状態、色のテキスト自動補完管理)<br>
+多言語実装(PHP:Python:Go:Ruby:Java:JavaScript:Gradle Kotlin:Sql)<br><br>
+
 
 リポジトリ名: - research-stateful-auth-archaeology<br>
 ブランチ名:　 - main<br>
 
 それぞれのブランチのREADMEを参照してセットアップ<br>
 
-# 環境構築
+# 環境構築　＋　実装機能確認準備
 <br>
 Dockerビルド
 <br>
 <br>
-　1\. git cloneリンク（ターミナルコマンド）<br>
+　1\. git cloneで作成（ターミナルコマンド）新規作成したディレクトリでcdで移動してから実行<br>
  git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行<br>
 
 　2\. （ターミナルコマンド）cd research-stateful-auth-archaeology  の実行<br><br>
@@ -23,7 +31,7 @@ Dockerビルド
 　（ターミナルコマンド）mkdir storage/app/public/images　の実行<br>
 　　　　　　　　　　　cp -r public/pictures_user/* storage/app/public/images　の実行<br><br>
 
-　5\. env.exampleファイルから.envを作成し、.envファイルの環境変数を変更(backend+frontend+admin_rails)<br>
+　5\. env.exampleファイルから.envを作成(backend+frontend+admin_rails)し、.envファイルの環境変数を変更(backend)<br>
 　　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
 　DB_PASSWORD="",と<br>
 　AUTH0_MANAGEMENT_CLIENT_SECRET="",<br>
@@ -38,11 +46,11 @@ FIREBASE_CREDENTIALS=(現段階では使っていない。jsonファイルなし
 JWT_SECRET=,DB_PASSWORD=,<br>
 AUTH0_MANAGEMENT_CLIENT_SECRET=,<br>
 (STRIPE)STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
-(ADYEN)ADYEN_API_KEY=,ADYEN_HMAC_KEY=,は空です。(////)を削除して各準備お願いします。<br>
+(ADYEN)ADYEN_API_KEY=,ADYEN_HMAC_KEY=,　　は空です。(////)を削除して各準備お願いします。<br>
   必要でしたら　backend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
 
-　6\. Docker Desktopを立ち上げて
-（カレントディレクトリー）docker-compose up -d --build　の実行
+　6\. Docker Desktopを立ち上げ(今回一度に立ち上げるとエラーになるので部分的から)<br>
+（カレントディレクトリー）docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx　admin_rails の実行
 <br><br>
 
 laravel環境構築
@@ -53,20 +61,22 @@ laravel環境構築
 　2\. （PHPコンテナー）composer install　の実行
 <br>
 　3\. アプリケーションキーの作成<br>
-　　（PHPコンテナー）php artisan key:generate
+　　（PHPコンテナー）sed -i '/^APP_KEY=/d' .env
+php -r "echo 'APP_KEY=base64:'.base64_encode(random_bytes(32)).PHP_EOL;" >> .env
 <br>
 　4\. マイグレーションの実行・シーディング実行<br>
 　　（PHPコンテナー）php artisan migrate:fresh --seed
 <br>
 　5\. シンボリックリンクの作成<br>
-　　（PHPコンテナー）docker compose exec php sh -lc 'cd /var/www/backend && php artisan storage:link'
+　　（カレントディレクトリー）docker compose exec php sh -lc 'cd /var/www/backend && php artisan storage:link'
 <br>
 　6\. フロントエンドのセットアップ。<br>
 　　 (frontendディレクトリー)npm i　の実行
 <br><br>
 
 -  シーダーファイルでユーザーデーターと出品商品データーを作成しました。<br>
-   ユーザー情報です。メールの'　'は削除してください。<br>
+   ユーザー情報です。メールの'　'は削除してください。<br><br>
+
    １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'Testtest1'　出品数：'２品'<br>
    ロール：Shop Owner（各Shop Owner(manager、staff)は<br>
    ログイン後それぞれのショップのダッシュボードに移動します。）<br>
@@ -74,10 +84,195 @@ laravel環境構築
    ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
    ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
    ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner<br>
-   ５：名前:'テスト用のユーザ5'、アドレス:　'pro.t@coachtech.com'　パスワード:　'Testtest5'　出品数：'0'　ロール：Domain Lead Admin
+   ５：名前:'テスト用のユーザ5'(管理者)、アドレス:　'pro.t@coachtech.com'　パスワード:　'Testtest5'　出品数：'0'　ロール：Domain Lead Admin
    　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br>
-   6：名前:'川田　隆之'、アドレス:　't.principle.k2024@gmail.com'　パスワード:　'git hub　ログイン'　出品数：'0'　ロール：Domain Lead Admin
-   　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br><br>
+   6：名前:'川田　隆之'(管理者)、アドレス:　't.principle.k2024@gmail.com'　パスワード:　'git hub　ログイン'　出品数：'0'　ロール：Domain Lead Admin
+   　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br>
+   １から６はショップオーナー、管理者ですが、新規登録でカスタマーユーザー作成できます。(新規登録の流れをアニメーション動画で作成しています。)<br><br>
+
+
+<h2>PISAG（ピサグ）システムの機能確認&Dockerのfull起動順序</h2>
+
+この確認手順は、<strong>PISAG の migration・DB function・単発 worker・常駐 service が正常に動くか</strong>を、段階的に確認するためのものです。<br>
+このプロジェクトは、いきなり full 起動せず、<strong>最小構成で初期化してから段階的に起動</strong>してください。<br>
+初期化前に全サービスを起動すると、空の DB に常駐 service / worker が接続し、不整合や起動失敗の原因になります。<br>
+<br>
+
+<h2>事前注意</h2>
+
+・<code>ak_go_worker</code> / <code>ak_go_worker_2</code> は <strong>legacy worker</strong> です。通常の <code>docker compose up -d</code> では起動しません。<br>
+・PISAG の確認は、まず常駐 worker ではなく <code>./scripts/run_pisag_worker_once.sh</code> を使ってください。<br>
+・<code>admin_rails/.env</code> の Firebase API Key が不正だと、フロントエンドで <code>auth/invalid-api-key</code> が発生します。<br>
+・このプロジェクトは、<strong>最小構成で初期化 → DB ユーザー・テーブル作成 → PISAG 単発確認 → full 起動</strong> の順で進めてください。<br>
+<br>
+
+<h2>1. 最小構成を起動</h2>
+
+まずは DB・Laravel・フロントの基盤だけを立ち上げます。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx</code><br>
+<br>
+
+<h2>2. 必須 DB ユーザー（Role）の作成</h2>
+
+<code>decisioncoresvc</code> などの service が <code>ak_postgres</code> に接続できるよう、必要な DB ユーザーを事前に作成します。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>docker compose exec -T ak_postgres psql -U ak -d ak -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc'; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker'; END IF; END \$\$;"</code><br>
+<br>
+これが不足していると、<code>Role "decisioncoresvc" does not exist</code> で service が起動できません。<br>
+<br>
+
+<h2>3. ak_postgres 側 migration 適用</h2>
+
+<code>pisag_go/migrations/*.sql</code> を順に流して、必要なテーブル・関数・権限を作成します。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>for f in ./pisag_go/migrations/*.sql; do</code><br>
+<code>&nbsp;&nbsp;echo "Applying $f..."</code><br>
+<code>&nbsp;&nbsp;docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak &lt; "$f" || break</code><br>
+<code>done</code><br>
+<br>
+
+<h2>4. migration / function の確認</h2>
+
+まず、PISAG が必要とするテーブルと function が作成されているかを確認します。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>docker compose exec -T ak_postgres psql -U ak -d ak -c "\dt public.*"</code><br>
+<code>docker compose exec -T ak_postgres psql -U ak -d ak -c "\df public.run_inputs_claim_next*"</code><br>
+<br>
+
+<strong>確認ポイント</strong><br>
+・<code>public</code> schema のテーブル一覧が表示される<br>
+・<code>run_inputs_claim_next</code> function が表示される<br>
+<br>
+※ <code>\dt public.*</code> と <code>\df ...</code> は、<strong>1行ずつ別々に実行</strong>してください。<br>
+<br>
+
+<h2>5. PISAG 単発動作確認</h2>
+
+常駐 worker ではなく、単発 script で 1 回分の処理を確認します。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>./scripts/run_pisag_worker_once.sh</code><br>
+<code>./scripts/check_pisag_db_state.sh</code><br>
+<br>
+
+<strong>成功の目安</strong><br>
+・<code>run_inputs.claim_status</code> が <code>done</code><br>
+・worker ログに <code>done: input_id=... status=200</code> が出る<br>
+・<code>run_evidence_assets</code> にデータが入る<br>
+・<code>run_evidence_manifests</code> に manifest 情報が入る<br>
+<br>
+
+<strong>補足</strong><br>
+・<code>idle: no pending input</code> だけの場合は、処理対象が無かっただけの可能性があります。<br>
+・この場合は異常確定ではなく、<code>check_pisag_db_state.sh</code> の結果も合わせて確認してください。<br>
+<br>
+
+<h2>6. 通常の full 起動</h2>
+
+ここまで通ったら、通常の full 起動を行います。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>docker compose up -d</code><br>
+<br>
+
+<strong>補足</strong><br>
+この通常起動では、次の legacy worker は起動しません。<br>
+・<code>ak_go_worker</code><br>
+・<code>ak_go_worker_2</code><br>
+<br>
+これは意図的な挙動です。<br>
+これらは現行 DB 仕様と不整合になる可能性があるため、通常運用から外しています。<br>
+<br>
+
+<h2>7. 起動確認</h2>
+
+<strong>（ターミナル実行）</strong><br>
+<code>docker compose ps</code><br>
+<code>docker compose logs --tail=50 decisioncoresvc decisioncore_worker runschedsvc v22_ocr_daemon</code><br>
+<br>
+
+<strong>チェックポイント</strong><br>
+・<code>decisioncoresvc</code> が <code>listening on :9023</code> になっている<br>
+・<code>v22_ocr_daemon</code> が <code>start</code> している<br>
+・<code>decisioncore_worker</code> が <code>Restarting</code> ではなく <code>Up</code> を維持している<br>
+・<code>runschedsvc</code> が動作している<br>
+<br>
+
+<strong>runschedsvc について</strong><br>
+<code>force_budget_deny=true</code> により dispatch が空振りすることがありますが、これは即異常とは限りません。<br>
+<code>summary created=0 skipped=0 errors=0</code> のようなログで安定していれば、致命停止ではありません。<br>
+<br>
+
+<h2>8. legacy worker が必要な場合のみ</h2>
+
+通常は不要です。必要な場合だけ profile 指定で起動してください。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>docker compose --profile legacy-workers up -d ak_go_worker ak_go_worker_2</code><br>
+<br>
+
+<strong>注意</strong><br>
+legacy worker は、現時点では <code>run_status: "queued"</code> 関連エラーを出す可能性があるため、通常運用では非推奨です。<br>
+<br>
+
+<h2>9. トラブルシューティング</h2>
+
+<strong>Role "decisioncoresvc" does not exist</strong><br>
+手順 2 の必須 DB ユーザー（Role）の作成が未実施の可能性があります。<br>
+再度 SQL を実行してください。<br>
+<br>
+
+<strong>Firebase: Error (auth/invalid-api-key)</strong><br>
+<code>admin_rails/.env</code> または関連 env の Firebase API Key が不正です。<br>
+既存の正常環境の値と揃えてください。<br>
+<br>
+
+<strong>ak_go_worker / ak_go_worker_2 がエラーを吐く</strong><br>
+通常起動からは外しているため、<code>docker compose up -d</code> では起動しないのが正しい状態です。<br>
+profile 指定で明示的に起動した場合のみ対象になります。<br>
+<br>
+
+<strong>DB 接続系の起動失敗</strong><br>
+まず以下を確認してください。<br>
+<br>
+<strong>（ターミナル実行）</strong><br>
+<code>docker compose ps</code><br>
+<code>docker compose logs --tail=100 ak_postgres decisioncoresvc decisioncore_worker</code><br>
+<br>
+
+<h2>10. 手元確認用の一括コマンド（任意）</h2>
+
+必要に応じて、以下で最小構成の確認から full 起動までまとめて確認できます。<br>
+ただし、通常は <strong>1〜9 の段階実行を推奨</strong>します。<br>
+<br>
+<code>cd /path/to/research-stateful-auth-archaeology &amp;&amp; \</code><br>
+<code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx &amp;&amp; \</code><br>
+<code>docker compose exec -T ak_postgres psql -U ak -d ak -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc'; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker'; END IF; END \$\$;" &amp;&amp; \</code><br>
+<code>for f in ./pisag_go/migrations/*.sql; do \</code><br>
+<code>&nbsp;&nbsp;echo "Applying $f..."; \</code><br>
+<code>&nbsp;&nbsp;docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak &lt; "$f" || break; \</code><br>
+<code>done &amp;&amp; \</code><br>
+<code>./scripts/run_pisag_worker_once.sh &amp;&amp; \</code><br>
+<code>./scripts/check_pisag_db_state.sh &amp;&amp; \</code><br>
+<code>docker compose up -d &amp;&amp; \</code><br>
+<code>docker compose ps</code><br>
+<br>
+
+<h2>この確認手順で何を保証するか</h2>
+
+この確認手順では、<strong>PISAG が確実に機能していると言える条件</strong>を次の 3 段階で確認します。<br>
+・<strong>DB 構造確認</strong>：migration と function が入っている<br>
+・<strong>単発 worker 確認</strong>：PISAG が 1 回分の処理を完了できる<br>
+・<strong>常駐系確認</strong>：full 起動後に関連 service が正常稼働している<br><br>
+
+
+- AI解析システム（出品解析システム：出品する前に実行） <br>
+（ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
 
 - Stripe決済実行前、事前にパソコンにインストール必要（brew install stripe/stripe-cli/stripe）<br>
 （ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
@@ -90,166 +285,13 @@ laravel環境構築
 カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
 有効期限（未来）・名前、は決まりなし。<br><br>
 
-- AI解析システム（出品解析システム：出品する前に実行） <br>
-（ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
 
-
-
-PISAG（ピサグ）システムの機能確認<br>
-
-このプロジェクトは、いきなり full 起動せず、最小構成で初期化してから段階的に起動してください。<br>
-初期化前に全サービスを起動すると、空の DB に常駐 service / worker が接続し、不整合や起動失敗の原因になります。<br>
-
-事前注意<br>
-ak_go_worker / ak_go_worker_2 は legacy worker です。通常の docker compose up -d では起動しません。<br>
-PISAG の確認は、常駐 worker ではなく ./scripts/run_pisag_worker_once.sh を使ってください。
-admin_rails/.env の Firebase API Key が不正だと、フロントエンドで auth/invalid-api-key が発生します。<br>
-このプロジェクトは、最小構成で初期化 → DB ユーザー・テーブル作成 → full 起動 の順で進めてください。
-<br>
-
-
-2. 最小構成を起動<br>
-
-まずは DB・Laravel・フロントの基盤だけを立ち上げます。<br>
-
-(ターミナル実行)docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx<br>
-3. DB 初期化<br>
-
-3.１ 必須 DB ユーザー（Role）の作成<br>
-
-decisioncoresvc などの service が ak_postgres に接続できるよう、必要な DB ユーザーを事前に作成します。<br>
-
-(ターミナル実行)docker compose exec -T ak_postgres psql -U ak -d ak <<'SQL'
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN
-    CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc';
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN
-    CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker';
-  END IF;
-END
-$$;
-SQL
-<br>
-
-これが不足していると、Role "decisioncoresvc" does not exist で service が起動できません。<br>
-
-4. ak_postgres 側 migration 適用<br>
-
-pisag_go/migrations/*.sql を順に流して、必要なテーブル・関数・権限を作成します。<br>
-
-(ターミナル実行)for f in ./pisag_go/migrations/*.sql; do
-  echo "Applying $f..."
-  docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak < "$f" || break
-done
-<br>
-確認コマンド<br>
-(ターミナル実行)docker compose exec -T ak_postgres psql -U ak -d ak -c "\dt public.*"
-docker compose exec -T ak_postgres psql -U ak -d ak -c "\df public.run_inputs_claim_next*"
-<br>
-5. PISAG 単発動作確認<br>
-
-常駐 worker ではなく、単発 script で 1 回分の処理を確認します。<br>
-
-(ターミナル実行)./scripts/run_pisag_worker_once.sh
-./scripts/check_pisag_db_state.sh<br>
-成功の目安<br>
-run_inputs.claim_status が done
-worker ログに done: input_id=... status=200 が出る
-run_evidence_assets にデータが入る
-run_evidence_manifests に manifest 情報が入る<br>
-6. 通常の full 起動<br>
-
-ここまで通ったら、通常の full 起動を行います。<br>
-
-(ターミナル実行)docker compose up -d<br>
-補足<br>
-
-この通常起動では、次の legacy worker は起動しません。<br>
-
-ak_go_worker
-ak_go_worker_2<br>
-
-これは意図的な挙動です。
-これらは現行 DB 仕様と不整合になる可能性があるため、通常運用から外しています。<br>
-
-7. 起動確認<br>
-(ターミナル実行)docker compose ps
-docker compose logs --tail=50 decisioncoresvc decisioncore_worker runschedsvc v22_ocr_daemon
-<br>
-チェックポイント<br>
-decisioncoresvc が listening on :9023 になっている
-v22_ocr_daemon が start している
-decisioncore_worker が Restarting ではなく Up を維持している
-runschedsvc が動作している<br>
-runschedsvc について<br>
-
-force_budget_deny=true により dispatch が空振りすることがありますが、これは即異常とは限りません。
-summary created=0 skipped=0 errors=0 のようなログで安定していれば、致命停止ではありません。
-
-8. legacy worker が必要な場合のみ<br>
-
-通常は不要です。必要な場合だけ profile 指定で起動してください。<br>
-
-docker compose --profile legacy-workers up -d ak_go_worker ak_go_worker_2<br>
-注意<br>
-
-legacy worker は、現時点では run_status: "queued" 関連エラーを出す可能性があるため、通常運用では非推奨です。<br>
-
-9. トラブルシューティング<br>
-Role "decisioncoresvc" does not exist<br>
-
-手順 3.2 の 必須 DB ユーザー（Role）の作成 が未実施の可能性があります。
-再度 SQL を実行してください。<br>
-
-Firebase: Error (auth/invalid-api-key)<br>
-
-admin_rails/.env または関連 env の Firebase API Key が不正です。
-既存の正常環境の値と揃えてください。<br>
-
-ak_go_worker / ak_go_worker_2 がエラーを吐く<br>
-
-通常起動からは外しているため、docker compose up -d では起動しないのが正しい状態です。
-profile 指定で明示的に起動した場合のみ対象になります。<br>
-
-DB 接続系の起動失敗<br>
-
-まず以下を確認してください。<br>
-
-docker compose ps
-docker compose logs --tail=100 ak_postgres decisioncoresvc decisioncore_worker<br>
-10. 手元確認用の一括コマンド<br>
-
-必要に応じて、以下で最小構成の初期化から full 起動までまとめて確認できます。<br>
-
-cd /path/to/research-stateful-auth-archaeology && \
-docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx && \
-docker compose exec php sh -lc 'cd /var/www/backend && composer install && php artisan migrate:fresh --seed' && \
-docker compose exec -T ak_postgres psql -U ak -d ak <<'SQL'
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN
-    CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN
-    CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker';
-  END IF;
-END
-$$;
-SQL
-for f in ./pisag_go/migrations/*.sql; do
-  echo "Applying $f..."
-  docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak < "$f" || break
-done && \
-./scripts/run_pisag_worker_once.sh && \
-docker compose up -d && \
-docker compose ps
-<br><br>
-
-光学文字認識システム機能の使い方<br>
-(ターミナル実行)cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go && go run ./cmd/v22_runtime_api　の実行　＋　Docker全て起動した状態で機能
+- 光学文字認識機能<br>
+(ターミナル実行)cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go && go run ./cmd/v22_runtime_api　の実行　＋　Docker全て起動した状態で機能します。<br>
+　ログインページの管理者/開発者コンソールへ（admin/dashboard）（開発用）に入り、<br>
+ OCR(簡易(開発途中)光学文字認識)に移動して、ファイルを選択して、Engine Selectionを選択して、<br>
+ Run AI Runtimeを押してください。<br>
+ 少し時間がかかる時もありそのページでリロードすると結果が表示されます。
 <br><br>
 
 # アプリの仕様計画<br>

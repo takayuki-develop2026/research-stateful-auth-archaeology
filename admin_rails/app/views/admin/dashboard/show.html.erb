@@ -54,7 +54,7 @@
 
       <div class="card__actions">
         <%= dash_action("AtlasKernel へ", "/admin/dashboard/atlaskernel#{pid_q}", enabled: enabled[:atlaskernel], style: :primary) %>
-        <%= dash_action("AI Runtime", "/admin/dashboard/atlaskernel/ai-runtime#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
+        <%= dash_action(" OCR(簡易(開発途中)光学文字認識)", "/admin/dashboard/atlaskernel/ai-runtime#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
         <%= dash_action("Run Artifacts", "/admin/dashboard/atlaskernel/run-artifacts#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
         <%= dash_action("Discovery Ops (Stale)", "/admin/dashboard/atlaskernel/discovery-ops/stale#{pid_q}", enabled: enabled[:atlaskernel], style: :ghost) %>
       </div>
