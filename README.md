@@ -250,18 +250,30 @@ profile 指定で明示的に起動した場合のみ対象になります。<br
 必要に応じて、以下で最小構成の確認から full 起動までまとめて確認できます。<br>
 ただし、通常は <strong>1〜9 の段階実行を推奨</strong>します。<br>
 <br>
-<code>cd /path/to/research-stateful-auth-archaeology &amp;&amp; \</code><br>
-<code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx &amp;&amp; \</code><br>
-<code>docker compose exec -T ak_postgres psql -U ak -d ak -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc'; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker'; END IF; END \$\$;" &amp;&amp; \</code><br>
-<code>for f in ./pisag_go/migrations/*.sql; do \</code><br>
-<code>&nbsp;&nbsp;echo "Applying $f..."; \</code><br>
-<code>&nbsp;&nbsp;docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak &lt; "$f" || break; \</code><br>
-<code>done &amp;&amp; \</code><br>
-<code>./scripts/run_pisag_worker_once.sh &amp;&amp; \</code><br>
-<code>./scripts/check_pisag_db_state.sh &amp;&amp; \</code><br>
-<code>docker compose up -d &amp;&amp; \</code><br>
-<code>docker compose ps</code><br>
-<br>
+
+<pre><code>cd /path/to/research-stateful-auth-archaeology
+
+docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx
+
+docker compose exec -T ak_postgres psql -U ak -d ak -c "DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncoresvc') THEN
+    CREATE ROLE decisioncoresvc LOGIN PASSWORD 'decisioncoresvc';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decisioncore_worker') THEN
+    CREATE ROLE decisioncore_worker LOGIN PASSWORD 'decisioncore_worker';
+  END IF;
+END \$\$;"
+
+for f in ./pisag_go/migrations/*.sql; do
+  echo "Applying $f..."
+  docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak &lt; "$f" || break
+done
+
+./scripts/run_pisag_worker_once.sh
+./scripts/check_pisag_db_state.sh
+
+docker compose up -d
+docker compose ps</code></pre>
 
 <h2>この確認手順で何を保証するか</h2>
 
