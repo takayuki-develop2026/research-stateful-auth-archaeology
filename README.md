@@ -4,6 +4,7 @@
 # COACHTECHで学んだこと、<br>プラス独学での思考しての実装実績<br>
 DDD、マルチテナント、購入されてから出品完了までの手動反映機能、<br>
 Stateful認証〜AWS+AuthO認証、ゼロトラスト認証まで可能な継続システム設計<br>
+認証なども含めUX改善 / Auth0連携 / Next.js状態管理 / フロントエンドアニメーション / オンボーディング導線設計<br>
 決済マルチゲートウェイ(strip/adyen),クレジットカードを保管記録してのワンクリック決済、<br>
 AIシステム(出品自動補完管理、現時点でブランド、状態、色のテキスト自動補完管理)<br>
 PISAG（ピサグ）システム<br>
@@ -17,78 +18,351 @@ PISAG（ピサグ）システム<br>
 
 # 環境構築　＋　実装機能確認準備
 <br>
-Dockerビルド
-<br>
-<br>
-　1\. git cloneで作成（ターミナルコマンド）新規作成したディレクトリにcdで移動してから実行<br>
- git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git  の実行<br>
+<h2>git clone / Docker ビルド / 開発・閲覧 環境構築</h2>
 
-　2\. （ターミナルコマンド）cd research-stateful-auth-archaeology  の実行<br><br>
+<p>
+この手順は、GitHub からプロジェクトを clone し、Docker 起動、Laravel 初期化、ダミーデータ用画像配置、フロントエンド準備までを行うためのものです。
+</p>
 
-　3\. ダミーデーターの商品画像ファイルをstrageディレクトリーの中にitem_imagesディレクトリーを作成して商品画像ファイルをコピーする。<br>
-　　（ターミナルコマンド）cd backend (実行後) mkdir storage/app/public/item_images　の実行<br>
-　　　　　　　　　　　cp -r public/pictures/* storage/app/public/item_images　の実行<br>
-　4\. ダミーデーターのユーザー初期画像ファイルをstrageディレクトリーの中にimagesディレクトリーを作成して初期画像ファイルをコピーする<br>
-　（そのままbackendディレクトリ）mkdir storage/app/public/images　の実行<br>
-　　　　　　　　　　　cp -r public/pictures_user/* storage/app/public/images　の実行<br><br>
+<p>
+コマンドは、指定されたディレクトリで順番に実行してください。
+</p>
 
-　5\. env.exampleファイルから.envを作成(backend+frontend+admin_rails)し、.envファイルの環境変数を変更(backend)<br>
-　　a:(backendディレクトリで実行) cp .env.example .env　の実行後.envの環境変数の変更<br>
-　DB_PASSWORD="",と<br>
-　AUTH0_MANAGEMENT_CLIENT_SECRET="",<br>
-　(新規登録時403エラーになるのはメール認証完了してないとログインできない仕様だからです。)<br>
-　　b:(frontendディレクトリで実行) cp .env.example .env　の実行<br>
-　　c:(admin_railsディレクトリで実行) cp .env.example .env<br>
-　の実行<br>
+<hr>
 
-　 シークレットキーなどは個人情報保護のためgitで追跡していません。必要でしたら伝えます。<br>
-(backend)<br>
-FIREBASE_CREDENTIALS=(現段階では使っていない。jsonファイルなし位置表示のみ),<br>
-JWT_SECRET=,DB_PASSWORD=,<br>
-AUTH0_MANAGEMENT_CLIENT_SECRET=,<br>
-(STRIPE)STRIPE_KEY=,STRIPE_SECRET=,STRIPE_WEBHOOK_SECRET=,<br>
-(ADYEN)ADYEN_API_KEY=,ADYEN_HMAC_KEY=,　　は空です。(////)を削除して各準備お願いします。<br>
-  必要でしたら　backend .env　追記用　と　./backend/config/firebase-service-account.json　ファイルに必要なコード伝えます。<br><br>
+<h2>1. git clone</h2>
 
-　6\. Docker Desktopを立ち上げ(今回一度に立ち上げるとエラーになるので部分的から)<br>
-（カレントディレクトリー）docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx admin_rails の実行
-<br><br>
+<p>
+新規作成したディレクトリに <code>cd</code> で移動してから、以下を実行します。
+</p>
 
-laravel環境構築
-<br>
-<br>
-　1\. (カレントディレクトリー)docker-compose exec php bash　の実行
-<br>
-　2\. （PHPコンテナー）composer install　の実行
-<br>
-　3\. アプリケーションキーの作成<br>
-　　（PHPコンテナー）sed -i '/^APP_KEY=/d' .env && php -r "echo 'APP_KEY=base64:'.base64_encode(random_bytes(32)).PHP_EOL;" >> .env && php artisan config:clear && php artisan cache:clear　の実行
-<br>
-　4\. マイグレーションの実行・シーディング実行<br>
-　　（PHPコンテナー）php artisan migrate:fresh --seed
-<br>
-　5\. シンボリックリンクの作成<br>
-　　（カレントディレクトリー）docker compose exec php sh -lc 'cd /var/www/backend && php artisan storage:link'
-<br>
-　6\. フロントエンドのセットアップ。<br>
-　　 (frontendディレクトリー)npm i　の実行
-<br><br>
+<pre><code>git clone https://github.com/takayuki-develop2026/research-stateful-auth-archaeology.git</code></pre>
 
--  シーダーファイルでユーザーデーターと出品商品データーを作成しました。<br>
-   ユーザー情報です。メールの'　'は削除してください。<br><br>
+<p>
+clone 後、プロジェクトディレクトリへ移動します。
+</p>
 
-   １：名前:'テスト用のユーザ１'、アドレス:　'valid.email@example.com'　パスワード:　'Testtest1'　出品数：'２品'<br>
-   ロール：Shop Owner（各Shop Owner(manager、staff)は<br>
-   ログイン後それぞれのショップのダッシュボードに移動します。）<br>
-   (各 テストショップのトップページから管理画面ボタンで各ショップのダッシュボードに入れます。)<br>
-   ２：名前:'テスト用のユーザ2'、アドレス:　'taro.y@coachtech.com'　パスワード:　'Testtest2'　出品数：'２品'　ロール：Shop Owner<br>
-   ３：名前:'テスト用のユーザ3'、アドレス:　'reina.n@coachtech.com'　パスワード:　'Testtest3'　出品数：'３品'　ロール：Shop Owner<br>
-   ４：名前:'テスト用のユーザ4'、アドレス:　'tomomi.a@coachtech.com'　パスワード:　'Testtest4'　出品数：'３品'　ロール：Shop Owner<br>
-   ５：名前:'テスト用のユーザ5'(管理者)、アドレス:　'pro.t@coachtech.com'　パスワード:　'Testtest5'　出品数：'0'　ロール：Domain Lead Admin
-   　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br>
-   6：名前:'川田　隆之'(管理者)、アドレス:　't.principle.k2024@gmail.com'　パスワード:　'git hub　ログイン'　出品数：'0'　ロール：Domain Lead Admin
-   　です。(こちらのログインでショップ全体のAtlaskernelの画面が見れます。)<br>
-   １から６はショップオーナー、管理者ですが、新規登録でカスタマーユーザー作成できます。(新規登録の流れをアニメーション動画で作成しています。)<br><br>
+<pre><code>cd research-stateful-auth-archaeology</code></pre>
+
+<hr>
+
+<h2>2. ダミーデータの商品画像ファイルを配置</h2>
+
+<p>
+ダミーデータの商品画像ファイルを、Laravel の <code>storage</code> ディレクトリ内に配置します。
+</p>
+
+<p>
+まず <code>backend</code> ディレクトリへ移動します。
+</p>
+
+<pre><code>cd backend</code></pre>
+
+<p>
+商品画像用ディレクトリを作成します。
+</p>
+
+<pre><code>mkdir -p storage/app/public/item_images</code></pre>
+
+<p>
+商品画像ファイルをコピーします。
+</p>
+
+<pre><code>cp -r public/pictures/* storage/app/public/item_images</code></pre>
+
+<hr>
+
+<h2>3. ダミーデータのユーザー初期画像ファイルを配置</h2>
+
+<p>
+そのまま <code>backend</code> ディレクトリで実行します。
+</p>
+
+<p>
+ユーザー初期画像用ディレクトリを作成します。
+</p>
+
+<pre><code>mkdir -p storage/app/public/images</code></pre>
+
+<p>
+ユーザー初期画像ファイルをコピーします。
+</p>
+
+<pre><code>cp -r public/pictures_user/* storage/app/public/images</code></pre>
+
+<hr>
+
+<h2>4. .env ファイルを作成</h2>
+
+<p>
+<code>.env.example</code> から <code>.env</code> を作成します。
+</p>
+
+<h3>4-1. backend の .env 作成</h3>
+
+<p>
+<code>backend</code> ディレクトリで実行します。
+</p>
+
+<pre><code>cp .env.example .env</code></pre>
+
+<p>
+その後、<code>.env</code> の環境変数を必要に応じて変更してください。
+</p>
+
+<p>
+特に以下を確認してください。
+</p>
+
+<pre><code>DB_PASSWORD=""
+AUTH0_MANAGEMENT_CLIENT_SECRET=""</code></pre>
+
+<p>
+新規登録時に 403 エラーになる場合がありますが、これはメール認証が完了していないとログインできない仕様です。
+</p>
+
+<h3>4-2. frontend の .env 作成</h3>
+
+<p>
+<code>frontend</code> ディレクトリで実行します。
+</p>
+
+<pre><code>cd ../frontend
+cp .env.example .env</code></pre>
+
+<h3>4-3. admin_rails の .env 作成</h3>
+
+<p>
+<code>admin_rails</code> ディレクトリで実行します。
+</p>
+
+<pre><code>cd ../admin_rails
+cp .env.example .env</code></pre>
+
+<hr>
+
+<h2>5. シークレットキー・外部サービスキーについて</h2>
+
+<p>
+シークレットキーなどは個人情報保護のため、Git では追跡していません。
+必要でしたら別途共有します。
+</p>
+
+<h3>backend 側で空になっている可能性がある項目</h3>
+
+<pre><code>FIREBASE_CREDENTIALS=
+JWT_SECRET=
+DB_PASSWORD=
+AUTH0_MANAGEMENT_CLIENT_SECRET=
+
+STRIPE_KEY=
+STRIPE_SECRET=
+STRIPE_WEBHOOK_SECRET=
+
+ADYEN_API_KEY=
+ADYEN_HMAC_KEY=</code></pre>
+
+<p>
+<code>FIREBASE_CREDENTIALS</code> は現段階では使用していません。
+JSON ファイルなしの位置表示のみです。
+</p>
+
+<p>
+必要でしたら、以下の内容を別途共有します。
+</p>
+
+<ul>
+  <li><code>backend .env</code> 追記用の値</li>
+  <li><code>./backend/config/firebase-service-account.json</code> に必要なコード</li>
+</ul>
+
+<hr>
+
+<h2>6. Docker Desktop を起動</h2>
+
+<p>
+Docker Desktop を立ち上げてください。
+</p>
+
+<p>
+今回は一度に全サービスを立ち上げるとエラーになる可能性があるため、まずは部分的に起動します。
+</p>
+
+<p>
+プロジェクトルートで実行します。
+</p>
+
+<pre><code>cd /Users/kawadatakayuki/research-stateful-auth-archaeology
+
+docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx admin_rails</code></pre>
+
+<hr>
+
+<h2>7. Laravel 環境構築</h2>
+
+<h3>7-1. PHP コンテナに入る</h3>
+
+<p>
+プロジェクトルートで実行します。
+</p>
+
+<pre><code>docker compose exec php bash</code></pre>
+
+<h3>7-2. Composer install</h3>
+
+<p>
+PHP コンテナ内で実行します。
+</p>
+
+<pre><code>composer install</code></pre>
+
+<h3>7-3. アプリケーションキーを作成</h3>
+
+<p>
+PHP コンテナ内で実行します。
+</p>
+
+<pre><code>sed -i '/^APP_KEY=/d' .env &amp;&amp; php -r "echo 'APP_KEY=base64:'.base64_encode(random_bytes(32)).PHP_EOL;" &gt;&gt; .env &amp;&amp; php artisan config:clear &amp;&amp; php artisan cache:clear</code></pre>
+
+<p>
+もし <code>php artisan cache:clear</code> で権限エラーが出る場合は、以下を実行してください。
+</p>
+
+<pre><code>mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
+
+chown -R www-data:www-data storage bootstrap/cache
+
+chmod -R ug+rwX storage bootstrap/cache
+
+php artisan cache:clear
+php artisan config:clear
+php artisan route:clear
+php artisan view:clear</code></pre>
+
+<h3>7-4. マイグレーション・シーディングを実行</h3>
+
+<p>
+PHP コンテナ内で実行します。
+</p>
+
+<pre><code>php artisan migrate:fresh --seed</code></pre>
+
+<h3>7-5. シンボリックリンクを作成</h3>
+
+<p>
+プロジェクトルートで実行します。
+</p>
+
+<pre><code>docker compose exec php sh -lc 'cd /var/www/backend &amp;&amp; php artisan storage:link'</code></pre>
+
+<hr>
+
+<h2>8. フロントエンドのセットアップ</h2>
+
+<p>
+<code>frontend</code> ディレクトリで実行します。
+</p>
+
+<pre><code>cd frontend
+
+npm i</code></pre>
+
+<hr>
+
+<h2>9. シーダーデータについて</h2>
+
+<p>
+シーダーファイルで、ユーザーデータと出品商品データを作成しています。
+</p>
+
+<p>
+メールアドレスの前後に表示されている引用符 <code>' '</code> は、実際の入力時には削除してください。
+</p>
+
+<h3>テストユーザー一覧</h3>
+
+<ul>
+  <li>
+    名前: <code>テスト用のユーザ１</code><br>
+    アドレス: <code>valid.email@example.com</code><br>
+    パスワード: <code>Testtest1</code><br>
+    出品数: <code>2品</code><br>
+    ロール: <code>Shop Owner</code>
+  </li>
+  <li>
+    名前: <code>テスト用のユーザ2</code><br>
+    アドレス: <code>taro.y@coachtech.com</code><br>
+    パスワード: <code>Testtest2</code><br>
+    出品数: <code>2品</code><br>
+    ロール: <code>Shop Owner</code>
+  </li>
+  <li>
+    名前: <code>テスト用のユーザ3</code><br>
+    アドレス: <code>reina.n@coachtech.com</code><br>
+    パスワード: <code>Testtest3</code><br>
+    出品数: <code>3品</code><br>
+    ロール: <code>Shop Owner</code>
+  </li>
+  <li>
+    名前: <code>テスト用のユーザ4</code><br>
+    アドレス: <code>tomomi.a@coachtech.com</code><br>
+    パスワード: <code>Testtest4</code><br>
+    出品数: <code>3品</code><br>
+    ロール: <code>Shop Owner</code>
+  </li>
+  <li>
+    名前: <code>テスト用のユーザ5</code>（管理者）<br>
+    アドレス: <code>pro.t@coachtech.com</code><br>
+    パスワード: <code>Testtest5</code><br>
+    出品数: <code>0</code><br>
+    ロール: <code>Domain Lead Admin</code><br>
+    このログインでショップ全体の AtlasKernel 画面が見れます。
+  </li>
+  <li>
+    名前: <code>川田 隆之</code>（管理者）<br>
+    アドレス: <code>t.principle.k2024@gmail.com</code><br>
+    パスワード: <code>git hub ログイン</code><br>
+    出品数: <code>0</code><br>
+    ロール: <code>Domain Lead Admin</code><br>
+    このログインでショップ全体の AtlasKernel 画面が見れます。
+  </li>
+</ul>
+
+<p>
+各 Shop Owner は、ログイン後それぞれのショップのダッシュボードに移動します。
+</p>
+
+<p>
+各テストショップのトップページから、管理画面ボタンで各ショップのダッシュボードに入れます。
+</p>
+
+<p>
+1 から 6 はショップオーナー、または管理者ユーザーです。
+新規登録でカスタマーユーザー作成できます。
+</p>
+
+<hr>
+
+<h2>10. 新規登録・メール認証フローについて</h2>
+
+<p>
+新規登録の待ち時間の流れは、Next.js / React / CSS Modules で Auth0/OIDC 認証コールバック画面として実装しています。
+</p>
+
+<p>
+メール認証フェーズを URL query・localStorage・sessionStorage で管理し、returnTo / nonce 制御、10秒 hold、手動続行、自動遷移、状態連動アニメーションを統合したオンボーディング UI を構築しています。
+</p>
+
+<hr>
+
+<h2>11. 補足</h2>
+
+<ul>
+  <li>Shop Owner / manager / staff は、ログイン後それぞれのショップのダッシュボードに移動します。</li>
+  <li>Domain Lead Admin は、ショップ全体の AtlasKernel 画面を確認できます。</li>
+  <li>シークレットキーや外部サービスキーは Git で追跡していません。</li>
+  <li>必要な場合は、backend の <code>.env</code> 追記用の値や Firebase service account 用 JSON を別途共有します。</li>
+</ul>
 
 
 <h2>PISAG（ピサグ）システムの機能確認 & Docker full 起動順序</h2>
@@ -565,22 +839,22 @@ full 起動後の関連 service 稼働確認</code></pre>
 <pre><code>PISAG fetch/evidence/manifest/run lifecycle/event logging path is verified.</code></pre>
 
 
-- AI解析システム（出品解析システム：出品する前に実行） <br>
+○ AI解析システム（出品解析システム：出品する前に実行） <br>
 （ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
 
-- Stripe決済実行前、事前にパソコンにインストール必要（brew install stripe/stripe-cli/stripe）<br>
+○ Stripe決済実行前、事前にパソコンにインストール必要（brew install stripe/stripe-cli/stripe）<br>
 （ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
 カード番号：4242 4242 4242 4242<br>
 有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br>
 コンビニ払いは現在Stripeのみで決済後3分ほどでダッシュボードに反映<br><br>
 
-- Adyen決済実行前、事前にパソコンにインストール必要（brew install ngrok/ngrok/ngrok）<br>
+○ Adyen決済実行前、事前にパソコンにインストール必要（brew install ngrok/ngrok/ngrok）<br>
 （ターミナルコマンド）ngrok http 80  (ターミナルで実行のまま)<br>
 カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
 有効期限（未来）・名前、は決まりなし。<br><br>
 
 
-- 光学文字認識機能<br>
+○ 光学文字認識機能<br>
 (ターミナル実行)cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go && go run ./cmd/v22_runtime_api　の実行　＋　Docker全て起動した状態で機能します。<br>
 　ログインページの管理者/開発者コンソールへ（admin/dashboard）（開発用）に入り、<br>
  OCR(簡易(開発途中)光学文字認識)に移動して、ファイルを選択して、Engine Selectionを選択して、<br>
@@ -592,11 +866,26 @@ full 起動後の関連 service 稼働確認</code></pre>
 ・Adminでショップ運営の権限を与えることができて(ShopOwner付与)<br>
 ShopOwnerからManageとStaffの権限を与えることができる。(個人も申請すれば出店できる)<br>
 ・出品商品のマークは、<br>
-カスタマー出品、ショップユーザーが個人出品の場合は💫、ショップの管理商品は⭐️となる<br>
+カスタマー出品、ショップユーザーが個人出品の場合は💫、ショップの管理商品は⭐️となる<br><br>
+
+・PSP障害や決済手数料を考慮してAI探索管理やショップオーナーからの情報提供などをもとに、<br>
+安全にPSP切り替えをできるシステムの構築を考えています。<br>
+なので関連するピサグシステムやOCRシステムの開発を考えました。<br>
+(ピサグはレガシーシステムの多い日本に必要な技術・システム、<br>
+OCRはPDFファイルなどの価値ある情報や歴史的技術などの活用を考えて途中ですが開発を考えました。)<br><br>
+
+・出品する際にAIによる管理システムの向上や、<br>
+購入後から出品完了までのシステムを自動フルフィルメントなどや、<br>
+配達員と購入カスタマーを繋ぐモバイルアプリ管理システムも考えています。<br><br>
+
+
 
 
 # 次のステップ提案<br>
-
+・
+<br><br><br>
+<h2>この先の内容の・開発使用技術(言語・フレームワーク等) 以外は模擬案件と同じ内容です。</h2>
+<br><br><br>
 
 
 
