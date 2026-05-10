@@ -192,9 +192,7 @@ Docker Desktop を立ち上げてください。
 プロジェクトルートで実行します。
 </p>
 
-<pre><code>cd /Users/kawadatakayuki/research-stateful-auth-archaeology
-
-docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx admin_rails</code></pre>
+<pre><code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx admin_rails</code></pre>
 
 <hr>
 
@@ -222,22 +220,46 @@ PHP コンテナ内で実行します。
 PHP コンテナ内で実行します。
 </p>
 
-<pre><code>sed -i '/^APP_KEY=/d' .env &amp;&amp; php -r "echo 'APP_KEY=base64:'.base64_encode(random_bytes(32)).PHP_EOL;" &gt;&gt; .env &amp;&amp; php artisan config:clear &amp;&amp; php artisan cache:clear</code></pre>
-
 <p>
-もし <code>php artisan cache:clear</code> で権限エラーが出る場合は、以下を実行してください。
+まず Laravel が使用する cache / session / view / log 用ディレクトリを作成し、権限を整えます。
 </p>
 
 <pre><code>mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
 
 chown -R www-data:www-data storage bootstrap/cache
 
-chmod -R ug+rwX storage bootstrap/cache
+chmod -R ug+rwX storage bootstrap/cache</code></pre>
 
+<p>
+次に、<code>.env</code> の既存 <code>APP_KEY</code> を削除し、新しい <code>APP_KEY</code> を作成します。
+</p>
+
+<pre><code>sed -i '/^APP_KEY=/d' .env
+
+php -r "echo 'APP_KEY=base64:'.base64_encode(random_bytes(32)).PHP_EOL;" &gt;&gt; .env</code></pre>
+
+<p>
+最後に Laravel の各種 cache をクリアします。
+</p>
+
+<pre><code>php artisan config:clear
 php artisan cache:clear
-php artisan config:clear
 php artisan route:clear
 php artisan view:clear</code></pre>
+
+<p>
+もしそれでも <code>php artisan cache:clear</code> で権限エラーが出る場合は、開発環境では以下で cache data を削除して作り直してください。
+</p>
+
+<pre><code>rm -rf storage/framework/cache/data/*
+
+mkdir -p storage/framework/cache/data
+
+chown -R www-data:www-data storage bootstrap/cache
+
+chmod -R ug+rwX storage bootstrap/cache
+
+php artisan cache:clear</code></pre>
 
 <h3>7-4. マイグレーション・シーディングを実行</h3>
 
@@ -250,7 +272,7 @@ PHP コンテナ内で実行します。
 <h3>7-5. シンボリックリンクを作成</h3>
 
 <p>
-プロジェクトルートで実行します。
+プロジェクトルートに移動して(PHPコンテナーから、exitで出てから)実行します。
 </p>
 
 <pre><code>docker compose exec php sh -lc 'cd /var/www/backend &amp;&amp; php artisan storage:link'</code></pre>
@@ -276,7 +298,7 @@ npm i</code></pre>
 </p>
 
 <p>
-メールアドレスの前後に表示されている引用符 <code>' '</code> は、実際の入力時には削除してください。
+もしもメールアドレスの前後に表示されている引用符 <code>' '</code> がありましたら、実際の入力時には削除してください。
 </p>
 
 <h3>テストユーザー一覧</h3>
@@ -367,7 +389,7 @@ npm i</code></pre>
 
 
 <br><br><br>
-<h2>○PISAG（ピサグ）システムの機能確認 & Docker full 起動順序</h2>
+<h2>○　PISAG（ピサグ）システムの機能確認 & Docker full 起動順序</h2>
 
 <p>
 この手順は、PISAG の DB migration / DB function / fetch worker / evidence / manifest / run lifecycle / run_events が正常に動作するかを確認するためのものです。
@@ -396,9 +418,7 @@ npm i</code></pre>
 
 <p>まず DB / Redis / Laravel / frontend / oracle / nginx を起動します。</p>
 
-<pre><code>cd /Users/kawadatakayuki/research-stateful-auth-archaeology
-
-docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx</code></pre>
+<pre><code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx</code></pre>
 
 <hr>
 
@@ -426,9 +446,7 @@ SQL</code></pre>
 
 <h2>3. migration を適用</h2>
 
-<pre><code>cd /Users/kawadatakayuki/research-stateful-auth-archaeology
-
-for f in ./pisag_go/migrations/*.sql; do
+<pre><code>for f in ./pisag_go/migrations/*.sql; do
   echo "Applying $f..."
   docker compose exec -T ak_postgres psql -v ON_ERROR_STOP=1 -U ak -d ak &lt; "$f" || break
 done</code></pre>
@@ -872,10 +890,10 @@ Laravel の queue worker を起動したままにしてください。
 <h2>2. Stripe 決済</h2>
 
 <p>
-Stripe 決済を実行する前に、(PCに初回入っていなければ)事前にパソコンへ Stripe CLI をインストールしてください。
+Stripe 決済を実行する前に、事前にパソコンへ Stripe CLI をインストールしてください。
 </p>
 
-<h3>事前インストール</h3>
+<h3>事前インストール(PCに初回入っていなければ)</h3>
 
 <pre><code>brew install stripe/stripe-cli/stripe</code></pre>
 
@@ -911,10 +929,10 @@ Stripe 決済を実行する前に、(PCに初回入っていなければ)事前
 <h2>3. Adyen 決済</h2>
 
 <p>
-Adyen 決済を実行する前に、(PCに初回入っていなければ)事前にパソコンへ ngrok をインストールしてください。
+Adyen 決済を実行する前に、事前にパソコンへ ngrok をインストールしてください。
 </p>
 
-<h3>事前インストール</h3>
+<h3>事前インストール(PCに初回入っていなければ)</h3>
 
 <pre><code>brew install ngrok/ngrok/ngrok</code></pre>
 
@@ -943,9 +961,9 @@ Adyen 決済を実行する前に、(PCに初回入っていなければ)事前�
 OCR 機能は、Docker 全体を起動した状態で動作します。
 </p>
 
-<h3>v22 runtime API 起動コマンド</h3>
+<h3>v22 runtime API 起動コマンド,プロジェクトルートで実行</h3>
 
-<pre><code>cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go &amp;&amp; go run ./cmd/v22_runtime_api</code></pre>
+<pre><code>cd pisag_go &amp;&amp; go run ./cmd/v22_runtime_api</code></pre>
 
 <p>
 このコマンドを実行した状態で、管理画面から OCR 機能を操作します。
@@ -958,7 +976,7 @@ OCR 機能は、Docker 全体を起動した状態で動作します。
   <li><code>admin/dashboard</code> に移動します。</li>
   <li><code>OCR</code> に移動します。</li>
   <li>ファイルを選択します。</li>
-  <li><code>Engine Selection</code> を選択します。</li>
+  <li><code>Engine Selection(開発途中)</code> を選択します。</li>
   <li><code>Run AI Runtime</code> を押します。</li>
 </ol>
 
@@ -969,11 +987,11 @@ OCR は、簡易版・開発途中の光学文字認識機能です。
 </p>
 
 <p>
-処理に少し時間がかかる場合があります。
+処理ボタンを押した後、数十秒時間がかかります。
 </p>
 
 <p>
-その場合は少し時間を置き、同じページでリロードすると結果が表示されます。
+少し時間を置き、同じページでリロードすると、OCR Text Previewの欄にOCR結果が表示されます。
 </p>
 
 # アプリの仕様計画<br>
@@ -994,10 +1012,7 @@ OCRはPDFファイルなどの価値ある情報や歴史的技術などの活�
 
 
 
-
-# 次のステップ提案<br>
-・
-<br><br><br><br><br>
+<br><br>
 <h2>この先の内容の・開発使用技術(言語・フレームワーク・DB・WEBサーバー等) 以外は模擬案件と同じ内容です。</h2>
 <br>
 
