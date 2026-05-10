@@ -365,7 +365,9 @@ npm i</code></pre>
 </ul>
 
 
-<h2>PISAG（ピサグ）システムの機能確認 & Docker full 起動順序</h2>
+
+<br><br><br>
+<h2>○PISAG（ピサグ）システムの機能確認 & Docker full 起動順序</h2>
 
 <p>
 この手順は、PISAG の DB migration / DB function / fetch worker / evidence / manifest / run lifecycle / run_events が正常に動作するかを確認するためのものです。
@@ -839,28 +841,140 @@ full 起動後の関連 service 稼働確認</code></pre>
 <pre><code>PISAG fetch/evidence/manifest/run lifecycle/event logging path is verified.</code></pre>
 
 
-○ AI解析システム（出品解析システム：出品する前に実行） <br>
-（ターミナルコマンド）docker compose exec php php artisan queue:work(ターミナルで実行のまま)<br><br>
+<h2>AI解析・決済・OCR 機能の起動確認</h2>
 
-○ Stripe決済実行前、事前にパソコンにインストール必要（brew install stripe/stripe-cli/stripe）<br>
-（ターミナルコマンド）stripe listen --forward-to http://localhost/api/webhooks/stripe (ターミナルで実行のまま)<br>
-カード番号：4242 4242 4242 4242<br>
-有効期限（未来）・シークレットナンバー・名前、は決まりなし。<br>
-コンビニ払いは現在Stripeのみで決済後3分ほどでダッシュボードに反映<br><br>
+<p>
+この手順は、AI解析システム、Stripe 決済、Adyen 決済、OCR 機能を動作させるための補足手順です。
+</p>
 
-○ Adyen決済実行前、事前にパソコンにインストール必要（brew install ngrok/ngrok/ngrok）<br>
-（ターミナルコマンド）ngrok http 80  (ターミナルで実行のまま)<br>
-カード番号：4111 1111 1111 1111 /シークレットナンバー：737<br>
-有効期限（未来）・名前、は決まりなし。<br><br>
+<hr>
 
+<h2>1. AI解析システム</h2>
 
-○ 光学文字認識機能<br>
-(ターミナル実行)cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go && go run ./cmd/v22_runtime_api　の実行　＋　Docker全て起動した状態で機能します。<br>
-　ログインページの管理者/開発者コンソールへ（admin/dashboard）（開発用）に入り、<br>
- OCR(簡易(開発途中)光学文字認識)に移動して、ファイルを選択して、Engine Selectionを選択して、<br>
- Run AI Runtimeを押してください。<br>
- 少し時間がかかる時もありそのページでリロードすると結果が表示されます。
-<br><br>
+<p>
+出品解析システムは、商品を出品する前に実行します。
+</p>
+
+<p>
+Laravel の queue worker を起動したままにしてください。
+</p>
+
+<h3>実行コマンド</h3>
+
+<pre><code>docker compose exec php php artisan queue:work</code></pre>
+
+<p>
+このコマンドは、ターミナルで実行したままにしてください。
+</p>
+
+<hr>
+
+<h2>2. Stripe 決済</h2>
+
+<p>
+Stripe 決済を実行する前に、(PCに初回入っていなければ)事前にパソコンへ Stripe CLI をインストールしてください。
+</p>
+
+<h3>事前インストール</h3>
+
+<pre><code>brew install stripe/stripe-cli/stripe</code></pre>
+
+<h3>Stripe webhook 転送コマンド</h3>
+
+<pre><code>stripe listen --forward-to http://localhost/api/webhooks/stripe</code></pre>
+
+<p>
+このコマンドは、ターミナルで実行したままにしてください。
+</p>
+
+<h3>テストカード情報</h3>
+
+<ul>
+  <li>カード番号: <code>4242 4242 4242 4242</code></li>
+  <li>有効期限: 未来の日付であれば任意</li>
+  <li>シークレットナンバー: 任意</li>
+  <li>名前: 任意</li>
+</ul>
+
+<h3>補足</h3>
+
+<p>
+コンビニ払いは、現在 Stripe のみ対応しています。
+</p>
+
+<p>
+コンビニ払いは、決済後 3 分ほどでダッシュボードに反映されます。
+</p>
+
+<hr>
+
+<h2>3. Adyen 決済</h2>
+
+<p>
+Adyen 決済を実行する前に、(PCに初回入っていなければ)事前にパソコンへ ngrok をインストールしてください。
+</p>
+
+<h3>事前インストール</h3>
+
+<pre><code>brew install ngrok/ngrok/ngrok</code></pre>
+
+<h3>ngrok 起動コマンド</h3>
+
+<pre><code>ngrok http 80</code></pre>
+
+<p>
+このコマンドは、ターミナルで実行したままにしてください。
+</p>
+
+<h3>テストカード情報</h3>
+
+<ul>
+  <li>カード番号: <code>4111 1111 1111 1111</code></li>
+  <li>シークレットナンバー: <code>737</code></li>
+  <li>有効期限: 未来の日付であれば任意</li>
+  <li>名前: 任意</li>
+</ul>
+
+<hr>
+
+<h2>4. 光学文字認識機能(OCR)</h2>
+
+<p>
+OCR 機能は、Docker 全体を起動した状態で動作します。
+</p>
+
+<h3>v22 runtime API 起動コマンド</h3>
+
+<pre><code>cd /Users/kawadatakayuki/research-stateful-auth-archaeology/pisag_go &amp;&amp; go run ./cmd/v22_runtime_api</code></pre>
+
+<p>
+このコマンドを実行した状態で、管理画面から OCR 機能を操作します。
+</p>
+
+<h3>操作手順</h3>
+
+<ol>
+  <li>ログインページから <code>管理者/開発者コンソールへ</code> に入ります。</li>
+  <li><code>admin/dashboard</code> に移動します。</li>
+  <li><code>OCR</code> に移動します。</li>
+  <li>ファイルを選択します。</li>
+  <li><code>Engine Selection</code> を選択します。</li>
+  <li><code>Run AI Runtime</code> を押します。</li>
+</ol>
+
+<h3>補足</h3>
+
+<p>
+OCR は、簡易版・開発途中の光学文字認識機能です。
+</p>
+
+<p>
+処理に少し時間がかかる場合があります。
+</p>
+
+<p>
+その場合は少し時間を置き、同じページでリロードすると結果が表示されます。
+</p>
 
 # アプリの仕様計画<br>
 ・Adminでショップ運営の権限を与えることができて(ShopOwner付与)<br>
@@ -883,9 +997,9 @@ OCRはPDFファイルなどの価値ある情報や歴史的技術などの活�
 
 # 次のステップ提案<br>
 ・
-<br><br><br>
-<h2>この先の内容の・開発使用技術(言語・フレームワーク等) 以外は模擬案件と同じ内容です。</h2>
-<br><br><br>
+<br><br><br><br><br>
+<h2>この先の内容の・開発使用技術(言語・フレームワーク・DB・WEBサーバー等) 以外は模擬案件と同じ内容です。</h2>
+<br>
 
 
 
@@ -939,7 +1053,7 @@ WEBサイトにも良く反映されて景気の波にも負けないような�
 # ER図<br>
 
 
-# 使用技術<br>
+# 開発使用技術<br>
   - PHP: 8.4.17
   - Laravel: 11.47.0
   - Python: 3.14
@@ -952,6 +1066,8 @@ WEBサイトにも良く反映されて景気の波にも負けないような�
   - Gradle: 9.3.0
   - Gradle Kotlin: 2.2.21
   - MySql: 8.3
+  - PostgreSQL: 16
+  - Redis: 7
   - Nginx: 1.21.1
   - Firebase: 10.12.2
   - React: 19.0.0
