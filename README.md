@@ -192,7 +192,7 @@ Docker Desktop を立ち上げてください。
 プロジェクトルートで実行します。
 </p>
 
-<pre><code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx admin_rails</code></pre>
+<pre><code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx admin_rails mailhog</code></pre>
 
 <hr>
 
@@ -351,7 +351,9 @@ npm i</code></pre>
 </ul>
 
 <p>
-各 Shop Owner は、ログイン後それぞれのショップのダッシュボードに移動します。
+各 Shop Owner は、ログイン後それぞれのショップのダッシュボードに移動します。<br>
+通常時移動する時は、例えばテスト用のユーザ１ならば、テスト ショップAへに移動すると、<br>
+その店舗関係のロールならば、管理画面　というボタンが表示されるのでそこから移動してください。<br>
 </p>
 
 <p>
@@ -416,7 +418,7 @@ npm i</code></pre>
 
 <h2>1. 最小構成を起動</h2>
 
-<p>まず DB / Redis / Laravel / frontend / oracle / nginx を起動します。</p>
+<p>まず DB / Redis / Laravel / frontend / oracle / nginx を起動します。(先ほどの工程でも起動したので省略可)</p>
 
 <pre><code>docker compose up -d ak_postgres ak_redis mysql php frontend_dev oracle nginx</code></pre>
 
@@ -471,7 +473,7 @@ runs_mark_done / runs_mark_failed が表示される</code></pre>
 
 <hr>
 
-<h2>5. legacy worker が残っていないことを確認</h2>
+<h2>5. legacy worker が残っていないことを確認(git cloneの時は無いので省略可)</h2>
 
 <p>
 <code>ak_go_worker</code> / <code>ak_go_worker_2</code> は legacy worker です。通常は起動しません。
@@ -554,7 +556,7 @@ oracle.crt OK</code></pre>
 
 <p>開発環境限定で、既存の検証 run を再投入します。</p>
 
-<h3>検証用 run_id</h3>
+<h3>検証用 run_id(これは実行コマンドでは無いです。)</h3>
 
 <pre><code>c31cbf28-9375-47f4-b3b2-ea27ac1af643</code></pre>
 
@@ -858,8 +860,8 @@ full 起動後の関連 service 稼働確認</code></pre>
 
 <pre><code>PISAG fetch/evidence/manifest/run lifecycle/event logging path is verified.</code></pre>
 
-
-<h2>AI解析・決済・OCR 機能の起動確認</h2>
+<br><br>
+<h2>○　AI解析・決済・OCR 機能の起動確認</h2>
 
 <p>
 この手順は、AI解析システム、Stripe 決済、Adyen 決済、OCR 機能を動作させるための補足手順です。
@@ -955,15 +957,58 @@ Adyen 決済を実行する前に、事前にパソコンへ ngrok をインス�
 
 <hr>
 
-<h2>4. 光学文字認識機能(OCR)</h2>
+<h2>4. 光学文字認識機能（OCR）</h2>
 
 <p>
 OCR 機能は、Docker 全体を起動した状態で動作します。
 </p>
 
-<h3>v22 runtime API 起動コマンド,プロジェクトルートで実行</h3>
+<p>
+<code>v22_runtime_api</code> は、ホスト側で直接 <code>go run</code> せず、Docker コンテナ内で起動してください。
+ホスト側で直接起動すると、アップロードファイルの <code>source_uri</code> が Mac 側の絶対パスで保存され、Docker 内の <code>v22_ocr_daemon</code> が実ファイルを読めず、stub OCR 結果になる場合があります。
+</p>
 
-<pre><code>cd pisag_go &amp;&amp; go run ./cmd/v22_runtime_api</code></pre>
+<h3>v22 runtime API 起動コマンド</h3>
+
+<p>
+プロジェクトルートで実行します。
+</p>
+
+<pre><code>docker run --rm -it \
+  --network simulation1_network \
+  -p 9082:9082 \
+  -w /app \
+  -v "$PWD/pisag_go:/app" \
+  -v go_mod_cache:/go/pkg/mod \
+  -v go_build_cache:/root/.cache/go-build \
+  -v "$PWD/pisag_go/var/runtime_uploads:/app/var/runtime_uploads" \
+  -v "$PWD/pisag_go/var/evidence:/app/var/evidence" \
+  -e AK_PG_DSN='postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable' \
+  -e AK_PROJECT_ID='akproj_0000000000000000000' \
+  -e AK_EVIDENCE_DIR='/app/var/evidence' \
+  -e AK_RUNTIME_UPLOAD_DIR='/app/var/runtime_uploads' \
+  golang:1.25-bookworm \
+  go run ./cmd/v22_runtime_api</code></pre>
+
+<p>
+すでに <code>pisag_go</code> ディレクトリにいる場合は、以下を実行します。
+</p>
+
+<pre><code>docker run --rm -it \
+  --network simulation1_network \
+  -p 9082:9082 \
+  -w /app \
+  -v "$PWD:/app" \
+  -v go_mod_cache:/go/pkg/mod \
+  -v go_build_cache:/root/.cache/go-build \
+  -v "$PWD/var/runtime_uploads:/app/var/runtime_uploads" \
+  -v "$PWD/var/evidence:/app/var/evidence" \
+  -e AK_PG_DSN='postgres://ak:ak@ak_postgres:5432/ak?sslmode=disable' \
+  -e AK_PROJECT_ID='akproj_0000000000000000000' \
+  -e AK_EVIDENCE_DIR='/app/var/evidence' \
+  -e AK_RUNTIME_UPLOAD_DIR='/app/var/runtime_uploads' \
+  golang:1.25-bookworm \
+  go run ./cmd/v22_runtime_api</code></pre>
 
 <p>
 このコマンドを実行した状態で、管理画面から OCR 機能を操作します。
@@ -976,7 +1021,7 @@ OCR 機能は、Docker 全体を起動した状態で動作します。
   <li><code>admin/dashboard</code> に移動します。</li>
   <li><code>OCR</code> に移動します。</li>
   <li>ファイルを選択します。</li>
-  <li><code>Engine Selection(開発途中)</code> を選択します。</li>
+  <li><code>Engine Selection</code>（開発途中）を選択します。</li>
   <li><code>Run AI Runtime</code> を押します。</li>
 </ol>
 
@@ -991,7 +1036,11 @@ OCR は、簡易版・開発途中の光学文字認識機能です。
 </p>
 
 <p>
-少し時間を置き、同じページでリロードすると、OCR Text Previewの欄にOCR結果が表示されます。
+少し時間を置き、同じページでリロードすると、<code>OCR Text Preview</code> の欄に OCR 結果が表示されます。
+</p>
+
+<p>
+<code>OCR Text Preview</code> に <code>stub ocr extracted text</code> が表示される場合は、<code>v22_runtime_api</code> がホスト側で起動している、または <code>v22_runtime_api</code> と <code>v22_ocr_daemon</code> のファイルパス基準がずれている可能性があります。
 </p>
 
 # アプリの仕様計画<br>
